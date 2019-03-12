@@ -14,10 +14,16 @@ VM-side of RemoteLabz v2 project.
 vagrant up && vagrant ssh
 ```
 
-2. Start server
+2. Install assets
 
 ```bash
 cd remotelabz
+composer install
+```
+
+3. Start server
+
+```bash
 php bin/console server:run 0.0.0.0
 ```
 

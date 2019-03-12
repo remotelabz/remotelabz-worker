@@ -81,6 +81,9 @@ EOF
 LAB_USER=$(xml /lab/user/login)
 LAB_NAME=$(xml "/lab/name")
 
+# Test droits
+export OVS_RUNDIR=/opt/remotelabz
+
 #####################
 # OVS
 #####################
@@ -101,7 +104,7 @@ vpn() {
     if [ "${VPN_ACCESS}" = "vpn" ]; then
         OVS_IP=$(xml "/lab/nodes/device[@type='switch']/vpn/ipv4")
 
-        echo "${OVS_IP}"
+        # echo "${OVS_IP}"
 
         # TODO: Finish this later
         #

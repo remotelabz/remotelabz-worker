@@ -87,7 +87,7 @@ LAB_NAME=$(xml "/lab/name")
 ovs() {
     OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/name")
 
-    ovs-vsctl del-br "${OVS_NAME}"
+    ovs-vsctl --if-exists del-br "${OVS_NAME}"
 }
 
 #####################
@@ -100,7 +100,7 @@ vpn() {
     if [ "${VPN_ACCESS}" = "vpn" ]; then
         OVS_IP=$(xml "/lab/nodes/device[@type='switch']/vpn/ipv4")
 
-        echo "${OVS_IP}"
+        # echo "${OVS_IP}"
 
         # TODO: Finish this later
         #
@@ -144,18 +144,25 @@ qemu() {
 
         VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
 
-        kill -9 "$(sudo netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')"
+        PID=$(netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')
+
+        if [ ${PID} ]; then
+            kill -9 ${PID}
+            echo "Killed process ${PID}"
+        else
+            echo "No process to kill (PID: ${PID})"
+        fi
 
         NB_NET_INT=$(xml "count(${VM_PATH}/interface/@type[1])")
 
         VM_IF_INDEX=1
-        echo "Deleting interfaces"
+        echo -e "Deleting interfaces"
         while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
             NET_IF_NAME=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@type")
 
-            ovs-vsctl del-port "${OVS_NAME}" "${NET_IF_NAME}"
-            ip link set "${NET_IF_NAME}" down
-            ip link delete "${NET_IF_NAME}"
+            ovs-vsctl --if-exists --with-iface del-port "${OVS_NAME}" "${NET_IF_NAME}"
+            # ip link set "${NET_IF_NAME}" down
+            # ip link delete "${NET_IF_NAME}"
             
             VM_IF_INDEX=$((VM_IF_INDEX+1))
         done
