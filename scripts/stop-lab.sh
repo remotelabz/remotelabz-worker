@@ -8,6 +8,18 @@
 
 set -e
 
+# Emulate python script parameters with .env file
+# TODO: Use these parameters
+#
+# ENV_FILE=${PWD}/../.env
+
+# if [ -f ${ENV_FILE} ]; then
+#     source ${ENV_FILE}
+# else
+#     echo "Error: Environment file .env not found in ${ENV_FILE}. Please check this file exists and try again." >&2
+#     exit 1
+# fi
+
 if ! [ -x "$(command -v xmllint)" ]; then
     echo 'Error: xmllint is not installed. Please install it and try again' >&2
     exit 1
@@ -23,15 +35,47 @@ if ! [ -x "$(command -v ovs-vsctl)" ]; then
     exit 1
 fi
 
-if ! [ -f "$1" ]; then
-    echo 'Error: lab file not found.' >&2
-    exit 1
+if ! [ -x "$(command -v websockify)" ]; then
+    if ! [ -d "/opt/remotelabz/websockify/.git" ]; then
+        git clone https://github.com/novnc/websockify.git /opt/remotelabz/websockify
+    fi
+
+    OLD_DIR=$(pwd)
+    cd /opt/remotelabz/websockify/
+    python setup.py install
+    cd "${OLD_DIR}"
+    # echo 'Error: openvswitch is not installed. Please install it and try again' >&2
+    # exit 1
 fi
 
-LAB_FILE=$1
+usage() {
+    echo "Usage: $0 [-f <Labfile>] [<xml>]" 1>&2; exit 1;
+}
+
+while getopts "f:" OPTION; do
+    case ${OPTION} in
+        f)
+            if ! [ -f "${OPTARG}" ]; then
+                echo 'Error: specified lab file not found.' >&2
+                exit 1
+            fi
+            LAB_CONTENT="$(cat "${OPTARG}")"
+            ;;
+        *)
+            ;;
+    esac
+done
+
+if [ -z "${LAB_CONTENT}" ]; then
+    # Relies on for loop, which is looping on args by default
+    for CONTENT; do true; done
+    LAB_CONTENT="${CONTENT}"
+fi
 
 xml() {
-    xmllint --xpath "string($1)" "${LAB_FILE}"
+    xmllint --xpath "string($1)" - <<EOF
+        $LAB_CONTENT
+EOF
 }
 
 LAB_USER=$(xml /lab/user/login)
@@ -91,6 +135,7 @@ vpn() {
 
 qemu() {
     NB_VM=$(xml "count(/lab/nodes/device[@hypervisor='qemu'])")
+    OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/name")
     
     VM_INDEX=1
     # POSIX Standard
@@ -99,7 +144,7 @@ qemu() {
 
         VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
 
-        kill -9 "$(netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')"
+        kill -9 "$(sudo netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')"
 
         NB_NET_INT=$(xml "count(${VM_PATH}/interface/@type[1])")
 
