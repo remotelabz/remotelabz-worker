@@ -89,7 +89,7 @@ ovs() {
 
     ovs-vsctl --may-exist add-br "${OVS_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
-    ip link set "${OVS_NAME}" up
+    #ip link set "${OVS_NAME}" up
 }
 
 #####################
@@ -172,7 +172,7 @@ qemu() {
             if ip link show "${NET_IF_NAME}" > /dev/null; then
                 echo "WARNING: tap ${NET_IF_NAME} already exists."
             else
-                sudo ip tuntap add name "${NET_IF_NAME}" mode tap
+                ip tuntap add name "${NET_IF_NAME}" mode tap
             fi
             ip link set "${NET_IF_NAME}" up
             ovs-vsctl --may-exist add-port "${OVS_NAME}" "${NET_IF_NAME}"
