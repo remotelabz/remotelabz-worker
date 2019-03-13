@@ -40,10 +40,7 @@ if ! [ -x "$(command -v websockify)" ]; then
         git clone https://github.com/novnc/websockify.git /opt/remotelabz/websockify
     fi
 
-    OLD_DIR=$(pwd)
-    cd /opt/remotelabz/websockify/
-    python setup.py install
-    cd "${OLD_DIR}"
+    (cd /opt/remotelabz/websockify/ && python setup.py install)
     # echo 'Error: openvswitch is not installed. Please install it and try again' >&2
     # exit 1
 fi
@@ -81,8 +78,8 @@ EOF
 LAB_USER=$(xml /lab/user/login)
 LAB_NAME=$(xml "/lab/name")
 
-# Test droits
-export OVS_RUNDIR=/opt/remotelabz
+# Debug
+echo $USER
 
 #####################
 # OVS
@@ -91,6 +88,7 @@ ovs() {
     OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/name")
 
     ovs-vsctl --may-exist add-br "${OVS_NAME}"
+    # FIXME: Launching user should have password-less sudo at least on `ip` command
     ip link set "${OVS_NAME}" up
 }
 
@@ -174,7 +172,7 @@ qemu() {
             if ip link show "${NET_IF_NAME}" > /dev/null; then
                 echo "WARNING: tap ${NET_IF_NAME} already exists."
             else
-                ip tuntap add name "${NET_IF_NAME}" mode tap
+                sudo ip tuntap add name "${NET_IF_NAME}" mode tap
             fi
             ip link set "${NET_IF_NAME}" up
             ovs-vsctl --may-exist add-port "${OVS_NAME}" "${NET_IF_NAME}"
@@ -192,6 +190,9 @@ qemu() {
         VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
 
         # WebSockify
+        # FIXME: Subprocess inherit from server sockets (fd) as python process is also up on port 8000 ?
+        # This prevents server from being relaunched as we expect to prevent vm data loss.
+        # This could also prevent multiple vms to be launched (not tested yet).
         nohup /opt/remotelabz/websockify/run "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}" &
 
         # TODO: add path to proxy
