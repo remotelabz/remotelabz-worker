@@ -23,7 +23,7 @@ class LabController extends AbstractController
     public function startAction(Request $request)
     {
         if ('application/x-www-form-urlencoded' === $request->getContentType()) {
-
+            //
         } elseif ('xml' === $request->getContentType()) {
             $lab = $request->getContent();
             # FIXME: Don't use sudo!
@@ -39,9 +39,9 @@ class LabController extends AbstractController
                     500
                 );
             }
-            return new Response($process->getOutput());
+            return new Response($process->getOutput() . '\nError output:\n\n' . $process->getErrorOutput());
         } else {
-            return new Response(null, 415, [ 'Content-Type' => 'text/plain' ]);
+            return new Response(null, 415);
         }
     }
 
@@ -51,7 +51,7 @@ class LabController extends AbstractController
     public function stopAction(Request $request)
     {
         if ('application/x-www-form-urlencoded' === $request->getContentType()) {
-
+            //
         } elseif ('xml' === $request->getContentType()) {
             $lab = $request->getContent();
             # FIXME: Don't use sudo!

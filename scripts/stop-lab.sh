@@ -144,13 +144,21 @@ qemu() {
 
         VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
 
-        PID=$(netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')
+        PID_WEBSOCKIFY=$(netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')
+        PID_VM=$(netstat -tnap | grep $((VNC_PORT)) | awk -F "[ /]*" '{print $7}')
 
-        if [ ${PID} ]; then
-            kill -9 ${PID}
-            echo "Killed process ${PID}"
+        if [ ${PID_WEBSOCKIFY} ]; then
+            kill -9 ${PID_WEBSOCKIFY}
+            echo "Killed websockify process ${PID_WEBSOCKIFY}"
         else
-            echo "No process to kill (PID: ${PID})"
+            echo "No websockify process to kill (PID: ${PID_WEBSOCKIFY})"
+        fi
+
+        if [ ${PID_VM} ]; then
+            kill -9 ${PID_VM}
+            echo "Killed process ${PID_VM}"
+        else
+            echo "No process to kill (PID: ${PID_VM})"
         fi
 
         NB_NET_INT=$(xml "count(${VM_PATH}/interface/@type[1])")
@@ -161,8 +169,8 @@ qemu() {
             NET_IF_NAME=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@type")
 
             ovs-vsctl --if-exists --with-iface del-port "${OVS_NAME}" "${NET_IF_NAME}"
-            # ip link set "${NET_IF_NAME}" down
-            # ip link delete "${NET_IF_NAME}"
+            sudo ip link set "${NET_IF_NAME}" down
+            sudo ip link delete "${NET_IF_NAME}"
             
             VM_IF_INDEX=$((VM_IF_INDEX+1))
         done

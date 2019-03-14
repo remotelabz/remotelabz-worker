@@ -2,11 +2,12 @@
 
 # Install packages
 sudo apt-get update
-sudo apt-get install -y php zip unzip php-curl php-xml qemu libxml2-utils openvswitch-switch git python-pip
+sudo apt-get install -y php zip unzip php-curl php-xdebug php-xml qemu libxml2-utils openvswitch-switch git python-pip
 # Handle users permissions
 sudo groupadd remotelabz-worker
 sudo usermod -aG remotelabz-worker vagrant
 sudo usermod -aG remotelabz-worker www-data
+sudo echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip"
 # Composer
 if ! [ $(command -v composer) ]; then 
     php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"

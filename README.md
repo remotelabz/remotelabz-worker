@@ -14,17 +14,4 @@ VM-side of RemoteLabz v2 project.
 vagrant up && vagrant ssh
 ```
 
-2. Install assets
-
-```bash
-cd remotelabz
-composer install
-```
-
-3. Start server
-
-```bash
-php bin/console server:run 0.0.0.0
-```
-
-Server is up at http://localhost:8000.
+Server is up at http://localhost:8080.

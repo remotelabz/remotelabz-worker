@@ -89,7 +89,7 @@ ovs() {
 
     ovs-vsctl --may-exist add-br "${OVS_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
-    #ip link set "${OVS_NAME}" up
+    sudo ip link set "${OVS_NAME}" up
 }
 
 #####################
@@ -169,12 +169,12 @@ qemu() {
             
             echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
 
-            if ip link show "${NET_IF_NAME}" > /dev/null; then
+            if sudo ip link show "${NET_IF_NAME}" > /dev/null; then
                 echo "WARNING: tap ${NET_IF_NAME} already exists."
             else
-                ip tuntap add name "${NET_IF_NAME}" mode tap
+                sudo ip tuntap add name "${NET_IF_NAME}" mode tap
             fi
-            ip link set "${NET_IF_NAME}" up
+            sudo ip link set "${NET_IF_NAME}" up
             ovs-vsctl --may-exist add-port "${OVS_NAME}" "${NET_IF_NAME}"
             
             NET_MAC_ADDR=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@mac_address")
@@ -190,10 +190,8 @@ qemu() {
         VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
 
         # WebSockify
-        # FIXME: Subprocess inherit from server sockets (fd) as python process is also up on port 8000 ?
-        # This prevents server from being relaunched as we expect to prevent vm data loss.
-        # This could also prevent multiple vms to be launched (not tested yet).
-        nohup /opt/remotelabz/websockify/run "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}" &
+        # TODO: Add a condition
+        /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}"
 
         # TODO: add path to proxy
         # script_addpath2proxy += "curl -H \"Authorization: token $CONFIGPROXY_AUTH_TOKEN\" -X POST -d '{\"target\": \"ws://%s:%s\"}' http://localhost:82/api/routes/%s\n"%(vnc_addr,int(vnc_port)+1000,name.replace(" ","_"))
@@ -234,7 +232,7 @@ qemu() {
 
 main() {
     ovs
-    vpn # TODO: Conditional (are we executing on a vpn server?)
+    #vpn # TODO: Conditional (are we executing on a vpn server?)
     qemu
 }
 
@@ -242,5 +240,5 @@ main() {
 # TODO: Script delete
 
 main
-echo $!
+echo 'OK'
 exit 0
