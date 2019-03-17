@@ -7,7 +7,7 @@ sudo apt-get install -y php zip unzip php-curl php-xdebug php-xml qemu libxml2-u
 sudo groupadd remotelabz-worker
 sudo usermod -aG remotelabz-worker vagrant
 sudo usermod -aG remotelabz-worker www-data
-sudo echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip"
+echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip" | sudo tee /etc/sudoers.d/www-data
 # Composer
 if ! [ $(command -v composer) ]; then 
     php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
@@ -29,7 +29,7 @@ git clone https://github.com/novnc/websockify.git /opt/remotelabz/websockify
 sudo chmod g+rwx /var/run/openvswitch/db.sock
 sudo chgrp remotelabz-worker /var/run/openvswitch/db.sock
 # Configure apache
-sed -i 's/Listen 80/Listen 8000/g' /etc/apache2/ports.conf
+sed -i 's/Listen 80/Listen 8080/g' /etc/apache2/ports.conf
 sudo ln -fs /var/www/html/remotelabz-worker/vagrant/100-remotelabz-worker.conf /etc/apache2/sites-enabled/100-remotelabz-worker.conf
 sudo service apache2 reload
 ln -fs /var/www/html/remotelabz-worker ./remotelabz
