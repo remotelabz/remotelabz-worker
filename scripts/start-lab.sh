@@ -149,6 +149,11 @@ qemu() {
 
         mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
 
+        if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
+            echo "Downloading image from ${IMG_SRC}..."
+            (cd /opt/remotelabz/images/ && curl -s -O "${IMG_SRC}")
+        fi
+
         echo "Creating image ${IMG_DEST} from ${IMG_SRC}... "
         # TODO: Pass image formatting as a parameter?
         qemu-img create \
