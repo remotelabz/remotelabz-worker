@@ -9,7 +9,7 @@
     <login>root@localhost</login>
   </user>
   <nodes>
-    <device type="virtuel" property="X" id="6" script="" image="debian_squeeze_amd64_standard.qcow2" order="1" hypervisor="qemu">
+    <device type="virtuel" property="X" id="6" script="" image="https://people.debian.org/~aurel32/qemu/amd64/debian_squeeze_amd64_standard.qcow2" order="1" hypervisor="qemu">
       <name>VM_1</name>
       <nom_brute>VM_1</nom_brute>
       <interface id="19" nom_physique="eth0" nom_virtuel="tap12" type="1" mac_address="00:AA:BB:CC:DD:EE" />

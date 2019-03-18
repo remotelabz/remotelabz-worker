@@ -144,15 +144,18 @@ qemu() {
     while [ ${VM_INDEX} -le $((NB_VM)) ]; do
         echo "Creating virtual machine number ${VM_INDEX} image for lab ${LAB_NAME}..."
         VM_PATH="/lab/nodes/device[@hypervisor='qemu'][${VM_INDEX}]"
-        IMG_SRC="/opt/remotelabz/images/$(xml "${VM_PATH}/@image")"
-        IMG_DEST="/opt/remotelabz/${LAB_USER}/${LAB_NAME}/${VM_INDEX}/$(xml "${VM_PATH}/@image")"
+        IMG_SRC=$(xml "${VM_PATH}/@image")
 
         mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
 
         if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
             echo "Downloading image from ${IMG_SRC}..."
             (cd /opt/remotelabz/images/ && curl -s -O "${IMG_SRC}")
+            IMG_SRC=$(basename "${IMG_SRC}")
         fi
+
+        IMG_DEST="/opt/remotelabz/${LAB_USER}/${LAB_NAME}/${VM_INDEX}/${IMG_SRC}"
+        IMG_SRC="/opt/remotelabz/images/${IMG_SRC}"
 
         echo "Creating image ${IMG_DEST} from ${IMG_SRC}... "
         # TODO: Pass image formatting as a parameter?
