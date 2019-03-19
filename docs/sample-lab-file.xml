@@ -1,9 +1,9 @@
 <lab>
-  <name>Lab_name</name>
   <id>1</id>
-  <tp_managed>1</tp_managed>
+  <name>Lab_name</name>
+  <!-- <tp_managed>1</tp_managed>
   <tp_type>supervised</tp_type>
-  <tp_access>vpn</tp_access>
+  <tp_access>vpn</tp_access> -->
   <!-- personne qui a lancé le lab -->
   <user>
     <login>root@localhost</login>
