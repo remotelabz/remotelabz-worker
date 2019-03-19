@@ -173,7 +173,7 @@ qemu() {
         NET_PARAMS=""
         echo "Creating network interfaces..."
         while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-            NET_IF_NAME=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@type")
+            NET_IF_NAME=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@name")
             
             echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
 

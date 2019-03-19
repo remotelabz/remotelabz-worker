@@ -1,29 +1,20 @@
 <lab>
   <name>Lab_name</name>
   <id>1</id>
-  <tp_managed>1</tp_managed>
-  <tp_type>supervised</tp_type>
-  <tp_access>vpn</tp_access>
   <!-- personne qui a lancé le lab -->
   <user>
     <login>root@localhost</login>
   </user>
   <nodes>
-    <device type="virtuel" property="X" id="6" script="" image="https://people.debian.org/~aurel32/qemu/amd64/debian_squeeze_amd64_standard.qcow2" order="1" hypervisor="qemu">
+    <device type="virtuel" property="X" script="" image="https://people.debian.org/~aurel32/qemu/amd64/debian_squeeze_amd64_standard.qcow2" order="1" hypervisor="qemu">
       <name>VM_1</name>
-      <nom_brute>VM_1</nom_brute>
-      <interface id="19" nom_physique="eth0" nom_virtuel="tap12" type="1" mac_address="00:AA:BB:CC:DD:EE" />
+      <interface id="19" name="tap12" type="1" mac_address="00:AA:BB:CC:DD:EE" />
       <interface_control id="14" nom_physique="eth0_phy_VM1" nom_virtuel="eth0_ctrl_VM1" ipv4="" Masque="255.255.255.0" IPv6="2001:660:4601:7008::124" Prefix="" DNSv4="8.8.8.8" Gatewayv4="0.0.0.0" protocol="vnc" port="7220"/>
-      <!-- if vpn access -->
-      <direct_access>
-        <IPv4>1.2.3.4/24</IPv4>
-        <IPv6></IPv6>
-      </direct_access>
       <system memory="512" disk="40"></system>
     </device>
-    <device type="virtuel" property="X" id="9" script="" image="/usr/local/Virtualize/kvm-image/images/debian-testing20160512.img" relativ_path="/usr/local/Virtualize/kvm-image/images/img-rel" order="2">
+    <device type="virtuel" property="X" script="" image="/usr/local/Virtualize/kvm-image/images/debian-testing20160512.img" order="2" hypervisor="qemu">
       <name>VM_2</name>
-      <interface id="20" nom_physique="eth0" nom_virtuel="tap13"/>
+      <interface id="20" name="tap13" type="1"/>
       <interface_control id="15" nom_physique="eth0_phy_ctrl_VM2" nom_virtuel="eth0_ctrl_VM2" ipv4="194.57.105.124" Masque="255.255.255.0" IPv6="2001:660:4601:7008::124" Prefix="" DNSv4="8.8.8.8" Gatewayv4="0.0.0.0" protocol="vnc" port="7221"/>
     </device>
     <device type="switch" property="switch" id="10" script="" image="Sans" relativ_path="Sans" order="3">
