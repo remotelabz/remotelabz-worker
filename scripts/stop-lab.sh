@@ -145,11 +145,15 @@ qemu() {
         VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
 
         PID_WEBSOCKIFY=$(netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')
-        PID_VM=$(netstat -tnap | grep $((VNC_PORT)) | awk -F "[ /]*" '{print $7}')
+        PID_VM=$(netstat -tnap | grep $((VNC_PORT)) | grep qemu | awk -F "[ /]*" '{print $7}')
 
-        if [ ${PID_WEBSOCKIFY} ]; then
-            kill -9 ${PID_WEBSOCKIFY}
-            echo "Killed websockify process ${PID_WEBSOCKIFY}"
+        if [ "${PID_WEBSOCKIFY}" ]; then
+            IFS=$'\n'
+            for PID in ${PID_WEBSOCKIFY}
+            do
+                kill -9 ${PID}
+                echo "Killed websockify process ${PID}"
+            done
         else
             echo "No websockify process to kill (PID: ${PID_WEBSOCKIFY})"
         fi
