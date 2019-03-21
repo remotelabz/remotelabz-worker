@@ -75,8 +75,8 @@ xml() {
 EOF
 }
 
-LAB_USER=$(xml /lab/user/login)
-LAB_NAME=$(xml "/lab/name")
+LAB_USER=$(xml /lab/user/@email)
+LAB_NAME=$(xml /lab/@name)
 
 # Debug
 echo $USER
@@ -85,7 +85,7 @@ echo $USER
 # OVS
 #####################
 ovs() {
-    OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/name")
+    OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/@name")
 
     ovs-vsctl --may-exist add-br "${OVS_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
@@ -137,7 +137,7 @@ vpn() {
 
 qemu() {
     NB_VM=$(xml "count(/lab/nodes/device[@hypervisor='qemu'])")
-    VNC_PORT_INDEX=$(xml "/lab/init/serveur/index_interface")
+    # VNC_PORT_INDEX=$(xml "/lab/init/serveur/index_interface")
     
     VM_INDEX=1
     # POSIX Standard

@@ -8,9 +8,9 @@ VM-side of RemoteLabz v2 project.
 
 # Launch
 
-1. Start VM and connect
-
 ```bash
+git clone https://gitlab.remotelabz.com/crestic/remotelabz-worker.git
+cd remotelabz-worker
 vagrant up && vagrant ssh
 ```
 
