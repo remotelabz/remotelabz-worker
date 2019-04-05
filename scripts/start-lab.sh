@@ -85,11 +85,12 @@ echo $USER
 # OVS
 #####################
 ovs() {
-    OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/@name")
+    OVS_NAME=$(xml "/lab/device[@type='switch']/@name")
+    BRIDGE_NAME="lab_${LAB_NAME}_${OVS_NAME}"
 
-    ovs-vsctl --may-exist add-br "${OVS_NAME}"
+    ovs-vsctl --may-exist add-br "${BRIDGE_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
-    sudo ip link set "${OVS_NAME}" up
+    sudo ip link set "${BRIDGE_NAME}" up
 }
 
 #####################
@@ -183,7 +184,7 @@ qemu() {
                 sudo ip tuntap add name "${NET_IF_NAME}" mode tap
             fi
             sudo ip link set "${NET_IF_NAME}" up
-            ovs-vsctl --may-exist add-port "${OVS_NAME}" "${NET_IF_NAME}"
+            ovs-vsctl --may-exist add-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
             
             NET_MAC_ADDR=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@mac_address")
             NET_PARAMS="${NET_PARAMS}-net nic,macaddr=${NET_MAC_ADDR} -net tap,ifname=${NET_IF_NAME},script=no "

@@ -85,9 +85,10 @@ LAB_NAME=$(xml "/lab/name")
 # OVS
 #####################
 ovs() {
-    OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/name")
+    OVS_NAME=$(xml "/lab/device[@type='switch']/name")
+    BRIDGE_NAME="lab_${LAB_NAME}_${OVS_NAME}"
 
-    ovs-vsctl --if-exists del-br "${OVS_NAME}"
+    ovs-vsctl --if-exists del-br "${BRIDGE_NAME}"
 }
 
 #####################
@@ -172,7 +173,7 @@ qemu() {
         while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
             NET_IF_NAME=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@type")
 
-            ovs-vsctl --if-exists --with-iface del-port "${OVS_NAME}" "${NET_IF_NAME}"
+            ovs-vsctl --if-exists --with-iface del-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
             sudo ip link set "${NET_IF_NAME}" down
             sudo ip link delete "${NET_IF_NAME}"
             
