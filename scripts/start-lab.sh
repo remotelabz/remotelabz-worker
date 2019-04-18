@@ -77,17 +77,12 @@ EOF
 
 LAB_USER=$(xml /lab/user/@email)
 LAB_NAME=$(xml /lab/@name)
-
-# Debug
-echo $USER
+BRIDGE_NAME="br-lab-${LAB_NAME}"
 
 #####################
 # OVS
 #####################
 ovs() {
-    OVS_NAME=$(xml "/lab/device[@type='switch']/@name")
-    BRIDGE_NAME="lab_${LAB_NAME}_${OVS_NAME}"
-
     ovs-vsctl --may-exist add-br "${BRIDGE_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
     sudo ip link set "${BRIDGE_NAME}" up
@@ -101,7 +96,7 @@ vpn() {
     VPN_ACCESS=$(xml "/lab/tp_access")
 
     if [ "${VPN_ACCESS}" = "vpn" ]; then
-        OVS_IP=$(xml "/lab/nodes/device[@type='switch']/vpn/ipv4")
+        OVS_IP=$(xml "/lab/device[@type='switch']/vpn/ipv4")
 
         # echo "${OVS_IP}"
 
@@ -137,15 +132,15 @@ vpn() {
 #####################
 
 qemu() {
-    NB_VM=$(xml "count(/lab/nodes/device[@hypervisor='qemu'])")
+    NB_VM=$(xml "count(/lab/device[@type='vm' and @hypervisor='qemu'])")
     # VNC_PORT_INDEX=$(xml "/lab/init/serveur/index_interface")
     
     VM_INDEX=1
     # POSIX Standard
     while [ ${VM_INDEX} -le $((NB_VM)) ]; do
         echo "Creating virtual machine number ${VM_INDEX} image for lab ${LAB_NAME}..."
-        VM_PATH="/lab/nodes/device[@hypervisor='qemu'][${VM_INDEX}]"
-        IMG_SRC=$(xml "${VM_PATH}/@image")
+        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu'][${VM_INDEX}]"
+        IMG_SRC=$(xml "${VM_PATH}/operating_system/@image")
 
         mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
 
@@ -166,15 +161,15 @@ qemu() {
             "${IMG_DEST}"
         echo "Done !"
 
-        SYS_PARAMS="-m $(xml "${VM_PATH}/system/@memory") -hda ${IMG_DEST} "
+        SYS_PARAMS="-m $(xml "${VM_PATH}/flavor/@memory") -hda ${IMG_DEST} "
 
-        NB_NET_INT=$(xml "count(${VM_PATH}/interface/@type[1])")
+        NB_NET_INT=$(xml "count(${VM_PATH}/network_interface/@type[1])")
         
         VM_IF_INDEX=1
         NET_PARAMS=""
         echo "Creating network interfaces..."
         while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-            NET_IF_NAME=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@name")
+            NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
             
             echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
 
@@ -186,26 +181,26 @@ qemu() {
             sudo ip link set "${NET_IF_NAME}" up
             ovs-vsctl --may-exist add-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
             
-            NET_MAC_ADDR=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@mac_address")
+            NET_MAC_ADDR=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@mac_address")
             NET_PARAMS="${NET_PARAMS}-net nic,macaddr=${NET_MAC_ADDR} -net tap,ifname=${NET_IF_NAME},script=no "
 
             VM_IF_INDEX=$((VM_IF_INDEX+1))
         done
 
-        VNC_ADDR=$(xml "${VM_PATH}/interface_control/@ipv4")
-        if [ "" = "${VNC_ADDR}" ]; then
-            VNC_ADDR="0.0.0.0"
-        fi
-        VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
-
-        # WebSockify
-        # TODO: Add a condition
-        /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}"
-
         # TODO: add path to proxy
         # script_addpath2proxy += "curl -H \"Authorization: token $CONFIGPROXY_AUTH_TOKEN\" -X POST -d '{\"target\": \"ws://%s:%s\"}' http://localhost:82/api/routes/%s\n"%(vnc_addr,int(vnc_port)+1000,name.replace(" ","_"))
 
-        if [ "vnc" = "$(xml "${VM_PATH}/interface_control/@protocol")" ]; then
+        if [ "VNC" = "$(xml "${VM_PATH}/network_interface/settings/@protocol")" ]; then
+            VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
+            if [ "" = "${VNC_ADDR}" ]; then
+                VNC_ADDR="0.0.0.0"
+            fi
+            VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
+
+            # WebSockify
+            # TODO: Add a condition
+            /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}"
+
             VNC_PORT=$((VNC_PORT-5900))
 
             ACCESS_PARAMS="-vnc ${VNC_ADDR}:${VNC_PORT}"
@@ -223,7 +218,7 @@ qemu() {
             -machine accel=kvm:tcg \
             -cpu Opteron_G2 \
             -daemonize \
-            -name $(xml "${VM_PATH}/name") \
+            -name $(xml "${VM_PATH}/@name") \
             ${SYS_PARAMS} \
             ${NET_PARAMS} \
             ${ACCESS_PARAMS}\

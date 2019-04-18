@@ -78,16 +78,14 @@ xml() {
 EOF
 }
 
-LAB_USER=$(xml /lab/user/login)
-LAB_NAME=$(xml "/lab/name")
+LAB_USER=$(xml /lab/user/@email)
+LAB_NAME=$(xml /lab/@name)
+BRIDGE_NAME="br-lab-${LAB_NAME}"
 
 #####################
 # OVS
 #####################
 ovs() {
-    OVS_NAME=$(xml "/lab/device[@type='switch']/name")
-    BRIDGE_NAME="lab_${LAB_NAME}_${OVS_NAME}"
-
     ovs-vsctl --if-exists del-br "${BRIDGE_NAME}"
 }
 
@@ -99,7 +97,7 @@ vpn() {
     VPN_ACCESS=$(xml "/lab/tp_access")
 
     if [ "${VPN_ACCESS}" = "vpn" ]; then
-        OVS_IP=$(xml "/lab/nodes/device[@type='switch']/vpn/ipv4")
+        OVS_IP=$(xml "/lab/device[@type='switch']/vpn/ipv4")
 
         # echo "${OVS_IP}"
 
@@ -135,15 +133,16 @@ vpn() {
 #####################
 
 qemu() {
-    NB_VM=$(xml "count(/lab/nodes/device[@hypervisor='qemu'])")
-    OVS_NAME=$(xml "/lab/nodes/device[@type='switch']/name")
+    NB_VM=$(xml "count(/lab/device[@hypervisor='qemu'])")
+    OVS_NAME=$(xml "/lab/device[@type='switch']/@name")
+    BRIDGE_NAME="lab_${LAB_NAME}_${OVS_NAME}"
     
     VM_INDEX=1
     # POSIX Standard
     while [ ${VM_INDEX} -le $((NB_VM)) ]; do
-        VM_PATH="/lab/nodes/device[@hypervisor='qemu'][${VM_INDEX}]"
+        VM_PATH="/lab/device[@hypervisor='qemu'][${VM_INDEX}]"
 
-        VNC_PORT=$(xml "${VM_PATH}/interface_control/@port")
+        VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
 
         PID_WEBSOCKIFY=$(netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')
         PID_VM=$(netstat -tnap | grep $((VNC_PORT)) | grep qemu | awk -F "[ /]*" '{print $7}')
@@ -152,26 +151,26 @@ qemu() {
             IFS=$'\n'
             for PID in ${PID_WEBSOCKIFY}
             do
-                kill -9 ${PID}
+                kill -9 "${PID}"
                 echo "Killed websockify process ${PID}"
             done
         else
             echo "No websockify process to kill (PID: ${PID_WEBSOCKIFY})"
         fi
 
-        if [ ${PID_VM} ]; then
-            kill -9 ${PID_VM}
+        if [ "${PID_VM}" ]; then
+            kill -9 "${PID_VM}"
             echo "Killed process ${PID_VM}"
         else
             echo "No process to kill (PID: ${PID_VM})"
         fi
 
-        NB_NET_INT=$(xml "count(${VM_PATH}/interface/@type[1])")
+        NB_NET_INT=$(xml "count(${VM_PATH}/network_interface/@type[1])")
 
         VM_IF_INDEX=1
         echo -e "Deleting interfaces"
         while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-            NET_IF_NAME=$(xml "${VM_PATH}/interface[${VM_IF_INDEX}]/@type")
+            NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
 
             ovs-vsctl --if-exists --with-iface del-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
             sudo ip link set "${NET_IF_NAME}" down
@@ -192,7 +191,7 @@ qemu() {
 
 main() {
     qemu
-    vpn # TODO: Conditional (are we executing on a vpn server?)
+    # vpn # TODO: Conditional (are we executing on a vpn server?)
     ovs
 }
 
