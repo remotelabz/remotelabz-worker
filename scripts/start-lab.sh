@@ -145,8 +145,13 @@ qemu() {
         mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
 
         if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
-            echo "Downloading image from ${IMG_SRC}..."
-            (cd /opt/remotelabz/images/ && curl -s -O "${IMG_SRC}")
+            if [ ! -f /opt/remotelabz/images/$(basename "${IMG_SRC}") ]; then
+                echo "Downloading image from ${IMG_SRC}..."
+                (cd /opt/remotelabz/images/ && curl -s -O "${IMG_SRC}")
+                
+            else
+                echo "WARNING: Image was already downloaded. Skipping download."
+            fi
             IMG_SRC=$(basename "${IMG_SRC}")
         fi
 
@@ -163,7 +168,7 @@ qemu() {
 
         SYS_PARAMS="-m $(xml "${VM_PATH}/flavor/@memory") -hda ${IMG_DEST} "
 
-        NB_NET_INT=$(xml "count(${VM_PATH}/network_interface/@type[1])")
+        NB_NET_INT=$(xml "count(${VM_PATH}/network_interface)")
         
         VM_IF_INDEX=1
         NET_PARAMS=""
@@ -173,13 +178,13 @@ qemu() {
             
             echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
 
-            if sudo ip link show "${NET_IF_NAME}" > /dev/null; then
+            if sudo ip link show "${NET_IF_NAME}" 2> /dev/null; then
                 echo "WARNING: tap ${NET_IF_NAME} already exists."
             else
                 sudo ip tuntap add name "${NET_IF_NAME}" mode tap
             fi
-            sudo ip link set "${NET_IF_NAME}" up
             ovs-vsctl --may-exist add-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
+            sudo ip link set "${NET_IF_NAME}" up
             
             NET_MAC_ADDR=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@mac_address")
             NET_PARAMS="${NET_PARAMS}-net nic,macaddr=${NET_MAC_ADDR} -net tap,ifname=${NET_IF_NAME},script=no "
@@ -199,7 +204,7 @@ qemu() {
 
             # WebSockify
             # TODO: Add a condition
-            /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}"
+            /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}" 
 
             VNC_PORT=$((VNC_PORT-5900))
 

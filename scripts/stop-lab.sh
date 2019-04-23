@@ -133,19 +133,24 @@ vpn() {
 #####################
 
 qemu() {
-    NB_VM=$(xml "count(/lab/device[@hypervisor='qemu'])")
+    NB_VM=$(xml "count(/lab/device[@type='vm' and @hypervisor='qemu'])")
     OVS_NAME=$(xml "/lab/device[@type='switch']/@name")
-    BRIDGE_NAME="lab_${LAB_NAME}_${OVS_NAME}"
+    # BRIDGE_NAME="br-lab-${LAB_NAME}"
     
     VM_INDEX=1
     # POSIX Standard
     while [ ${VM_INDEX} -le $((NB_VM)) ]; do
-        VM_PATH="/lab/device[@hypervisor='qemu'][${VM_INDEX}]"
+        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu'][${VM_INDEX}]"
 
         VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
+        VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
+        if [ "" = "${VNC_ADDR}" ]; then
+            VNC_ADDR="0.0.0.0"
+        fi
 
-        PID_WEBSOCKIFY=$(netstat -tnap | grep $((VNC_PORT+1000)) | awk -F "[ /]*" '{print $7}')
-        PID_VM=$(netstat -tnap | grep $((VNC_PORT)) | grep qemu | awk -F "[ /]*" '{print $7}')
+        # TODO: use ps instead of netstat
+        PID_WEBSOCKIFY=$(ps aux | grep -e ${VNC_ADDR}:$((VNC_PORT+1000)) -e websockify | grep -v grep | awk '{print $2}')
+        PID_VM=$(ps aux | grep -e qemu-system | grep -v grep | awk '{print $2}')
 
         if [ "${PID_WEBSOCKIFY}" ]; then
             IFS=$'\n'
@@ -159,8 +164,12 @@ qemu() {
         fi
 
         if [ "${PID_VM}" ]; then
-            kill -9 "${PID_VM}"
-            echo "Killed process ${PID_VM}"
+            IFS=$'\n'
+            for PID in ${PID_VM}
+            do
+                kill -9 "${PID}"
+                echo "Killed VM process ${PID}"
+            done
         else
             echo "No process to kill (PID: ${PID_VM})"
         fi
