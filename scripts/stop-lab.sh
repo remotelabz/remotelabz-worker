@@ -74,7 +74,7 @@ fi
 
 xml() {
     xmllint --xpath "string($1)" - <<EOF
-        $LAB_CONTENT
+$LAB_CONTENT
 EOF
 }
 

@@ -71,7 +71,7 @@ fi
 
 xml() {
     xmllint --xpath "string($1)" - <<EOF
-        $LAB_CONTENT
+$LAB_CONTENT
 EOF
 }
 
@@ -221,7 +221,7 @@ qemu() {
         # Launch VM
         QEMU_COMMAND="qemu-system-$(uname -i) \
             -machine accel=kvm:tcg \
-            -cpu Opteron_G2 \
+            -display none \
             -daemonize \
             -name $(xml "${VM_PATH}/@name") \
             ${SYS_PARAMS} \
