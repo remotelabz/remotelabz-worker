@@ -192,9 +192,6 @@ qemu() {
             VM_IF_INDEX=$((VM_IF_INDEX+1))
         done
 
-        # TODO: add path to proxy
-        # script_addpath2proxy += "curl -H \"Authorization: token $CONFIGPROXY_AUTH_TOKEN\" -X POST -d '{\"target\": \"ws://%s:%s\"}' http://localhost:82/api/routes/%s\n"%(vnc_addr,int(vnc_port)+1000,name.replace(" ","_"))
-
         if [ "VNC" = "$(xml "${VM_PATH}/network_interface/settings/@protocol")" ]; then
             VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
             if [ "" = "${VNC_ADDR}" ]; then
