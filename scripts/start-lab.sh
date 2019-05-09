@@ -77,7 +77,7 @@ EOF
 
 LAB_USER=$(xml /lab/user/@email)
 LAB_NAME=$(xml /lab/@name)
-BRIDGE_NAME="br-lab-${LAB_NAME}"
+BRIDGE_NAME="br-${USER}-lab-${LAB_NAME}"
 
 #####################
 # OVS
@@ -86,6 +86,31 @@ ovs() {
     ovs-vsctl --may-exist add-br "${BRIDGE_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
     sudo ip link set "${BRIDGE_NAME}" up
+}
+
+create_network_interfaces() {
+    NB_NET_INT=$(xml "count(${VM_PATH}/network_interface)")
+    VM_IF_INDEX=1
+    NET_PARAMS=""
+    echo "Creating network interfaces..."
+    while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
+        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
+        
+        echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
+
+        if sudo ip link show "${NET_IF_NAME}" 2> /dev/null; then
+            echo "WARNING: tap ${NET_IF_NAME} already exists."
+        else
+            sudo ip tuntap add name "${NET_IF_NAME}" mode tap
+        fi
+        ovs-vsctl --may-exist add-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
+        sudo ip link set "${NET_IF_NAME}" up
+        
+        NET_MAC_ADDR=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@mac_address")
+        NET_PARAMS="${NET_PARAMS}-net nic,macaddr=${NET_MAC_ADDR} -net tap,ifname=${NET_IF_NAME},script=no "
+
+        VM_IF_INDEX=$((VM_IF_INDEX+1))
+    done
 }
 
 #####################
@@ -138,98 +163,78 @@ qemu() {
     VM_INDEX=1
     # POSIX Standard
     while [ ${VM_INDEX} -le $((NB_VM)) ]; do
-        echo "Creating virtual machine number ${VM_INDEX} image for lab ${LAB_NAME}..."
-        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu'][${VM_INDEX}]"
-        IMG_SRC=$(xml "${VM_PATH}/operating_system/@image")
-
-        mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
-
-        if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
-            if [ ! -f /opt/remotelabz/images/$(basename "${IMG_SRC}") ]; then
-                echo "Downloading image from ${IMG_SRC}..."
-                (cd /opt/remotelabz/images/ && curl -s -O "${IMG_SRC}")
-                
-            else
-                echo "WARNING: Image was already downloaded. Skipping download."
-            fi
-            IMG_SRC=$(basename "${IMG_SRC}")
-        fi
-
-        IMG_DEST="/opt/remotelabz/${LAB_USER}/${LAB_NAME}/${VM_INDEX}/${IMG_SRC}"
-        IMG_SRC="/opt/remotelabz/images/${IMG_SRC}"
-
-        echo "Creating image ${IMG_DEST} from ${IMG_SRC}... "
-        # TODO: Pass image formatting as a parameter?
-        qemu-img create \
-            -f qcow2 \
-            -b "${IMG_SRC}" \
-            "${IMG_DEST}"
-        echo "Done !"
-
-        SYS_PARAMS="-m $(xml "${VM_PATH}/flavor/@memory") -hda ${IMG_DEST} "
-
-        NB_NET_INT=$(xml "count(${VM_PATH}/network_interface)")
-        
-        VM_IF_INDEX=1
-        NET_PARAMS=""
-        echo "Creating network interfaces..."
-        while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-            NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
-            
-            echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
-
-            if sudo ip link show "${NET_IF_NAME}" 2> /dev/null; then
-                echo "WARNING: tap ${NET_IF_NAME} already exists."
-            else
-                sudo ip tuntap add name "${NET_IF_NAME}" mode tap
-            fi
-            ovs-vsctl --may-exist add-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
-            sudo ip link set "${NET_IF_NAME}" up
-            
-            NET_MAC_ADDR=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@mac_address")
-            NET_PARAMS="${NET_PARAMS}-net nic,macaddr=${NET_MAC_ADDR} -net tap,ifname=${NET_IF_NAME},script=no "
-
-            VM_IF_INDEX=$((VM_IF_INDEX+1))
-        done
-
-        if [ "VNC" = "$(xml "${VM_PATH}/network_interface/settings/@protocol")" ]; then
-            VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
-            if [ "" = "${VNC_ADDR}" ]; then
-                VNC_ADDR="0.0.0.0"
-            fi
-            VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
-
-            # WebSockify
-            # TODO: Add a condition
-            /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}" 
-
-            VNC_PORT=$((VNC_PORT-5900))
-
-            ACCESS_PARAMS="-vnc ${VNC_ADDR}:${VNC_PORT}"
-            LOCAL_PARAMS="-k fr"
-        else
-            # ACCESS_PARAMS="-vnc ${VNC_ADDR}:$((VNC_PORT_INDEX+VM_INDEX)),websocket=${VNC_PORT}"
-            ACCESS_PARAMS=""
-            LOCAL_PARAMS=""
-        fi
-
-        LOCAL_PARAMS="${LOCAL_PARAMS} -localtime"
-
-        # Launch VM
-        QEMU_COMMAND="qemu-system-$(uname -i) \
-            -machine accel=kvm:tcg \
-            -display none \
-            -daemonize \
-            -name $(xml "${VM_PATH}/@name") \
-            ${SYS_PARAMS} \
-            ${NET_PARAMS} \
-            ${ACCESS_PARAMS}\
-            ${LOCAL_PARAMS}"
-
-        eval "${QEMU_COMMAND}"
-
-        VM_INDEX=$((VM_INDEX+1))
+        qemu_start_vm
     done
+}
+
+qemu_start_vm() {
+    echo "Creating virtual machine number ${VM_INDEX} image for lab ${LAB_NAME}..."
+
+    VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu'][${VM_INDEX}]"
+    IMG_SRC=$(xml "${VM_PATH}/operating_system/@image")
+
+    mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
+
+    if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
+        if [ ! -f /opt/remotelabz/images/$(basename "${IMG_SRC}") ]; then
+            echo "Downloading image from ${IMG_SRC}..."
+            (cd /opt/remotelabz/images/ && curl -s -O "${IMG_SRC}")
+        else
+            echo "WARNING: Image was already downloaded. Skipping download."
+        fi
+        IMG_SRC=$(basename "${IMG_SRC}")
+    fi
+
+    IMG_DEST="/opt/remotelabz/${LAB_USER}/${LAB_NAME}/${VM_INDEX}/${IMG_SRC}"
+    IMG_SRC="/opt/remotelabz/images/${IMG_SRC}"
+
+    echo "Creating image ${IMG_DEST} from ${IMG_SRC}... "
+    # TODO: Pass image formatting as a parameter?
+    qemu-img create \
+        -f qcow2 \
+        -b "${IMG_SRC}" \
+        "${IMG_DEST}"
+    echo "Done !"
+
+    SYS_PARAMS="-m $(xml "${VM_PATH}/flavor/@memory") -hda ${IMG_DEST} "
+    
+    create_network_interfaces
+
+    if [ "VNC" = "$(xml "${VM_PATH}/network_interface/settings/@protocol")" ]; then
+        VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
+        if [ "" = "${VNC_ADDR}" ]; then
+            VNC_ADDR="0.0.0.0"
+        fi
+        VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
+
+        # WebSockify
+        # TODO: Add a condition
+        /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}" 
+
+        VNC_PORT=$((VNC_PORT-5900))
+
+        ACCESS_PARAMS="-vnc ${VNC_ADDR}:${VNC_PORT}"
+        LOCAL_PARAMS="-k fr"
+    else
+        # ACCESS_PARAMS="-vnc ${VNC_ADDR}:$((VNC_PORT_INDEX+VM_INDEX)),websocket=${VNC_PORT}"
+        ACCESS_PARAMS=""
+        LOCAL_PARAMS=""
+    fi
+
+    LOCAL_PARAMS="${LOCAL_PARAMS} -localtime"
+
+    # Launch VM
+    QEMU_COMMAND="qemu-system-$(uname -i) \
+        -machine accel=kvm:tcg \
+        -display none \
+        -daemonize \
+        -name $(xml "${VM_PATH}/@name") \
+        ${SYS_PARAMS} \
+        ${NET_PARAMS} \
+        ${ACCESS_PARAMS}\
+        ${LOCAL_PARAMS}"
+
+    eval "${QEMU_COMMAND}"
 }
 
 #####################

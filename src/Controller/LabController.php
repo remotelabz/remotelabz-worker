@@ -18,7 +18,7 @@ class LabController extends AbstractController
         $this->kernel = $kernel;
     }
     /**
-     * @Route("/lab", name="lab_post", defaults={"_format"="xml"}, methods={"POST"})
+     * @Route("/lab/start", name="lab_post", defaults={"_format"="xml"}, methods={"POST"})
      */
     public function startAction(Request $request)
     {
