@@ -77,7 +77,8 @@ EOF
 
 LAB_USER=$(xml /lab/user/@email)
 LAB_NAME=$(xml /lab/@name)
-BRIDGE_NAME="br-${USER}-lab-${LAB_NAME}"
+BRIDGE_UUID=$(xml "/lab/instance[@user='${LAB_USER}']/@uuid")
+BRIDGE_NAME="br-${BRIDGE_UUID}"
 
 #####################
 # OVS
@@ -228,7 +229,7 @@ qemu_start_vm() {
         -machine accel=kvm:tcg \
         -display none \
         -daemonize \
-        -name $(xml "${VM_PATH}/@name") \
+        -name $(xml "${VM_PATH}/instance[user[@email='${LAB_USER}']]/@uuid") \
         ${SYS_PARAMS} \
         ${NET_PARAMS} \
         ${ACCESS_PARAMS}\

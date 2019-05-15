@@ -80,13 +80,19 @@ EOF
 
 LAB_USER=$(xml /lab/user/@email)
 LAB_NAME=$(xml /lab/@name)
-BRIDGE_NAME="br-lab-${LAB_NAME}"
+BRIDGE_UUID=$(xml /lab/@uuid)
+BRIDGE_NAME="br-${BRIDGE_UUID}"
 
 #####################
 # OVS
 #####################
 ovs() {
-    ovs-vsctl --if-exists del-br "${BRIDGE_NAME}"
+    NB_ACTIVE_DEVICE=$(xml "count(/lab/instance)")
+    NB_DEVICE=$(xml "count(/lab/device)")
+
+    if [ $((NB_ACTIVE_DEVICE - NB_DEVICE)) -le 0 ]; then
+        ovs-vsctl --if-exists del-br "${BRIDGE_NAME}"
+    fi
 }
 
 #####################
