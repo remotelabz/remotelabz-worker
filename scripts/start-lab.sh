@@ -46,10 +46,12 @@ if ! [ -x "$(command -v websockify)" ]; then
 fi
 
 usage() {
-    echo "Usage: $0 [-f <Labfile>] [<xml>]" 1>&2; exit 1;
+    echo "Usage: $0 [-f <Labfile>] [-d <device_uuid>] [<xml>]" 1>&2; exit 1;
 }
 
-while getopts "f:" OPTION; do
+START_DEVICE=false
+
+while getopts "f:d:" OPTION; do
     case ${OPTION} in
         f)
             if ! [ -f "${OPTARG}" ]; then
@@ -57,6 +59,10 @@ while getopts "f:" OPTION; do
                 exit 1
             fi
             LAB_CONTENT="$(cat "${OPTARG}")"
+            ;;
+        d)
+            START_DEVICE=true
+            DEVICE_UUID="${OPTARG}"
             ;;
         *)
             ;;
@@ -77,8 +83,8 @@ EOF
 
 LAB_USER=$(xml /lab/user/@email)
 LAB_NAME=$(xml /lab/@name)
-BRIDGE_UUID=$(xml "/lab/instance[@user='${LAB_USER}']/@uuid")
-BRIDGE_NAME="br-${BRIDGE_UUID}"
+BRIDGE_UUID=$(xml "/lab/instance/@uuid")
+BRIDGE_NAME="br-$(echo ${BRIDGE_UUID} | cut -c-8)"
 
 #####################
 # OVS
@@ -158,23 +164,35 @@ vpn() {
 #####################
 
 qemu() {
-    NB_VM=$(xml "count(/lab/device[@type='vm' and @hypervisor='qemu'])")
-    # VNC_PORT_INDEX=$(xml "/lab/init/serveur/index_interface")
-    
-    VM_INDEX=1
-    # POSIX Standard
-    while [ ${VM_INDEX} -le $((NB_VM)) ]; do
-        qemu_start_vm
-    done
+    if ${START_DEVICE}; then
+        qemu_start_vm "${DEVICE_UUID}"
+    else
+        NB_VM=$(xml "count(/lab/device[@type='vm' and @hypervisor='qemu' and instance/@is_started='false'])")
+        
+        VM_INDEX=1
+        while [ ${VM_INDEX} -le $((NB_VM)) ]; do
+            qemu_start_vm
+
+            VM_INDEX=$((VM_INDEX+1))
+        done
+    fi
 }
 
 qemu_start_vm() {
-    echo "Creating virtual machine number ${VM_INDEX} image for lab ${LAB_NAME}..."
+    if ${START_DEVICE}; then
+        echo "Creating virtual machine UUID ${DEVICE_UUID} for lab ${LAB_NAME}..."
 
-    VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu'][${VM_INDEX}]"
+        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and @uuid='${DEVICE_UUID}']"
+    else
+        echo "Creating virtual machine number ${VM_INDEX} for lab ${LAB_NAME}..."
+
+        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and instance/@is_started='false'][${VM_INDEX}]"
+    fi
+
+    INSTANCE_UUID=$(xml "${VM_PATH}/instance/@uuid")
     IMG_SRC=$(xml "${VM_PATH}/operating_system/@image")
 
-    mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
+    mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${DEVICE_UUID}
 
     if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
         if [ ! -f /opt/remotelabz/images/$(basename "${IMG_SRC}") ]; then
@@ -186,7 +204,7 @@ qemu_start_vm() {
         IMG_SRC=$(basename "${IMG_SRC}")
     fi
 
-    IMG_DEST="/opt/remotelabz/${LAB_USER}/${LAB_NAME}/${VM_INDEX}/${IMG_SRC}"
+    IMG_DEST="/opt/remotelabz/${LAB_USER}/${LAB_NAME}/${DEVICE_UUID}/${IMG_SRC}"
     IMG_SRC="/opt/remotelabz/images/${IMG_SRC}"
 
     echo "Creating image ${IMG_DEST} from ${IMG_SRC}... "
@@ -229,7 +247,7 @@ qemu_start_vm() {
         -machine accel=kvm:tcg \
         -display none \
         -daemonize \
-        -name $(xml "${VM_PATH}/instance[user[@email='${LAB_USER}']]/@uuid") \
+        -name ${INSTANCE_UUID} \
         ${SYS_PARAMS} \
         ${NET_PARAMS} \
         ${ACCESS_PARAMS}\

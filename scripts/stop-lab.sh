@@ -49,10 +49,12 @@ if ! [ -x "$(command -v websockify)" ]; then
 fi
 
 usage() {
-    echo "Usage: $0 [-f <Labfile>] [<xml>]" 1>&2; exit 1;
+    echo "Usage: $0 [-f <Labfile>] [-d <device_uuid>] [<xml>]" 1>&2; exit 1;
 }
 
-while getopts "f:" OPTION; do
+STOP_DEVICE=false
+
+while getopts "f:d:" OPTION; do
     case ${OPTION} in
         f)
             if ! [ -f "${OPTARG}" ]; then
@@ -60,6 +62,10 @@ while getopts "f:" OPTION; do
                 exit 1
             fi
             LAB_CONTENT="$(cat "${OPTARG}")"
+            ;;
+        d)
+            STOP_DEVICE=true
+            DEVICE_UUID="${OPTARG}"
             ;;
         *)
             ;;
@@ -80,19 +86,37 @@ EOF
 
 LAB_USER=$(xml /lab/user/@email)
 LAB_NAME=$(xml /lab/@name)
-BRIDGE_UUID=$(xml /lab/@uuid)
-BRIDGE_NAME="br-${BRIDGE_UUID}"
+BRIDGE_UUID=$(xml "/lab/instance/@uuid")
+BRIDGE_NAME="br-$(echo ${BRIDGE_UUID} | cut -c-8)"
 
 #####################
 # OVS
 #####################
 ovs() {
-    NB_ACTIVE_DEVICE=$(xml "count(/lab/instance)")
-    NB_DEVICE=$(xml "count(/lab/device)")
+    NB_ACTIVE_DEVICE=$(xml "count(/lab/device/instance)")
 
-    if [ $((NB_ACTIVE_DEVICE - NB_DEVICE)) -le 0 ]; then
+    if ${STOP_DEVICE}; then
+        if [ $((NB_ACTIVE_DEVICE - 1)) -le 0 ]; then
+            ovs-vsctl --if-exists del-br "${BRIDGE_NAME}"
+        fi
+    else
         ovs-vsctl --if-exists del-br "${BRIDGE_NAME}"
     fi
+}
+
+delete_network_interfaces() {
+    NB_NET_INT=$(xml "count(${VM_PATH}/network_interface)")
+    VM_IF_INDEX=1
+    echo -e "Deleting network interfaces..."
+    while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
+        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
+
+        ovs-vsctl --if-exists --with-iface del-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
+        sudo ip link set "${NET_IF_NAME}" down
+        sudo ip link delete "${NET_IF_NAME}"
+        
+        VM_IF_INDEX=$((VM_IF_INDEX+1))
+    done
 }
 
 #####################
@@ -139,65 +163,71 @@ vpn() {
 #####################
 
 qemu() {
-    NB_VM=$(xml "count(/lab/device[@type='vm' and @hypervisor='qemu'])")
-    OVS_NAME=$(xml "/lab/device[@type='switch']/@name")
-    # BRIDGE_NAME="br-lab-${LAB_NAME}"
-    
-    VM_INDEX=1
-    # POSIX Standard
-    while [ ${VM_INDEX} -le $((NB_VM)) ]; do
-        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu'][${VM_INDEX}]"
+    if ${STOP_DEVICE}; then
+        qemu_stop_vm "${DEVICE_UUID}"
+    else
+        NB_VM=$(xml "count(/lab/device[@type='vm' and @hypervisor='qemu' and instance/@is_started='true'])")
+        
+        VM_INDEX=1
+        while [ ${VM_INDEX} -le $((NB_VM)) ]; do
+            qemu_stop_vm
 
-        VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
-        VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
-        if [ "" = "${VNC_ADDR}" ]; then
-            VNC_ADDR="0.0.0.0"
-        fi
-
-        # TODO: use ps instead of netstat
-        PID_WEBSOCKIFY=$(ps aux | grep -e ${VNC_ADDR}:$((VNC_PORT+1000)) -e websockify | grep -v grep | awk '{print $2}')
-        PID_VM=$(ps aux | grep -e qemu-system | grep -v grep | awk '{print $2}')
-
-        if [ "${PID_WEBSOCKIFY}" ]; then
-            IFS=$'\n'
-            for PID in ${PID_WEBSOCKIFY}
-            do
-                kill -9 "${PID}"
-                echo "Killed websockify process ${PID}"
-            done
-        else
-            echo "No websockify process to kill (PID: ${PID_WEBSOCKIFY})"
-        fi
-
-        if [ "${PID_VM}" ]; then
-            IFS=$'\n'
-            for PID in ${PID_VM}
-            do
-                kill -9 "${PID}"
-                echo "Killed VM process ${PID}"
-            done
-        else
-            echo "No process to kill (PID: ${PID_VM})"
-        fi
-
-        NB_NET_INT=$(xml "count(${VM_PATH}/network_interface/@type[1])")
-
-        VM_IF_INDEX=1
-        echo -e "Deleting interfaces"
-        while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-            NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
-
-            ovs-vsctl --if-exists --with-iface del-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
-            sudo ip link set "${NET_IF_NAME}" down
-            sudo ip link delete "${NET_IF_NAME}"
-            
-            VM_IF_INDEX=$((VM_IF_INDEX+1))
+            VM_INDEX=$((VM_INDEX+1))
         done
+    fi
 
-        VM_INDEX=$((VM_INDEX+1))
-    done
+    rm -rf /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${DEVICE_UUID}
+}
 
-    rm -rf /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${VM_INDEX}
+qemu_stop_vm() {
+    if ${STOP_DEVICE}; then
+        echo "Deleting virtual machine UUID ${DEVICE_UUID} for lab ${LAB_NAME}..."
+
+        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and @uuid='${DEVICE_UUID}']"
+    else
+        echo "Deleting virtual machine number ${VM_INDEX} for lab ${LAB_NAME}..."
+
+        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and instance/@is_started='true'][${VM_INDEX}]"
+    fi
+
+    INSTANCE_UUID=$(xml "${VM_PATH}/instance/@uuid")
+    VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
+    VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
+    if [ "" = "${VNC_ADDR}" ]; then
+        VNC_ADDR="0.0.0.0"
+    fi
+
+    # TODO: use ps instead of netstat
+    if [ ! "" = ${VNC_PORT} ]; then
+        PID_WEBSOCKIFY=$(ps aux | grep -e ${VNC_ADDR}:$((VNC_PORT+1000)) -e websockify | grep -v grep | awk '{print $2}')
+    else
+        PID_WEBSOCKIFY=""
+    fi
+    PID_VM=$(ps aux | grep -e "${INSTANCE_UUID}" | grep -v stop-lab | grep -v grep | awk '{print $2}')
+
+    if [ ! -z ${PID_WEBSOCKIFY} ]; then
+        IFS=$'\n'
+        for PID in ${PID_WEBSOCKIFY}
+        do
+            kill -9 "${PID}"
+            echo "Killed websockify process ${PID}"
+        done
+    else
+        echo "No websockify process to kill (PID: ${PID_WEBSOCKIFY})"
+    fi
+
+    if [ ! -z ${PID_VM} ]; then
+        IFS=$'\n'
+        for PID in ${PID_VM}
+        do
+            kill -9 "${PID}"
+            echo "Killed VM process ${PID}"
+        done
+    else
+        echo "No process to kill (PID: ${PID_VM})"
+    fi
+
+    delete_network_interfaces
 }
 
 #####################
@@ -211,4 +241,5 @@ main() {
 }
 
 main
+echo 'OK'
 exit 0
