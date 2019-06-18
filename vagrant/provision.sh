@@ -1,8 +1,9 @@
 #!/bin/sh
 
+export DEBIAN_FRONTEND=noninteractive
 # Install packages
-sudo apt-get update
-sudo apt-get install -y php zip unzip php-curl php-xdebug php-xml qemu libxml2-utils openvswitch-switch git python-pip
+apt-get update
+apt-get install -y php zip unzip php-curl php-xdebug php-xml qemu libxml2-utils openvswitch-switch git python-pip
 # Handle users permissions
 sudo groupadd remotelabz-worker
 sudo usermod -aG remotelabz-worker vagrant
