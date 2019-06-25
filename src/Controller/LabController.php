@@ -129,4 +129,25 @@ class LabController extends AbstractController
             return new Response(null, 415);
         }
     }
+
+    /**
+     * @Route("/worker/port/free", name="get_free_port")
+     */
+    public function getFreePortAction()
+    {
+        $process = new Process([ $this->kernel->getProjectDir().'/scripts/get-available-port.sh' ]);
+        try {
+            $process->mustRun();
+        } catch (ProcessFailedException $exception) {
+            return new Response(
+                $this->renderView('response.xml.twig', [
+                    'code' => $exception->getProcess()->getExitCode(),
+                    'message' => $exception->getMessage()
+                ]),
+                500
+            );
+        }
+
+        return new Response($process->getOutput());
+    }
 }

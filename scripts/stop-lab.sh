@@ -109,7 +109,9 @@ delete_network_interfaces() {
     VM_IF_INDEX=1
     echo -e "Deleting network interfaces..."
     while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
+        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name" | cut -c-6)
+        NET_IF_UUID=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/instance/@uuid" | cut -c-8)
+        NET_IF_NAME="${NET_IF_NAME}-${NET_IF_UUID}"
 
         ovs-vsctl --if-exists --with-iface del-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
         sudo ip link set "${NET_IF_NAME}" down

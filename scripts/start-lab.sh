@@ -101,7 +101,9 @@ create_network_interfaces() {
     NET_PARAMS=""
     echo "Creating network interfaces..."
     while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name")
+        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name" | cut -c-6)
+        NET_IF_UUID=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/instance/@uuid" | cut -c-8)
+        NET_IF_NAME="${NET_IF_NAME}-${NET_IF_UUID}"
         
         echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
 
@@ -171,7 +173,9 @@ qemu() {
         
         VM_INDEX=1
         while [ ${VM_INDEX} -le $((NB_VM)) ]; do
-            qemu_start_vm
+            DEVICE_UUID=$(xml "/lab/device[@type='vm' and @hypervisor='qemu' and instance/@is_started='false'][${VM_INDEX}]/@uuid")
+
+            qemu_start_vm "${DEVICE_UUID}"
 
             VM_INDEX=$((VM_INDEX+1))
         done
@@ -179,15 +183,9 @@ qemu() {
 }
 
 qemu_start_vm() {
-    if ${START_DEVICE}; then
-        echo "Creating virtual machine UUID ${DEVICE_UUID} for lab ${LAB_NAME}..."
+    echo "Creating virtual machine UUID ${DEVICE_UUID} for lab ${LAB_NAME}..."
 
-        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and @uuid='${DEVICE_UUID}']"
-    else
-        echo "Creating virtual machine number ${VM_INDEX} for lab ${LAB_NAME}..."
-
-        VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and instance/@is_started='false'][${VM_INDEX}]"
-    fi
+    VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and @uuid='${DEVICE_UUID}' and instance/@is_started='false']"
 
     INSTANCE_UUID=$(xml "${VM_PATH}/instance/@uuid")
     IMG_SRC=$(xml "${VM_PATH}/operating_system/@image")
