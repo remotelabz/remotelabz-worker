@@ -17,12 +17,12 @@ class Kernel extends BaseKernel
 
     public function getCacheDir()
     {
-        return '/var/www/cache/'.$this->environment;
+        return '/var/www/remotelabz-worker/cache/'.$this->environment;
     }
 
     public function getLogDir()
     {
-        return '/var/www/log';
+        return '/var/www/remotelabz-worker/log';
     }
 
     public function registerBundles(): iterable

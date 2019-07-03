@@ -193,15 +193,14 @@ qemu_stop_vm() {
     fi
 
     INSTANCE_UUID=$(xml "${VM_PATH}/instance/@uuid")
-    VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
+    VNC_PORT=$(xml "${VM_PATH}/network_interface/instance/@remote_port")
     VNC_ADDR=$(xml "${VM_PATH}/network_interface/settings/@ip")
     if [ "" = "${VNC_ADDR}" ]; then
         VNC_ADDR="0.0.0.0"
     fi
 
-    # TODO: use ps instead of netstat
     if [ ! "" = ${VNC_PORT} ]; then
-        PID_WEBSOCKIFY=$(ps aux | grep -e ${VNC_ADDR}:$((VNC_PORT+1000)) -e websockify | grep -v grep | awk '{print $2}')
+        PID_WEBSOCKIFY=$(ps aux | grep ${VNC_ADDR}:$((VNC_PORT+1000)) | grep websockify | grep -v grep | awk '{print $2}')
     else
         PID_WEBSOCKIFY=""
     fi

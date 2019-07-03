@@ -222,11 +222,10 @@ qemu_start_vm() {
         if [ "" = "${VNC_ADDR}" ]; then
             VNC_ADDR="0.0.0.0"
         fi
-        VNC_PORT=$(xml "${VM_PATH}/network_interface/settings/@port")
+        VNC_PORT=$(xml "${VM_PATH}/network_interface/instance/@remote_port")
 
         # WebSockify
-        # TODO: Add a condition
-        /opt/remotelabz/websockify/run -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}" 
+        websockify -D "${VNC_ADDR}":$((VNC_PORT+1000)) "${VNC_ADDR}":"${VNC_PORT}"
 
         VNC_PORT=$((VNC_PORT-5900))
 
