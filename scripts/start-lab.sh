@@ -192,6 +192,7 @@ qemu_start_vm() {
 
     mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${DEVICE_UUID}
 
+    # TODO: script shouldn't download image, it should be done via php instead
     if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
         if [ ! -f /opt/remotelabz/images/$(basename "${IMG_SRC}") ]; then
             echo "Downloading image from ${IMG_SRC}..."
