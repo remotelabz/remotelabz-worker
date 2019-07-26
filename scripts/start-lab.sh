@@ -101,8 +101,8 @@ create_network_interfaces() {
     NET_PARAMS=""
     echo "Creating network interfaces..."
     while [ ${VM_IF_INDEX} -le $((NB_NET_INT)) ]; do
-        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name" | cut -c-6)
-        NET_IF_UUID=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/instance/@uuid" | cut -c-8)
+        NET_IF_NAME=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/@name" | tr -d '[:space:]' | cut -c-6)
+        NET_IF_UUID=$(xml "${VM_PATH}/network_interface[${VM_IF_INDEX}]/instance/@uuid" | tr -d '[:space:]' | cut -c-8)
         NET_IF_NAME="${NET_IF_NAME}-${NET_IF_UUID}"
         
         echo "Creating network interface \"${NET_IF_NAME}\" (number ${VM_IF_INDEX})..."
