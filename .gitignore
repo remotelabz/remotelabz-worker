@@ -6,6 +6,8 @@
 /public/bundles/
 /var/
 /vendor/
+/cache/
+/log/
 ###< symfony/framework-bundle ###
 
 /.vagrant/

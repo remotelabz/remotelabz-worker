@@ -114,8 +114,11 @@ delete_network_interfaces() {
         NET_IF_NAME="${NET_IF_NAME}-${NET_IF_UUID}"
 
         ovs-vsctl --if-exists --with-iface del-port "${BRIDGE_NAME}" "${NET_IF_NAME}"
-        sudo ip link set "${NET_IF_NAME}" down
-        sudo ip link delete "${NET_IF_NAME}"
+
+        if [ $(cat /proc/net/dev | grep "${NET_IF_NAME}" -c) -gt 0 ]; then
+            sudo ip link set "${NET_IF_NAME}" down
+            sudo ip link delete "${NET_IF_NAME}"
+        fi
         
         VM_IF_INDEX=$((VM_IF_INDEX+1))
     done
