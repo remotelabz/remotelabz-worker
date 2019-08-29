@@ -214,7 +214,7 @@ qemu_start_vm() {
         "${IMG_DEST}"
     echo "Done !"
 
-    SYS_PARAMS="-m $(xml "${VM_PATH}/flavor/@memory") -hda ${IMG_DEST} "
+    SYS_PARAMS="-m $(xml "${VM_PATH}/flavor/@memory") -hda \"${IMG_DEST}\" "
     
     create_network_interfaces
 
