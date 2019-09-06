@@ -10,5 +10,5 @@ Vagrant.configure("2") do |config|
 
   config.vm.synced_folder ".", "/var/www/html/remotelabz-worker"
 
-  config.vm.provision "shell", path: "vagrant/provision.sh"
+  config.vm.provision "shell", path: "install.sh"
 end
