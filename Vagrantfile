@@ -8,7 +8,7 @@ Vagrant.configure("2") do |config|
 
   config.vm.network "forwarded_port", guest: 8080, host: 8080
 
-  config.vm.synced_folder ".", "/var/www/html/remotelabz-worker"
+  config.vm.synced_folder ".", "/opt/remotelabz-worker"
 
-  config.vm.provision "shell", path: "install.sh"
+  config.vm.provision "shell", path: "install"
 end
