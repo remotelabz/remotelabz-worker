@@ -20,6 +20,10 @@ set -e
 #     exit 1
 # fi
 
+SCRIPT=$(readlink -f "$0")
+SCRIPT_DIR=$(dirname "${SCRIPT}")
+WORKER_DIR="${SCRIPT_DIR}/.."
+
 if ! [ -x "$(command -v xmllint)" ]; then
     echo 'Error: xmllint is not installed. Please install it and try again' >&2
     exit 1
@@ -81,7 +85,6 @@ $LAB_CONTENT
 EOF
 }
 
-LAB_USER=$(xml /lab/user/@email)
 LAB_NAME=$(xml /lab/@name)
 BRIDGE_UUID=$(xml "/lab/instance/@uuid")
 BRIDGE_NAME="br-$(echo ${BRIDGE_UUID} | cut -c-8)"
@@ -188,23 +191,25 @@ qemu_start_vm() {
     VM_PATH="/lab/device[@type='vm' and @hypervisor='qemu' and @uuid='${DEVICE_UUID}' and instance/@is_started='false']"
 
     INSTANCE_UUID=$(xml "${VM_PATH}/instance/@uuid")
+    LAB_USER=$(xml "/lab/instance/@user_id")
+    LAB_UUID=$(xml "/lab/@uuid")
     IMG_SRC=$(xml "${VM_PATH}/operating_system/@image")
 
-    mkdir -p /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${DEVICE_UUID}
+    mkdir -p ${WORKER_DIR}/instances/"${LAB_USER}"/"${LAB_UUID}"/${DEVICE_UUID}
 
     # TODO: script shouldn't download image, it should be done via php instead
     if [[ ${IMG_SRC} =~ (http://|https://).* ]]; then
-        if [ ! -f /opt/remotelabz/images/$(basename "${IMG_SRC}") ]; then
+        if [ ! -f ${WORKER_DIR}/images/$(basename "${IMG_SRC}") ]; then
             echo "Downloading image from ${IMG_SRC}..."
-            (cd /opt/remotelabz/images/ && curl -s -O "${IMG_SRC}")
+            (cd ${WORKER_DIR}/images/ && curl -s -O "${IMG_SRC}")
         else
             echo "WARNING: Image was already downloaded. Skipping download."
         fi
         IMG_SRC=$(basename "${IMG_SRC}")
     fi
 
-    IMG_DEST="/opt/remotelabz/${LAB_USER}/${LAB_NAME}/${DEVICE_UUID}/${IMG_SRC}"
-    IMG_SRC="/opt/remotelabz/images/${IMG_SRC}"
+    IMG_DEST="${WORKER_DIR}/instances/${LAB_USER}/${LAB_UUID}/${DEVICE_UUID}/${IMG_SRC}"
+    IMG_SRC="${WORKER_DIR}/images/${IMG_SRC}"
 
     echo "Creating image ${IMG_DEST} from ${IMG_SRC}... "
     # TODO: Pass image formatting as a parameter?

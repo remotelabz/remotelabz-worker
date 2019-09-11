@@ -20,6 +20,10 @@ set -e
 #     exit 1
 # fi
 
+SCRIPT=$(readlink -f "$0")
+SCRIPT_DIR=$(dirname "${SCRIPT}")
+WORKER_DIR="${SCRIPT_DIR}/.."
+
 if ! [ -x "$(command -v xmllint)" ]; then
     echo 'Error: xmllint is not installed. Please install it and try again' >&2
     exit 1
@@ -181,7 +185,10 @@ qemu() {
         done
     fi
 
-    rm -rf /opt/remotelabz/"${LAB_USER}"/"${LAB_NAME}"/${DEVICE_UUID}
+    LAB_USER=$(xml "/lab/instance/@user_id")
+    LAB_UUID=$(xml "/lab/@uuid")
+
+    rm -rf "${WORKER_DIR}/instances/${LAB_USER}/${LAB_UUID}/${DEVICE_UUID}"
 }
 
 qemu_stop_vm() {
