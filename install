@@ -96,7 +96,7 @@ if [ $(getent passwd vagrant > /dev/null) ]; then
 fi
 usermod -aG remotelabz www-data
 if ! [ $(grep -Fxq "www-data     ALL=(ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
-    echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip" | tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
+    echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
 fi
 # Composer
 echo -n "🤵 Installing Composer... "
@@ -132,6 +132,7 @@ if ! [ $(command -v websockify) ]; then
     pip3 install setuptools >> "${INSTALL_LOG}" 2>&1
     git clone https://github.com/novnc/websockify.git /opt/remotelabz/websockify >> "${INSTALL_LOG}" 2>&1
     (cd /opt/remotelabz/websockify/ && python3 setup.py install) >> "${INSTALL_LOG}" 2>&1
+    rm -rf /opt/remotelabz/websockify >> "${INSTALL_LOG}" 2>&1
     echo "OK ✔️"
 else
   echo "WebSockify is already installed! Skipping... ✔️"
