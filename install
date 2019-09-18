@@ -127,22 +127,25 @@ chown -R www-data:www-data "${REMOTELABZ_WORKER_PATH}"/var
 
 # Folders
 debug "Creating images folder if it does not exists already..."
-mkdir -p /opt/remotelabz/images
+mkdir -p "${REMOTELABZ_WORKER_PATH}/images"
+chmod g+w "${REMOTELABZ_WORKER_PATH}/images"
+mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
+chmod g+w "${REMOTELABZ_WORKER_PATH}/instances"
 
 # Websockify
 echo -n "📡 Installing WebSockify... "
 if ! [ $(command -v websockify) ]; then
     debug "Installing WebSockify..."
     pip3 install setuptools >> "${INSTALL_LOG}" 2>&1
-    git clone https://github.com/novnc/websockify.git /opt/remotelabz/websockify >> "${INSTALL_LOG}" 2>&1
-    (cd /opt/remotelabz/websockify/ && python3 setup.py install) >> "${INSTALL_LOG}" 2>&1
-    rm -rf /opt/remotelabz/websockify >> "${INSTALL_LOG}" 2>&1
+    git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify" >> "${INSTALL_LOG}" 2>&1
+    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install) >> "${INSTALL_LOG}" 2>&1
+    rm -rf "${REMOTELABZ_WORKER_PATH}/websockify" >> "${INSTALL_LOG}" 2>&1
     echo "OK ✔️"
 else
   echo "WebSockify is already installed! Skipping... ✔️"
   warning "Not installing WebSockify because it is done already."
 fi
-chown -R www-data:www-data /opt/remotelabz
+chown -R root:www-data "${REMOTELABZ_WORKER_PATH}"
 
 # Grant OVS permissions to remotelabz group
 chmod g+rwx /var/run/openvswitch/db.sock
