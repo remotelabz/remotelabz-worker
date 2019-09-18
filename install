@@ -2,10 +2,14 @@
 
 set -e
 
-export INSTALL_LOG="/var/log/remotelabz-worker/install.log"
+export INSTALL_LOG_PATH="/var/log/remotelabz-worker"
+export INSTALL_LOG="${INSTALL_LOG_PATH}/install.log"
 
 function debug() {
+  if [ -d "${INSTALL_LOG_PATH}" ]; then
     echo "[$(date -u)] $1" >> "${INSTALL_LOG}" 2>&1
+  fi
+
 }
 
 function warning() {
@@ -67,12 +71,12 @@ SCRIPT=$(readlink -f "$0")
 SCRIPT_DIR=$(dirname "$SCRIPT")
 HAS_MOVED=0
 
-mkdir -p /var/log/remotelabz
+mkdir -p "${INSTALL_LOG_PATH}"
 # Install packages
 echo -n "📦 Installing required packages... "
 debug "Running apt-get to grab required packages..."
 apt-get update >> "${INSTALL_LOG}" 2>&1
-apt-get install -y apache2 php zip unzip php-curl php-xdebug php-xml qemu libxml2-utils openvswitch-switch git python3 python3-pip >> "${INSTALL_LOG}" 2>&1
+apt-get install -y apache2 php zip unzip php-curl php-xdebug php-xml qemu libxml2-utils openvswitch-switch git python3 python3-pip python3-openvswitch >> "${INSTALL_LOG}" 2>&1
 echo "OK ✔️"
 
 # Copy self-directory into destination
