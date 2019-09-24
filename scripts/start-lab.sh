@@ -243,7 +243,7 @@ qemu_start_vm() {
         LOCAL_PARAMS=""
     fi
 
-    LOCAL_PARAMS="${LOCAL_PARAMS} -localtime"
+    LOCAL_PARAMS="${LOCAL_PARAMS} -localtime -smp 2 -vga qxl"
 
     # Launch VM
     QEMU_COMMAND="qemu-system-$(uname -i) \

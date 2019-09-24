@@ -127,7 +127,10 @@ chown -R www-data:www-data "${REMOTELABZ_WORKER_PATH}"/var
 
 # Folders
 debug "Creating images folder if it does not exists already..."
-mkdir -p /opt/remotelabz/images
+mkdir -p "${REMOTELABZ_WORKER_PATH}/images"
+chmod g+w "${REMOTELABZ_WORKER_PATH}/images"
+mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
+chmod g+w "${REMOTELABZ_WORKER_PATH}/instances"
 
 # Websockify
 echo -n "📡 Installing WebSockify... "
