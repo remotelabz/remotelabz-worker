@@ -248,6 +248,8 @@ qemu_start_vm() {
     # Launch VM
     QEMU_COMMAND="qemu-system-$(uname -i) \
         -machine accel=kvm:tcg \
+        -enable-kvm \
+        -cpu max \
         -display none \
         -daemonize \
         -name ${INSTANCE_UUID} \

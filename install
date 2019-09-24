@@ -13,19 +13,24 @@ function debug() {
 }
 
 function warning() {
+  if [ -d "${INSTALL_LOG_PATH}" ]; then
     echo -ne "\e[33m" >> "${INSTALL_LOG}" 2>&1
     echo -n "[$(date -u)] WARN: $1" >> "${INSTALL_LOG}" 2>&1
     echo -e "\e[39m" >> "${INSTALL_LOG}" 2>&1
+  fi
 }
 
 function error() {
+  if [ -d "${INSTALL_LOG_PATH}" ]; then
     echo -ne "\e[31m" >> "${INSTALL_LOG}" 2>&1
     echo -n "[$(date -u)] ERROR: $1" >> "${INSTALL_LOG}" 2>&1
     echo -e "\e[39m" >> "${INSTALL_LOG}" 2>&1
+  fi
 }
 
 function quit_on_error() {
   echo "Error ❌"
+  error $BASH_COMMAND ${BASH_LINENO[0]}
   echo "Please check logs in ${INSTALL_LOG} to see what went wrong. Exiting..."
   exit 1
 }
@@ -91,14 +96,21 @@ else
 fi
 chgrp -R www-data "${REMOTELABZ_WORKER_PATH}"
 
-# Handle users permissions
-if [ $(getent group remotelabz > /dev/null) ]; then
-    groupadd remotelabz
+#Create user remotelabz and remotelabz group
+if [ ! $(getent passwd remotelabz) ]; then
+  echo "Creating remotelabz user"
+  useradd remotelabz
 fi
-if [ $(getent passwd vagrant > /dev/null) ]; then
+
+USER_VAGRANT_EXIST=``
+
+if [ ! $(getent passwd vagrant) ]; then
+    echo "Creating vagrant user"
+    useradd vagrant
     usermod -aG remotelabz vagrant
 fi
 usermod -aG remotelabz www-data
+usermod -aG kvm www-data #add www-data in kvm groups
 if ! [ $(grep -Fxq "www-data     ALL=(ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
     echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
 fi
@@ -137,15 +149,15 @@ echo -n "📡 Installing WebSockify... "
 if ! [ $(command -v websockify) ]; then
     debug "Installing WebSockify..."
     pip3 install setuptools >> "${INSTALL_LOG}" 2>&1
-    git clone https://github.com/novnc/websockify.git /opt/remotelabz/websockify >> "${INSTALL_LOG}" 2>&1
-    (cd /opt/remotelabz/websockify/ && python3 setup.py install) >> "${INSTALL_LOG}" 2>&1
-    rm -rf /opt/remotelabz/websockify >> "${INSTALL_LOG}" 2>&1
+    git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify" >> "${INSTALL_LOG}" 2>&1
+    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install) >> "${INSTALL_LOG}" 2>&1
+    rm -rf "${REMOTELABZ_WORKER_PATH}/websockify" >> "${INSTALL_LOG}" 2>&1
     echo "OK ✔️"
 else
   echo "WebSockify is already installed! Skipping... ✔️"
   warning "Not installing WebSockify because it is done already."
 fi
-chown -R www-data:www-data /opt/remotelabz
+chown -R root:www-data "${REMOTELABZ_WORKER_PATH}"
 
 # Grant OVS permissions to remotelabz group
 chmod g+rwx /var/run/openvswitch/db.sock
