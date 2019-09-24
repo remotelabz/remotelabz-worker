@@ -30,6 +30,7 @@ function error() {
 
 function quit_on_error() {
   echo "Error ❌"
+  error $BASH_COMMAND ${BASH_LINENO[0]}
   echo "Please check logs in ${INSTALL_LOG} to see what went wrong. Exiting..."
   exit 1
 }
@@ -95,14 +96,23 @@ else
 fi
 chgrp -R www-data "${REMOTELABZ_WORKER_PATH}"
 
-# Handle users permissions
-if [ $(getent group remotelabz > /dev/null) ]; then
-    groupadd remotelabz
+#Create user remotelabz and remotelabz group
+if [ ! $(getent passwd remotelabz) ]; then
+  echo "Creating remotelabz user"
+  useradd remotelabz
 fi
-if [ $(getent passwd vagrant > /dev/null) ]; then
+
+USER_VAGRANT_EXIST=``
+
+if [ ! $(getent passwd vagrant) ]; then
+    echo "Creating vagrant user"
+    useradd vagrant
     usermod -aG remotelabz vagrant
 fi
 usermod -aG remotelabz www-data
+usermod -aG kvm www-data #add www-data in kvm groups
+chown www-data /dev/kvm
+
 if ! [ $(grep -Fxq "www-data     ALL=(ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
     echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
 fi
