@@ -13,15 +13,19 @@ function debug() {
 }
 
 function warning() {
+  if [ -d "${INSTALL_LOG_PATH}" ]; then
     echo -ne "\e[33m" >> "${INSTALL_LOG}" 2>&1
     echo -n "[$(date -u)] WARN: $1" >> "${INSTALL_LOG}" 2>&1
     echo -e "\e[39m" >> "${INSTALL_LOG}" 2>&1
+  fi
 }
 
 function error() {
+  if [ -d "${INSTALL_LOG_PATH}" ]; then
     echo -ne "\e[31m" >> "${INSTALL_LOG}" 2>&1
     echo -n "[$(date -u)] ERROR: $1" >> "${INSTALL_LOG}" 2>&1
     echo -e "\e[39m" >> "${INSTALL_LOG}" 2>&1
+  fi
 }
 
 function quit_on_error() {
