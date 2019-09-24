@@ -110,6 +110,9 @@ if [ ! $(getent passwd vagrant) ]; then
     usermod -aG remotelabz vagrant
 fi
 usermod -aG remotelabz www-data
+usermod -aG kvm www-data #add www-data in kvm groups
+chown www-data /dev/kvm
+
 if ! [ $(grep -Fxq "www-data     ALL=(ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
     echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
 fi
