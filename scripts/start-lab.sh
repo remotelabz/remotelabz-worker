@@ -40,13 +40,8 @@ if ! [ -x "$(command -v ovs-vsctl)" ]; then
 fi
 
 if ! [ -x "$(command -v websockify)" ]; then
-    if ! [ -d "/opt/remotelabz/websockify/.git" ]; then
-        git clone https://github.com/novnc/websockify.git /opt/remotelabz/websockify
-    fi
-
-    (cd /opt/remotelabz/websockify/ && python setup.py install)
-    # echo 'Error: openvswitch is not installed. Please install it and try again' >&2
-    # exit 1
+    echo 'Error: websockify is not installed. Please install it and try again' >&2
+    exit 1
 fi
 
 usage() {
@@ -95,6 +90,7 @@ BRIDGE_NAME="br-$(echo ${BRIDGE_UUID} | cut -c-8)"
 ovs() {
     ovs-vsctl --may-exist add-br "${BRIDGE_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
+    sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
     sudo ip link set "${BRIDGE_NAME}" up
 }
 

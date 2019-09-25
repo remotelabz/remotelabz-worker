@@ -2,8 +2,18 @@
 
 set -e
 
+ENV_FILE=".env"
+
+if [ -f ./${ENV_FILE} ]; then
+     source ./${ENV_FILE}
+else
+     echo "Error: Environment file .env not found in ${ENV_FILE}. Please check this file exists and try again." >&2
+     exit 1
+fi
+
 export INSTALL_LOG_PATH="/var/log/remotelabz-worker"
 export INSTALL_LOG="${INSTALL_LOG_PATH}/install.log"
+
 
 function debug() {
   if [ -d "${INSTALL_LOG_PATH}" ]; then
@@ -113,8 +123,22 @@ usermod -aG remotelabz www-data
 usermod -aG kvm www-data #add www-data in kvm groups
 chown www-data /dev/kvm
 
-if ! [ $(grep -Fxq "www-data     ALL=(ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
-    echo "www-data     ALL=(ALL) NOPASSWD: /bin/ip" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
+echo -n "Configure data network"
+ovs-vsctl add-br "${BRIDGE_INT}"
+# TODO : Test if ${DATA_INTERFACE} has an IP to avoid to shutdown the connexion
+# If ${DATA_INTERFACE} has an IP address, perhaps it's the actual network interface
+# and not a second interface reserved for data of the VMs
+ovs-vsctl add-port "${BRIDGE_INT}" "${DATA_INTERFACE}"
+ip link set up dev "${BRIDGE_INT}"
+ip link set up dev "${DATA_INTERFACE}"
+
+echo -n "IP configuration of the gateway to internet for the VMs"
+ip addr add "${BR_IP_ADDRESS}" dev "${BRIDGE_NAME}"
+ip route add default via "${BR_GW}"
+echo "OK ✔️"
+
+if ! [ $(grep -Fxq "www-data     ALL = (ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
+    echo "www-data     ALL = (ALL) NOPASSWD: /bin/ip, /sbin/iptables" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
 fi
 # Composer
 echo -n "🤵 Installing Composer... "

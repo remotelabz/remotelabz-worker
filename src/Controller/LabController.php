@@ -150,4 +150,33 @@ class LabController extends AbstractController
 
         return new Response($process->getOutput());
     }
+
+
+    /**
+     * @Route("/lab/connectnet", name="lab_connectnet", defaults={"_format"="xml"}, methods={"POST"})
+     */
+    public function connectNet(Request $request)
+    {
+        if ('application/x-www-form-urlencoded' === $request->getContentType()) {
+            //
+        } elseif ('xml' === $request->getContentType()) {
+            $lab = $request->getContent();
+            # FIXME: Don't use sudo!
+            $process = new Process([ $this->kernel->getProjectDir().'/scripts/connectnet-lab.sh', $lab ]);
+            try {
+                $process->mustRun();
+            } catch (ProcessFailedException $exception) {
+                return new Response(
+                    $this->renderView('response.xml.twig', [
+                        'code' => $exception->getProcess()->getExitCode(),
+                        'message' => $exception->getMessage()
+                    ]),
+                    500
+                );
+            }
+            return new Response($process->getOutput() . '\nError output:\n\n' . $process->getErrorOutput());
+        } else {
+            return new Response(null, 415);
+        }
+    }
 }
