@@ -132,9 +132,9 @@ ovs-vsctl add-port "${BRIDGE_INT}" "${DATA_INTERFACE}"
 ip link set up dev "${BRIDGE_INT}"
 ip link set up dev "${DATA_INTERFACE}"
 
-echo -n "IP configuration of the gateway to internet for the VMs"
-ip addr add "${BR_IP_ADDRESS}" dev "${BRIDGE_NAME}"
-ip route add default via "${BR_GW}"
+echo -n "IP configuration of the gateway to data network for the VMs"
+#ip addr add "${BR_IP_ADDRESS}" dev "${BRIDGE_INT}"
+#ip route add default via "${BR_GW}"
 echo "OK ✔️"
 
 if ! [ $(grep -Fxq "www-data     ALL = (ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
