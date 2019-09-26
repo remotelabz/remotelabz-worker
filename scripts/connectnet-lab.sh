@@ -53,12 +53,14 @@ EOF
 LAB_NAME=$(xml /lab/@name)
 BRIDGE_UUID=$(xml "/lab/instance/@uuid")
 BRIDGE_NAME="br-$(echo ${BRIDGE_UUID} | cut -c-8)"
-
+#Create patch between lab's OVS and Worker's OVS
 ovs-vsctl -- add-port "${BRIDGE_NAME}" patch-ovs-"${BRIDGE_NAME}-0" -- set interface patch-ovs-"${BRIDGE_NAME}-0" type=patch options:peer=patch-ovs0-"${BRIDGE_NAME}" -- add-port "${BRIDGE_INT}" patch-ovs0-"${BRIDGE_NAME}"  -- set interface patch-ovs0-"${BRIDGE_NAME}" type=patch options:peer=patch-ovs-"${BRIDGE_NAME}-0";
-#sudo ip rule add from 172.16.16.1 lookup 4
-#sudo ip route add 10.22.128.0/24 dev br-worker-data  table 4
-#sudo ip route add default via 10.22.128.254 table 4
-sudo /sbin/iptables -t nat -A POSTROUTING -s ${NETWORK_LAB} -o ${BRIDGE_INT} -j MASQUERADE
+#Create new routing table for packet from the network of lab's device
+sudo ip rule add from "${LAB_NETWORK}" lookup 4
+#Add default route to the data gateway
+sudo ip route add "${DATA_NETWORK}" dev "${BRIDGE_INT}" table 4
+sudo ip route add default via "${BRIDGE_INT_GW}" table 4
+sudo /sbin/iptables -t nat -A POSTROUTING -s ${LAB_NETWORK} -o ${BRIDGE_INT} -j MASQUERADE
 
 echo "BRIDGE_UUID".$BRIDGE_UUID."\n";
 echo "BRIDGE_NAME".$BRIDGE_NAME."\n";

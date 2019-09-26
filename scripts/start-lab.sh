@@ -90,7 +90,7 @@ BRIDGE_NAME="br-$(echo ${BRIDGE_UUID} | cut -c-8)"
 ovs() {
     ovs-vsctl --may-exist add-br "${BRIDGE_NAME}"
     # FIXME: Launching user should have password-less sudo at least on `ip` command
-    sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).254/24 dev ${BRIDGE_NAME}
+    sudo ip addr add $(echo ${LAB_NETWORK} | cut -d. -f1-3).254/24 dev ${BRIDGE_NAME}
     sudo ip link set "${BRIDGE_NAME}" up
 }
 
