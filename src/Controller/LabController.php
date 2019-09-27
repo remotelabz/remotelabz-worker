@@ -22,7 +22,7 @@ class LabController extends AbstractController
     }
 
     /**
-     * @Route("/lab/device/{uuid}/start", name="device_lab_post", defaults={"_format"="xml"}, methods={"POST"})
+     * @Route("/lab/device/{uuid}/start", name="device_lab_post", defaults={"_format"="json"}, methods={"POST"})
      */
     public function deviceStartAction(Request $request, $uuid)
     {
@@ -51,7 +51,7 @@ class LabController extends AbstractController
     }
 
     /**
-     * @Route("/lab/device/{uuid}/stop", name="device_lab_stop", defaults={"_format"="xml"}, methods={"POST"})
+     * @Route("/lab/device/{uuid}/stop", name="device_lab_stop", defaults={"_format"="json"}, methods={"POST"})
      */
     public function deviceStopAction(Request $request, $uuid)
     {
@@ -61,6 +61,35 @@ class LabController extends AbstractController
             $descriptor = $request->getContent();
             try {
                 $this->stopDeviceInstance($descriptor, $uuid);
+            } catch (ProcessFailedException $exception) {
+                return new Response(
+                    $this->renderView('response.json.twig', [
+                        'code' => $exception->getProcess()->getExitCode(),
+                        'output' => [
+                            'standard' => $exception->getProcess()->getOutput(),
+                            'error' => $exception->getProcess()->getErrorOutput()
+                        ]
+                    ]),
+                    500
+                );
+            }
+            return new Response(null, 200);
+        } else {
+            return new Response(null, 415);
+        }
+    }
+
+    /**
+     * @Route("/lab/connect/internet", name="connect_lab_internet", defaults={"_format"="json"}, methods={"POST"})
+     */
+    public function connectToInternetAction(Request $request)
+    {
+        if ('application/x-www-form-urlencoded' === $request->getContentType()) {
+            //
+        } elseif ('json' === $request->getContentType()) {
+            $descriptor = $request->getContent();
+            try {
+                $this->connectToInternet($descriptor);
             } catch (ProcessFailedException $exception) {
                 return new Response(
                     $this->renderView('response.json.twig', [
@@ -117,7 +146,7 @@ class LabController extends AbstractController
             return;
         }
 
-        $bridgeName = "br-" . substr($labInstance['uuid'], 0, 8);
+        $bridgeName = $labInstance['bridgeName'];
 
         // OVS
 
@@ -125,6 +154,8 @@ class LabController extends AbstractController
             $process = new Process([ 'ovs-vsctl', 'add-br', $bridgeName ]);
             $process->mustRun();
         }
+
+        // TODO: add command sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
         
         $process = new Process([ 'sudo', 'ip', 'link', 'set', $bridgeName, 'up' ]);
         $process->mustRun();
@@ -354,4 +385,17 @@ class LabController extends AbstractController
 
         return ((int)$process->getOutput()) > 0 ? true : false;
     }
+    
+    public function connectToInternet(string $descriptor)
+    {
+        /** @var array $labInstance */
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            return;
+        }
+    }
+
+    
 }
