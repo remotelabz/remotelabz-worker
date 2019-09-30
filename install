@@ -136,9 +136,8 @@ echo -n "IP configuration of the gateway to data network for the VMs"
 ip addr add "${BRIDGE_INT_IP_ADDRESS}" dev "${BRIDGE_INT}"
 echo "OK ✔️"
 
-if ! [ $(grep -Fxq "www-data     ALL = (ALL) NOPASSWD: /bin/ip" /etc/sudoers.d/www-data) ]; then
-    echo "www-data     ALL = (ALL) NOPASSWD: /bin/ip, /sbin/iptables" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
-fi
+echo "www-data     ALL = (ALL) NOPASSWD: $(which ip), $(which iptables), $(which ovs-vsctl)" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
+
 # Composer
 echo -n "🤵 Installing Composer... "
 if ! [ $(command -v composer) ]; then
