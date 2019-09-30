@@ -1,7 +1,12 @@
 <?php
 namespace App\Controller;
 
+use App\Bridge\Network\OVS;
+use App\Bridge\Network\IPTools;
+use App\Bridge\Network\IPTables\Rule;
 use Symfony\Component\Process\Process;
+use App\Bridge\Network\IPTables\IPTables;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
@@ -80,19 +85,21 @@ class LabController extends AbstractController
     }
 
     /**
-     * @Route("/lab/connect/internet", name="connect_lab_internet", defaults={"_format"="json"}, methods={"POST"})
+     * @Route("/lab/connect/internet", name="connect_lab_internet", defaults={"_format"="xml"}, methods={"POST"})
      */
     public function connectToInternetAction(Request $request)
     {
         if ('application/x-www-form-urlencoded' === $request->getContentType()) {
             //
-        } elseif ('json' === $request->getContentType()) {
-            $descriptor = $request->getContent();
+        } elseif ('xml' === $request->getContentType()) {
+            $lab = $request->getContent();
+            # FIXME: Don't use sudo!
+            $process = new Process([ $this->kernel->getProjectDir().'/scripts/connectnet-lab.sh', $lab ]);
             try {
-                $this->connectToInternet($descriptor);
+                $process->mustRun();
             } catch (ProcessFailedException $exception) {
                 return new Response(
-                    $this->renderView('response.json.twig', [
+                    $this->renderView('response.xml.twig', [
                         'code' => $exception->getProcess()->getExitCode(),
                         'output' => [
                             'standard' => $exception->getProcess()->getOutput(),
@@ -102,7 +109,38 @@ class LabController extends AbstractController
                     500
                 );
             }
-            return new Response(null, 200);
+            return new Response($process->getOutput() . '\nError output:\n\n' . $process->getErrorOutput());
+        } else {
+            return new Response(null, 415);
+        }
+    }
+
+    /**
+     * @Route("/lab/disconnect/internet", name="disconnect_lab_internet", defaults={"_format"="xml"}, methods={"POST"})
+     */
+    public function disconnectNet(Request $request)
+    {
+        if ('application/x-www-form-urlencoded' === $request->getContentType()) {
+            //
+        } elseif ('xml' === $request->getContentType()) {
+            $lab = $request->getContent();
+            # FIXME: Don't use sudo!
+            $process = new Process([ $this->kernel->getProjectDir().'/scripts/disconnectnet-lab.sh', $lab ]);
+            try {
+                $process->mustRun();
+            } catch (ProcessFailedException $exception) {
+                return new Response(
+                    $this->renderView('response.xml.twig', [
+                        'code' => $exception->getProcess()->getExitCode(),
+                        'output' => [
+                            'standard' => $exception->getProcess()->getOutput(),
+                            'error' => $exception->getProcess()->getErrorOutput()
+                        ]
+                    ]),
+                    500
+                );
+            }
+            return new Response($process->getOutput() . '\nError output:\n\n' . $process->getErrorOutput());
         } else {
             return new Response(null, 415);
         }
@@ -150,15 +188,14 @@ class LabController extends AbstractController
 
         // OVS
 
-        if (!$this->networkInterfaceExists($bridgeName)) {
-            $process = new Process([ 'ovs-vsctl', 'add-br', $bridgeName ]);
-            $process->mustRun();
+        if (!IPTools::networkInterfaceExists($bridgeName)) {
+            OVS::bridgeAdd($bridgeName, true);
         }
 
         // TODO: add command sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
-        
-        $process = new Process([ 'sudo', 'ip', 'link', 'set', $bridgeName, 'up' ]);
-        $process->mustRun();
+        $labNetwork = explode('.', getenv('LAB_NETWORK'));
+        IPTools::addrAdd($bridgeName, $labNetwork[0] . '.' . $labNetwork[1] . '.' . $labNetwork[2] . '.254/24');
+        IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
 
         // Network interfaces
 
@@ -179,18 +216,18 @@ class LabController extends AbstractController
             "source" => $deviceInstance['device']['operatingSystem']['image']
         ];
 
-        $process = new Process([ 'mkdir', '-p', $this->workerDir . "/instances/" . $labUser . "/" . $labInstanceUuid . "/" . $deviceInstanceUuid ]);
-        $process->mustRun();
+        $filesystem = new Filesystem();
+        $filesystem->mkdir($this->workerDir . "/instances/" . $labUser . "/" . $labInstanceUuid . "/" . $deviceInstanceUuid);
 
         if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
-            if (!file_exists($this->workerDir . "/images/" . basename($img["source"]))) {
+            if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
                 $file = file_get_contents($img["source"]);
-                file_put_contents($this->workerDir . "/images/" . basename($img["source"]), $file);
+                file_put_contents($this->kernel->getProjectDir() . "/images/" . basename($img["source"]), $file);
             }
         }
 
-        $img['destination'] = $this->workerDir . "/instances/" . $labUser . "/" . $labInstanceUuid . "/" . $deviceInstanceUuid . "/" . basename($img['source']);
-        $img['source'] = $this->workerDir . "/images/" . basename($img['source']);
+        $img['destination'] = $this->kernel->getProjectDir() . "/instances/" . $labUser . "/" . $labInstanceUuid . "/" . $deviceInstanceUuid . "/" . basename($img['source']);
+        $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
 
         $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img['source'], $img['destination']]);
         $process->mustRun();
@@ -213,18 +250,14 @@ class LabController extends AbstractController
             $networkInterface = $networkInterfaceInstance['networkInterface'];
             $networkInterfaceName = substr($networkInterface['name'], 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
 
-            if (!$this->networkInterfaceExists($networkInterfaceName)) {
-                $process = new Process(['sudo', 'ip', 'tuntap', 'add', 'name', $networkInterfaceName, 'mode', 'tap']);
-                $process->mustRun();
+            if (!IPTools::networkInterfaceExists($networkInterfaceName)) {
+                IPTools::tuntapAdd($networkInterfaceName, IPTools::TUNTAP_MODE_TAP);
             }
 
-            if (!$this->ovsPortExists($bridgeName, $networkInterfaceName)) {
-                $process = new Process(['ovs-vsctl', 'add-port', $bridgeName, $networkInterfaceName]);
-                $process->mustRun();
+            if (!OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
+                OVS::portAdd($bridgeName, $networkInterfaceName);
             }
-
-            $process = new Process(['sudo', 'ip', 'link', 'set', $networkInterfaceName, 'up']);
-            $process->mustRun();
+            IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_UP);
 
             $parameters['network'] += [ '-net', 'nic,macaddr=' . $networkInterface['macAddress'],
                 '-net', 'tap,ifname=' . $networkInterfaceName . ',script=no'
@@ -287,7 +320,7 @@ class LabController extends AbstractController
             return;
         }
 
-        $bridgeName = "br-" . substr($labInstance['uuid'], 0, 8);
+        $bridgeName = $labInstance['bridgeName'];
 
         // Network interfaces
 
@@ -343,17 +376,13 @@ class LabController extends AbstractController
                 }
             }
 
-            if ($this->ovsPortExists($bridgeName, $networkInterfaceName)) {
-                $process = new Process(['ovs-vsctl', '--with-iface', 'del-port', $bridgeName, $networkInterfaceName]);
-                $process->mustRun();
+            if (OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
+                OVS::portDelete($bridgeName, $networkInterfaceName, true);
             }
 
-            if ($this->networkInterfaceExists($networkInterfaceName)) {
-                $process = new Process(['sudo', 'ip', 'link', 'set', $networkInterfaceName, 'down']);
-                $process->mustRun();
-
-                $process = new Process(['sudo', 'ip', 'link', 'delete', $networkInterfaceName]);
-                $process->mustRun();
+            if (IPTools::networkInterfaceExists($networkInterfaceName)) {
+                IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_DOWN);
+                IPTools::linkDelete($networkInterfaceName);
             }
         }
 
@@ -364,37 +393,88 @@ class LabController extends AbstractController
         })) - 1;
 
         if ($activeDeviceCount <= 0) {
-            $process = new Process([ 'ovs-vsctl', '--if-exist', 'del-br', $bridgeName ]);
-            $process->mustRun();
+            OVS::bridgeDelete($bridgeName, true);
         }
 
-        $process = new Process(['rm', '-rf', $this->workerDir . '/instances/' . $labUser . '/' . $labInstanceUuid . '/' . $deviceInstanceUuid]);
-        $process->run();
-    }
-
-    function networkInterfaceExists(string $name) : bool {
-        $process = new Process(['sudo', 'ip', 'link', 'show', $name]);
-        $process->run();
-
-        return $process->getExitCode() === 0 ? true : false;
-    }
-
-    function ovsPortExists(string $bridgeName, string $portName) : bool {
-        $process = Process::fromShellCommandline('ovs-vsctl list-ports ' . $bridgeName . ' | grep ' . $portName . ' -c');
-        $process->run();
-
-        return ((int)$process->getOutput()) > 0 ? true : false;
+        $filesystem = new Filesystem();
+        $filesystem->remove($this->workerDir . '/instances/' . $labUser . '/' . $labInstanceUuid . '/' . $deviceInstanceUuid);
     }
     
     public function connectToInternet(string $descriptor)
     {
         /** @var array $labInstance */
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $labNetwork = getenv('LAB_NETWORK');
+        $dataNetwork = getenv('DATA_NETWORK');
+        $bridgeInt = getenv('BRIDGE_INT');
+        $bridgeIntGateway = getenv('BRIDGE_INT_GW');
 
         if (!is_array($labInstance)) {
             // invalid json
             return;
         }
+
+        $bridge = $labInstance['bridgeName'];
+
+        // Create patch between lab's OVS and Worker's OVS
+        OVS::portAdd($bridge, "patch-ovs-" . $bridge . "-0");
+        OVS::setInterface("patch-ovs-" . $bridge . "-0", [
+            'type' => 'patch',
+            'options:peer' => "patch-ovs0-" . $bridge
+        ]);
+        OVS::portAdd($bridge, "patch-ovs0-" . $bridge);
+        OVS::setInterface("patch-ovs-" . $bridge . "-0", [
+            'type' => 'patch',
+            'options:peer' => "patch-ovs-" . $bridge . "-0"
+        ]);
+
+        // Create new routing table for packet from the network of lab's device
+        IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
+        IPTools::routeAdd('add ' . $dataNetwork . ' dev ' . $bridgeInt . ' table 4');
+        IPTools::routeAdd('add default via ' . $bridgeIntGateway . ' table 4');
+        IPTables::append(
+            IPTables::CHAIN_POSTROUTING,
+            Rule::create()
+                ->setSource($labNetwork)
+                ->setOutInterface($bridgeInt)
+                ->setJump('MASQUERADE')
+            ,
+            'nat'
+        );
+    }
+
+    public function disconnectFromInternet(string $descriptor)
+    {
+        /** @var array $labInstance */
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $labNetwork = getenv('LAB_NETWORK');
+        $dataNetwork = getenv('DATA_NETWORK');
+        $bridgeInt = getenv('BRIDGE_INT');
+        $bridgeIntGateway = getenv('BRIDGE_INT_GW');
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            return;
+        }
+
+        $bridge = $labInstance['bridgeName'];
+
+        OVS::portDelete($bridge, "patch-ovs-" . $bridge . "-0");
+        OVS::portDelete($bridge, "patch-ovs0-" . $bridge);
+
+        // Create new routing table for packet from the network of lab's device
+        IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
+        IPTools::routeDelete('add ' . $dataNetwork . ' dev ' . $bridgeInt . ' table 4');
+        IPTools::routeDelete('add default via ' . $bridgeIntGateway . ' table 4');
+        IPTables::delete(
+            IPTables::CHAIN_POSTROUTING,
+            Rule::create()
+                ->setSource($labNetwork)
+                ->setOutInterface($bridgeInt)
+                ->setJump('MASQUERADE')
+            ,
+            'nat'
+        );
     }
 
     
