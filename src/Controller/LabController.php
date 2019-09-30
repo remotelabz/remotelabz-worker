@@ -85,21 +85,19 @@ class LabController extends AbstractController
     }
 
     /**
-     * @Route("/lab/connect/internet", name="connect_lab_internet", defaults={"_format"="xml"}, methods={"POST"})
+     * @Route("/lab/connect/internet", name="connect_lab_internet", defaults={"_format"="json"}, methods={"POST"})
      */
     public function connectToInternetAction(Request $request)
     {
         if ('application/x-www-form-urlencoded' === $request->getContentType()) {
             //
-        } elseif ('xml' === $request->getContentType()) {
-            $lab = $request->getContent();
-            # FIXME: Don't use sudo!
-            $process = new Process([ $this->kernel->getProjectDir().'/scripts/connectnet-lab.sh', $lab ]);
+        } elseif ('json' === $request->getContentType()) {
+            $descriptor = $request->getContent();
             try {
-                $process->mustRun();
+                $this->connectToInternet($descriptor);
             } catch (ProcessFailedException $exception) {
                 return new Response(
-                    $this->renderView('response.xml.twig', [
+                    $this->renderView('response.json.twig', [
                         'code' => $exception->getProcess()->getExitCode(),
                         'output' => [
                             'standard' => $exception->getProcess()->getOutput(),
@@ -109,28 +107,26 @@ class LabController extends AbstractController
                     500
                 );
             }
-            return new Response($process->getOutput() . '\nError output:\n\n' . $process->getErrorOutput());
+            return new Response(null, 200);
         } else {
             return new Response(null, 415);
         }
     }
 
     /**
-     * @Route("/lab/disconnect/internet", name="disconnect_lab_internet", defaults={"_format"="xml"}, methods={"POST"})
+     * @Route("/lab/disconnect/internet", name="disconnect_lab_internet", defaults={"_format"="json"}, methods={"POST"})
      */
-    public function disconnectNet(Request $request)
+    public function disconnectFromInternetAction(Request $request)
     {
         if ('application/x-www-form-urlencoded' === $request->getContentType()) {
             //
-        } elseif ('xml' === $request->getContentType()) {
-            $lab = $request->getContent();
-            # FIXME: Don't use sudo!
-            $process = new Process([ $this->kernel->getProjectDir().'/scripts/disconnectnet-lab.sh', $lab ]);
+        } elseif ('json' === $request->getContentType()) {
+            $descriptor = $request->getContent();
             try {
-                $process->mustRun();
+                $this->disconnectFromInternet($descriptor);
             } catch (ProcessFailedException $exception) {
                 return new Response(
-                    $this->renderView('response.xml.twig', [
+                    $this->renderView('response.json.twig', [
                         'code' => $exception->getProcess()->getExitCode(),
                         'output' => [
                             'standard' => $exception->getProcess()->getOutput(),
@@ -140,7 +136,7 @@ class LabController extends AbstractController
                     500
                 );
             }
-            return new Response($process->getOutput() . '\nError output:\n\n' . $process->getErrorOutput());
+            return new Response(null, 200);
         } else {
             return new Response(null, 415);
         }
@@ -156,9 +152,12 @@ class LabController extends AbstractController
             $process->mustRun();
         } catch (ProcessFailedException $exception) {
             return new Response(
-                $this->renderView('response.xml.twig', [
+                $this->renderView('response.json.twig', [
                     'code' => $exception->getProcess()->getExitCode(),
-                    'message' => $exception->getMessage()
+                    'output' => [
+                        'standard' => $exception->getProcess()->getOutput(),
+                        'error' => $exception->getProcess()->getErrorOutput()
+                    ]
                 ]),
                 500
             );
