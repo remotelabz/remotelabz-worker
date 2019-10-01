@@ -220,8 +220,17 @@ class LabController extends AbstractController
 
         if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
             if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
-                $file = file_get_contents($img["source"]);
-                file_put_contents($this->kernel->getProjectDir() . "/images/" . basename($img["source"]), $file);
+                $chunkSize = 1024 * 1024;
+                $fd = fopen($img["source"], 'rb');
+
+                while (!feof($fd)) {   
+                    $buffer = fread($fd, $chunkSize);
+                    file_put_contents($this->kernel->getProjectDir() . "/images/" . basename($img["source"]), $buffer, FILE_APPEND);
+                    ob_flush();
+                    flush();
+                }
+
+                fclose($fd);
             }
         }
 
