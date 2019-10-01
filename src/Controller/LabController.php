@@ -425,12 +425,12 @@ class LabController extends AbstractController
         $bridge = $labInstance['bridgeName'];
 
         // Create patch between lab's OVS and Worker's OVS
-        OVS::portAdd($bridge, "patch-ovs-" . $bridge . "-0");
+        OVS::portAdd($bridge, "patch-ovs-" . $bridge . "-0", true);
         OVS::setInterface("patch-ovs-" . $bridge . "-0", [
             'type' => 'patch',
             'options:peer' => "patch-ovs0-" . $bridge
         ]);
-        OVS::portAdd($bridge, "patch-ovs0-" . $bridge);
+        OVS::portAdd($bridge, "patch-ovs0-" . $bridge, true);
         OVS::setInterface("patch-ovs-" . $bridge . "-0", [
             'type' => 'patch',
             'options:peer' => "patch-ovs-" . $bridge . "-0"
@@ -438,8 +438,12 @@ class LabController extends AbstractController
 
         // Create new routing table for packet from the network of lab's device
         IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
-        IPTools::routeAdd('add ' . $dataNetwork . ' dev ' . $bridgeInt . ' table 4');
-        IPTools::routeAdd('add default via ' . $bridgeIntGateway . ' table 4');
+        if (!IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
+            IPTools::routeAdd($dataNetwork . ' dev ' . $bridgeInt, 4);
+        }
+        if (!IPTools::routeExists('default via ' . $bridgeIntGateway, 4)) {
+            IPTools::routeAdd('default via ' . $bridgeIntGateway, 4);
+        }
         IPTables::append(
             IPTables::CHAIN_POSTROUTING,
             Rule::create()
@@ -467,13 +471,17 @@ class LabController extends AbstractController
 
         $bridge = $labInstance['bridgeName'];
 
-        OVS::portDelete($bridge, "patch-ovs-" . $bridge . "-0");
-        OVS::portDelete($bridge, "patch-ovs0-" . $bridge);
+        OVS::portDelete($bridge, "patch-ovs-" . $bridge . "-0", true);
+        OVS::portDelete($bridge, "patch-ovs0-" . $bridge, true);
 
         // Create new routing table for packet from the network of lab's device
         IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
-        IPTools::routeDelete('add ' . $dataNetwork . ' dev ' . $bridgeInt . ' table 4');
-        IPTools::routeDelete('add default via ' . $bridgeIntGateway . ' table 4');
+        if (IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
+            IPTools::routeDelete($dataNetwork . ' dev ' . $bridgeInt, 4);
+        }
+        if (IPTools::routeExists('default via ' . $bridgeIntGateway, 4)) {
+            IPTools::routeDelete('default via ' . $bridgeIntGateway, 4);
+        }
         IPTables::delete(
             IPTables::CHAIN_POSTROUTING,
             Rule::create()

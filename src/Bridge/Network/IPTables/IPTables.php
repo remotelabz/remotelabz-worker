@@ -49,14 +49,15 @@ class IPTables extends Bridge
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
         }
 
-        $command = [ '-A', $chain ];
+        $command = [];
 
-        if (!empty($name)) {
-            array_unshift($command, '-t', $table);
+        if (!empty($table)) {
+            array_push($command, '-t', $table);
         }
 
-        $rule = $rule->export();
+        array_push($command,'-A', $chain);
 
+        $rule = $rule->export();
         array_push($command, ...$rule);
 
         return static::exec($command);
@@ -77,14 +78,15 @@ class IPTables extends Bridge
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
         }
 
-        $command = [ '-D', $chain ];
+        $command = [];
 
-        if (!empty($name)) {
-            array_unshift($command, '-t', $table);
+        if (!empty($table)) {
+            array_push($command, '-t', $table);
         }
 
-        $rule = $rule->export();
+        array_push($command,'-D', $chain);
 
+        $rule = $rule->export();
         array_push($command, ...$rule);
 
         return static::exec($command);

@@ -115,16 +115,35 @@ class IPTools extends Bridge
      *
      * @see https://www.systutorials.com/docs/linux/man/8-ip-route/
      * @param string $route The route to add.
+     * @param int $tableId The id of the table to add the route.
      * @throws Exception If the route string is empty.
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function routeAdd(string $route) : Process {
+    public static function routeAdd(string $route, int $tableId = 254) : Process {
         if (empty($route)) {
             throw new Exception("Route cannot be empty.");
         }
 
-        $command = [ 'route', 'add', $route ];
+        $route = explode(' ', $route);
+
+        $command = [ 'route', 'add' ];
+        array_push($command, ...$route);
+        array_push($command, 'table', (string) $tableId);
+        
+        return static::exec($command);
+    }
+
+    /**
+     * Show existing routes.
+     *
+     * @see https://www.systutorials.com/docs/linux/man/8-ip-route/
+     * @param int $tableId The id of the table to show.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function routeShow(int $tableId = 254) : Process {
+        $command = [ 'route', 'show', 'table', (string) $tableId ];
         
         return static::exec($command);
     }
@@ -134,16 +153,21 @@ class IPTools extends Bridge
      *
      * @see https://www.systutorials.com/docs/linux/man/8-ip-route/
      * @param string $route The route to delete.
+     * @param int $tableId The id of the table to delete the route.
      * @throws Exception If the route string is empty.
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function routeDelete(string $route) : Process {
+    public static function routeDelete(string $route, int $tableId = 254) : Process {
         if (empty($route)) {
             throw new Exception("Route cannot be empty.");
         }
 
-        $command = [ 'route', 'del', $route ];
+        $route = explode(' ', $route);
+
+        $command = [ 'route', 'del' ];
+        array_push($command, ...$route);
+        array_push($command, 'table', (string) $tableId);
         
         return static::exec($command);
     }
@@ -163,7 +187,12 @@ class IPTools extends Bridge
             throw new Exception("Selector or action cannot be empty.");
         }
 
-        $command = [ 'rule', 'add', $selector, $action ];
+        $selector = explode(' ', $selector);
+        $action = explode(' ', $action);
+
+        $command = [ 'rule', 'add' ];
+        array_push($command, ...$selector);
+        array_push($command, ...$action);
 
         return static::exec($command);
     }
@@ -183,7 +212,12 @@ class IPTools extends Bridge
             throw new Exception("Selector or action cannot be empty.");
         }
 
-        $command = [ 'rule', 'del', $selector, $action ];
+        $selector = explode(' ', $selector);
+        $action = explode(' ', $action);
+
+        $command = [ 'rule', 'del' ];
+        array_push($command, ...$selector);
+        array_push($command, ...$action);
 
         return static::exec($command);
     }
@@ -205,6 +239,19 @@ class IPTools extends Bridge
         $command = [ 'tuntap', 'add', $name, 'mode', $mode ];
 
         return static::exec($command);
+    }
+
+    public static function routeExists(string $route, int $tableId = 254) : bool
+    {
+        $output = static::routeShow($tableId);
+        $route = preg_quote($route, '/');
+        $exists = preg_match('/(' . $route . ')/', $output->getOutput());
+
+        if($exists) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public static function networkInterfaceExists(string $name) : bool {

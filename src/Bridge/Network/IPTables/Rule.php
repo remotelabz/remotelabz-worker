@@ -62,60 +62,48 @@ class Rule
     {
         $rule = [];
 
-        if ($this->hasValidProtocol()) {
-            $rule[] = '--protocol';
-            $rule[] = $this->protocol;
-        } else {
-            throw new UnexpectedValueException();
+        if (!empty($this->protocol)) {
+            if ($this->hasValidProtocol()) {
+                $rule[] = '--protocol';
+                $rule[] = $this->protocol;
+            } else {
+              throw new UnexpectedValueException();  
+            }
         }
 
         if (!empty($this->source)) {
             $rule[] = '--source';
             $rule[] = $this->source;
-        } else {
-            throw new UnexpectedValueException();
         }
 
         if (!empty($this->destination)) {
             $rule[] = '--destination';
             $rule[] = $this->destination;
-        } else {
-            throw new UnexpectedValueException();
         }
 
         if (!empty($this->jump)) {
             $rule[] = '--jump';
             $rule[] = $this->jump;
-        } else {
-            throw new UnexpectedValueException();
         }
 
         if (!empty($this->goto)) {
             $rule[] = '--goto';
             $rule[] = $this->goto;
-        } else {
-            throw new UnexpectedValueException();
         }
 
         if (!empty($this->inInterface)) {
             $rule[] = '--in-interface';
             $rule[] = $this->inInterface;
-        } else {
-            throw new UnexpectedValueException();
         }
 
         if (!empty($this->outInterface)) {
             $rule[] = '--out-interface';
             $rule[] = $this->outInterface;
-        } else {
-            throw new UnexpectedValueException();
         }
 
         if (!empty($this->fragment)) {
             $rule[] = '--fragment';
             $rule[] = $this->fragment;
-        } else {
-            throw new UnexpectedValueException();
         }
 
         return $rule;
