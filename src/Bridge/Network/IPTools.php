@@ -5,6 +5,8 @@ namespace App\Bridge\Network;
 use App\Bridge\Bridge;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Exception\InvalidArgumentException;
+
 
 /**
  * Wrapper for the UNIX `ip` command.
@@ -253,7 +255,8 @@ class IPTools extends Bridge
             return false;
         }
     }
-
+    
+    
     public static function networkInterfaceExists(string $name) : bool {
         try {
             $output = static::linkShow($name);
@@ -263,4 +266,32 @@ class IPTools extends Bridge
 
         return true;
     }
+
+    /**
+     * Check if a given IP is set to an interface.
+     *
+     * @param string $name The device name.
+     * @param string $IP The IP to check. IP must be of form X.X.X.X/M .
+     * @throws Exception If the device name or IP is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function networkIPExists(string $name,string $ip) : bool {
+        if (empty($name)) {
+            throw new InvalidArgumentException("networkIPExists - Device name cannot be empty.");
+        }
+        if (empty($ip)) {
+            throw new InvalidArgumentException("networkIPExists - IP field cannot be empty.");
+        }
+
+        $command = [ 'addr', 'show', 'dev', $name ];
+        $output=static::exec($command);
+        $pattern=preg_quote("inet ".$ip, '/');
+        if (preg_match('/'.$pattern.'/',$output->getOutput()))
+            return true;
+        else
+            return false;
+
+    }
+
 }

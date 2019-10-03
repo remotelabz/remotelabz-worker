@@ -14,16 +14,19 @@ use Doctrine\Common\Collections\ArrayCollection;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Psr\Log\LoggerInterface;
 
 class LabController extends AbstractController
 {
     private $kernel;
     private $workerDir;
+    protected $logger;
 
-    public function __construct(KernelInterface $kernel)
+    public function __construct(KernelInterface $kernel, LoggerInterface $logger)
     {
         $this->kernel = $kernel;
         $this->workerDir = realpath(dirname(__FILE__) . "/../../");
+        $this->logger = $logger;
     }
 
     /**
@@ -35,6 +38,8 @@ class LabController extends AbstractController
             //
         } elseif ('json' === $request->getContentType()) {
             $descriptor = $request->getContent();
+            $this->logger->info("Start device ".$uuid);
+            $this->logger->debug("deviceStartAction - Start device ".$uuid." ".$descriptor);
             try {
                 $this->startDeviceInstance($descriptor, $uuid);
             } catch (ProcessFailedException $exception) {
@@ -64,6 +69,8 @@ class LabController extends AbstractController
             //
         } elseif ('json' === $request->getContentType()) {
             $descriptor = $request->getContent();
+            $this->logger->info("Stop device ".$uuid);
+            $this->logger->debug("deviceStopAction - Stop device ".$uuid." ".$descriptor);
             try {
                 $this->stopDeviceInstance($descriptor, $uuid);
             } catch (ProcessFailedException $exception) {
@@ -162,7 +169,6 @@ class LabController extends AbstractController
                 500
             );
         }
-
         return new Response($process->getOutput());
     }
 
@@ -189,11 +195,20 @@ class LabController extends AbstractController
 
         if (!IPTools::networkInterfaceExists($bridgeName)) {
             OVS::bridgeAdd($bridgeName, true);
+            $this->logger->info("Add bridge ".$bridgeName);
+            $this->logger->debug("startDeviceInstance - Add bridge ".$bridgeName." ".$descriptor);
         }
 
         // TODO: add command sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
         $labNetwork = explode('.', getenv('LAB_NETWORK'));
-        IPTools::addrAdd($bridgeName, $labNetwork[0] . '.' . $labNetwork[1] . '.' . $labNetwork[2] . '.254/24');
+        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$labNetwork[0] . '.' . $labNetwork[1] . '.' . $labNetwork[2] . '.254/24');
+        
+        $IP="".$labNetwork[0] . '.' . $labNetwork[1] . '.' . $labNetwork[2] . ".254/24";
+        $this->logger->debug("startDeviceInstance - Check if ".$IP." exist");
+        if (!IPTools::networkIPExists($bridgeName,$IP)) {
+            IPTools::addrAdd($bridgeName,"$IP");
+            $this->logger->debug("Set link ".$bridgeName." up");
+        }
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
 
         // Network interfaces
