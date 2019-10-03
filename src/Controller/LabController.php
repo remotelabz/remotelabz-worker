@@ -101,6 +101,8 @@ class LabController extends AbstractController
         } elseif ('json' === $request->getContentType()) {
             $descriptor = $request->getContent();
             try {
+                $this->logger->info("Received request to connect the lab to internet");
+                $this->logger->debug("Received request to connect the lab to internet :".$descriptor);
                 $this->connectToInternet($descriptor);
             } catch (ProcessFailedException $exception) {
                 return new Response(
@@ -427,6 +429,7 @@ class LabController extends AbstractController
     {
         /** @var array $labInstance */
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        
         $labNetwork = getenv('LAB_NETWORK');
         $dataNetwork = getenv('DATA_NETWORK');
         $bridgeInt = getenv('BRIDGE_INT');
@@ -436,22 +439,30 @@ class LabController extends AbstractController
             // invalid json
             return;
         }
+      
 
-        $bridge = $labInstance['bridgeName'];
-
+        //$bridge = $labInstance['instances']['bridgeName'];
+        
+        $bridge=$labInstance['instances'][0]['bridgeName'];
+        
+        $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
+  
         // Create patch between lab's OVS and Worker's OVS
         OVS::portAdd($bridge, "patch-ovs-" . $bridge . "-0", true);
+        $this->logger->debug("connectToInternet - Add port patch-ovs-" . $bridgeInt . "-0 to bridge :".$bridge);
+
         OVS::setInterface("patch-ovs-" . $bridge . "-0", [
             'type' => 'patch',
-            'options:peer' => "patch-ovs0-" . $bridge
+            'options:peer' => "patch-ovs0-" . $bridgeInt
         ]);
-        OVS::portAdd($bridge, "patch-ovs0-" . $bridge, true);
-        OVS::setInterface("patch-ovs-" . $bridge . "-0", [
+        OVS::portAdd($bridgeInt, "patch-ovs0-" . $bridgeInt, true);
+        OVS::setInterface("patch-ovs0-" . $bridgeInt, [
             'type' => 'patch',
             'options:peer' => "patch-ovs-" . $bridge . "-0"
         ]);
 
-        // Create new routing table for packet from the network of lab's device
+
+/*        // Create new routing table for packet from the network of lab's device
         IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
         if (!IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
             IPTools::routeAdd($dataNetwork . ' dev ' . $bridgeInt, 4);
@@ -468,6 +479,7 @@ class LabController extends AbstractController
             ,
             'nat'
         );
+        */
     }
 
     public function disconnectFromInternet(string $descriptor)
