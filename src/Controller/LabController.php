@@ -152,6 +152,66 @@ class LabController extends AbstractController
     }
 
     /**
+     * @Route("/lab/interconnect", name="interconnect_lab", defaults={"_format"="json"}, methods={"POST"})
+     */
+    public function interconnectAction(Request $request)
+    {
+        if ('application/x-www-form-urlencoded' === $request->getContentType()) {
+            //
+        } elseif ('json' === $request->getContentType()) {
+            $descriptor = $request->getContent();
+            try {
+                $this->logger->info("Received request to connect the lab to internet");
+                $this->logger->debug("Received request to connect the lab to internet :".$descriptor);
+                $this->interconnect($descriptor);
+            } catch (ProcessFailedException $exception) {
+                return new Response(
+                    $this->renderView('response.json.twig', [
+                        'code' => $exception->getProcess()->getExitCode(),
+                        'output' => [
+                            'standard' => $exception->getProcess()->getOutput(),
+                            'error' => $exception->getProcess()->getErrorOutput()
+                        ]
+                    ]),
+                    500
+                );
+            }
+            return new Response(null, 200);
+        } else {
+            return new Response(null, 415);
+        }
+    }
+
+    /**
+     * @Route("/lab/disinterconnect", name="disinterconnect_lab", defaults={"_format"="json"}, methods={"POST"})
+     */
+    public function disinterconnectAction(Request $request)
+    {
+        if ('application/x-www-form-urlencoded' === $request->getContentType()) {
+            //
+        } elseif ('json' === $request->getContentType()) {
+            $descriptor = $request->getContent();
+            try {
+                $this->disinterconnect($descriptor);
+            } catch (ProcessFailedException $exception) {
+                return new Response(
+                    $this->renderView('response.json.twig', [
+                        'code' => $exception->getProcess()->getExitCode(),
+                        'output' => [
+                            'standard' => $exception->getProcess()->getOutput(),
+                            'error' => $exception->getProcess()->getErrorOutput()
+                        ]
+                    ]),
+                    500
+                );
+            }
+            return new Response(null, 200);
+        } else {
+            return new Response(null, 415);
+        }
+    }
+
+    /**
      * @Route("/worker/port/free", name="get_free_port")
      */
     public function getFreePortAction()
@@ -448,21 +508,21 @@ class LabController extends AbstractController
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
   
         // Create patch between lab's OVS and Worker's OVS
-        OVS::portAdd($bridge, "patch-ovs-" . $bridge . "-0", true);
-        $this->logger->debug("connectToInternet - Add port patch-ovs-" . $bridgeInt . "-0 to bridge :".$bridge);
+        OVS::portAdd($bridge, "To-ovs-" . $bridgeInt, true);
+        $this->logger->debug("connectToInternet - Add port To-ovs-" . $bridgeInt . " to bridge :".$bridgeInt);
 
-        OVS::setInterface("patch-ovs-" . $bridge . "-0", [
+        OVS::setInterface("To-ovs-" . $bridgeInt, [
             'type' => 'patch',
-            'options:peer' => "patch-ovs0-" . $bridgeInt
+            'options:peer' => "To-ovs-" . $bridge
         ]);
-        OVS::portAdd($bridgeInt, "patch-ovs0-" . $bridgeInt, true);
-        OVS::setInterface("patch-ovs0-" . $bridgeInt, [
+        OVS::portAdd($bridgeInt, "To-ovs-" . $bridge, true);
+        OVS::setInterface("To-ovs-" . $bridge, [
             'type' => 'patch',
-            'options:peer' => "patch-ovs-" . $bridge . "-0"
+            'options:peer' => "To-ovs-" . $bridgeInt
         ]);
 
 
-/*        // Create new routing table for packet from the network of lab's device
+        // Create new routing table for packet from the network of lab's device
         IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
         if (!IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
             IPTools::routeAdd($dataNetwork . ' dev ' . $bridgeInt, 4);
@@ -470,6 +530,7 @@ class LabController extends AbstractController
         if (!IPTools::routeExists('default via ' . $bridgeIntGateway, 4)) {
             IPTools::routeAdd('default via ' . $bridgeIntGateway, 4);
         }
+
         IPTables::append(
             IPTables::CHAIN_POSTROUTING,
             Rule::create()
@@ -479,7 +540,7 @@ class LabController extends AbstractController
             ,
             'nat'
         );
-        */
+        
     }
 
     public function disconnectFromInternet(string $descriptor)
@@ -496,10 +557,10 @@ class LabController extends AbstractController
             return;
         }
 
-        $bridge = $labInstance['bridgeName'];
+        $bridge=$labInstance['instances'][0]['bridgeName'];
 
-        OVS::portDelete($bridge, "patch-ovs-" . $bridge . "-0", true);
-        OVS::portDelete($bridge, "patch-ovs0-" . $bridge, true);
+        OVS::portDelete($bridge, "To-ovs-" . $bridgeInt, true);
+        OVS::portDelete($bridgeInt, "To-ovs-" . $bridge, true);
 
         // Create new routing table for packet from the network of lab's device
         IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
@@ -518,6 +579,66 @@ class LabController extends AbstractController
             ,
             'nat'
         );
+    }
+
+    public function interconnect(string $descriptor)
+    {
+        /** @var array $labInstance */
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        
+        $labNetwork = getenv('LAB_NETWORK');
+        $dataNetwork = getenv('DATA_NETWORK');
+        $bridgeInt = getenv('BRIDGE_INT');
+        $bridgeIntGateway = getenv('BRIDGE_INT_GW');
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            return;
+        }
+      
+
+        //$bridge = $labInstance['instances']['bridgeName'];
+        
+        $bridge=$labInstance['instances'][0]['bridgeName'];
+        
+        $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
+  
+        // Create patch between lab's OVS and Worker's OVS
+        OVS::portAdd($bridge, "To-ovs-" . $bridgeInt, true);
+        $this->logger->debug("connectToInternet - Add port To-ovs-" . $bridgeInt . " to bridge :".$bridgeInt);
+
+        OVS::setInterface("To-ovs-" . $bridgeInt, [
+            'type' => 'patch',
+            'options:peer' => "To-ovs-" . $bridge
+        ]);
+        OVS::portAdd($bridgeInt, "To-ovs-" . $bridge, true);
+        OVS::setInterface("To-ovs-" . $bridge, [
+            'type' => 'patch',
+            'options:peer' => "To-ovs-" . $bridgeInt
+        ]);
+        
+    }
+
+    public function disinterconnect(string $descriptor)
+    {
+        /** @var array $labInstance */
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $labNetwork = getenv('LAB_NETWORK');
+        $dataNetwork = getenv('DATA_NETWORK');
+        $bridgeInt = getenv('BRIDGE_INT');
+        $bridgeIntGateway = getenv('BRIDGE_INT_GW');
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            return;
+        }
+
+        $bridge=$labInstance['instances'][0]['bridgeName'];
+
+        OVS::portDelete($bridge, "To-ovs-" . $bridgeInt, true);
+        OVS::portDelete($bridgeInt, "To-ovs-" . $bridge, true);
+
+        
     }
 
     
