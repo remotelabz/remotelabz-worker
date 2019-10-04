@@ -499,27 +499,12 @@ class LabController extends AbstractController
             // invalid json
             return;
         }
-      
-
-        //$bridge = $labInstance['instances']['bridgeName'];
-        
-        $bridge=$labInstance['instances'][0]['bridgeName'];
-        
+            
+        $bridge=$labInstance['bridgeName'];
+        $this->LinkTwoOVS($bridge,$bridgeInt);
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
   
-        // Create patch between lab's OVS and Worker's OVS
-        OVS::portAdd($bridge, "To-ovs-" . $bridgeInt, true);
-        $this->logger->debug("connectToInternet - Add port To-ovs-" . $bridgeInt . " to bridge :".$bridgeInt);
 
-        OVS::setInterface("To-ovs-" . $bridgeInt, [
-            'type' => 'patch',
-            'options:peer' => "To-ovs-" . $bridge
-        ]);
-        OVS::portAdd($bridgeInt, "To-ovs-" . $bridge, true);
-        OVS::setInterface("To-ovs-" . $bridge, [
-            'type' => 'patch',
-            'options:peer' => "To-ovs-" . $bridgeInt
-        ]);
 
 
         // Create new routing table for packet from the network of lab's device
@@ -557,10 +542,9 @@ class LabController extends AbstractController
             return;
         }
 
-        $bridge=$labInstance['instances'][0]['bridgeName'];
+        $bridge=$labInstance['bridgeName'];
 
-        OVS::portDelete($bridge, "To-ovs-" . $bridgeInt, true);
-        OVS::portDelete($bridgeInt, "To-ovs-" . $bridge, true);
+        $this->UnlinkTwoOVS($bridge,$bridgeInt);
 
         // Create new routing table for packet from the network of lab's device
         IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
@@ -595,28 +579,40 @@ class LabController extends AbstractController
             // invalid json
             return;
         }
-      
+        
 
         //$bridge = $labInstance['instances']['bridgeName'];
         
-        $bridge=$labInstance['instances'][0]['bridgeName'];
-        
+        $bridge=$labInstance['bridgeName'];
+        $this->LinkTwoOVS($bridge,$bridgeInt);
+
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
   
-        // Create patch between lab's OVS and Worker's OVS
-        OVS::portAdd($bridge, "To-ovs-" . $bridgeInt, true);
-        $this->logger->debug("connectToInternet - Add port To-ovs-" . $bridgeInt . " to bridge :".$bridgeInt);
-
-        OVS::setInterface("To-ovs-" . $bridgeInt, [
-            'type' => 'patch',
-            'options:peer' => "To-ovs-" . $bridge
-        ]);
-        OVS::portAdd($bridgeInt, "To-ovs-" . $bridge, true);
-        OVS::setInterface("To-ovs-" . $bridge, [
-            'type' => 'patch',
-            'options:peer' => "To-ovs-" . $bridgeInt
-        ]);
         
+        
+    }
+
+    private function LinkTwoOVS(string $bridge,string $bridgeInt)
+    {
+        // Create patch between lab's OVS and Worker's OVS
+        OVS::portAdd($bridge, "Patch-ovs-" . $bridge, true);
+        $this->logger->debug("connectToInternet - Add port To-ovs-" . $bridgeInt . " to bridge :".$bridgeInt);
+        OVS::setInterface("Patch-ovs-" . $bridge, [
+            'type' => 'patch',
+            'options:peer' => "Patch-ovs-" . $bridgeInt
+        ]);
+
+        OVS::portAdd($bridgeInt, "Patch-ovs-" . $bridgeInt, true);
+        OVS::setInterface("Patch-ovs-" . $bridgeInt, [
+            'type' => 'patch',
+            'options:peer' => "Patch-ovs-" . $bridge
+        ]);
+    }
+
+    private function UnlinkTwoOVS(string $bridge,string $bridgeInt)
+    {
+    OVS::portDelete($bridgeInt, "Patch-ovs-" . $bridgeInt, true);
+    OVS::portDelete($bridge, "Patch-ovs-" . $bridge, true);
     }
 
     public function disinterconnect(string $descriptor)
@@ -633,12 +629,11 @@ class LabController extends AbstractController
             return;
         }
 
-        $bridge=$labInstance['instances'][0]['bridgeName'];
+        $bridge=$labInstance['bridgeName'];
 
-        OVS::portDelete($bridge, "To-ovs-" . $bridgeInt, true);
-        OVS::portDelete($bridgeInt, "To-ovs-" . $bridge, true);
+        $this->UnlinkTwoOVS($bridge,$bridgeInt);
 
-        
+       
     }
 
     
