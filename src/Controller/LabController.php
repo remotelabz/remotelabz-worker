@@ -349,7 +349,10 @@ class LabController extends AbstractController
             ];
 
             if ($networkInterface['settings']['protocol'] === 'VNC' && (!$alreadyHasControlNic)) {
-                $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
+                if (array_key_exists('ip',$networkInterface['settings']))
+                    $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
+                else 
+                    $vncAddress ="0.0.0.0";
                 $vncPort = $networkInterfaceInstance['remotePort'];
 
                 $process = new Process(['websockify', '-D', $vncAddress . ':' . ($vncPort + 1000), $vncAddress.':'.$vncPort]);
