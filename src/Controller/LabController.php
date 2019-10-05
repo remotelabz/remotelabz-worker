@@ -444,7 +444,11 @@ class LabController extends AbstractController
             $networkInterfaceName = substr($networkInterface['name'], 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
 
             if ($networkInterface['settings']['protocol'] === 'VNC') {
-                $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
+                if (array_key_exists('ip',$networkInterface['settings']))
+                    $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
+                else
+                    $vncAddress ="0.0.0.0";
+
                 $vncPort = $networkInterfaceInstance['remotePort'];
                 
                 $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
