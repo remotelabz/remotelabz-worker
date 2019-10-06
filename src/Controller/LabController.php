@@ -366,7 +366,7 @@ class LabController extends AbstractController
         }
 
         array_push($parameters['local'],
-            '-rtc base=localtime,clock=host', // For qemu 3 support
+            '-rtc', 'base=localtime,clock=host', // For qemu 3 support
             '-smp', '4',
             '-vga', 'qxl'
         );
