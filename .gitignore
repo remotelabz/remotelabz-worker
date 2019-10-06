@@ -16,3 +16,5 @@
 /.vscode/
 /images/
 /instances/
+composer.lock
+symfony.lock
