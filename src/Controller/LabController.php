@@ -505,6 +505,8 @@ class LabController extends AbstractController
         $bridgeInt = getenv('BRIDGE_INT');
         $bridgeIntGateway = getenv('BRIDGE_INT_GW');
 
+        IPTools::linkSet($bridgeInt, IPTools::LINK_SET_UP);
+
         if (!is_array($labInstance)) {
             // invalid json
             return;
@@ -513,9 +515,6 @@ class LabController extends AbstractController
         $bridge=$labInstance['bridgeName'];
         $this->LinkTwoOVS($bridge,$bridgeInt);
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
-  
-
-
 
         // Create new routing table for packet from the network of lab's device
         IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
