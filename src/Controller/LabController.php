@@ -366,7 +366,7 @@ class LabController extends AbstractController
         }
 
         array_push($parameters['local'],
-            '-localtime',
+            '-rtc base=localtime,clock=host', // For qemu 3 support
             '-smp', '4',
             '-vga', 'qxl'
         );
@@ -375,6 +375,8 @@ class LabController extends AbstractController
 
         $command = [
             'qemu-system-' . $arch,
+            '-enable-kvm',
+            '-machine', 'accel=kvm:tcg',
             '-cpu', 'max',
             '-display', 'none',
             '-daemonize',
@@ -386,6 +388,7 @@ class LabController extends AbstractController
                 array_push($command, $parameter);
             }
         }
+        $this->logger->debug("startDeviceInstance - Start qemu ".implode(' ',$command));
 
         $process = new Process($command);
         $process->mustRun();
