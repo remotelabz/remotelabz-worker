@@ -332,41 +332,58 @@ class LabController extends AbstractController
         $alreadyHasControlNic = false;
 
         foreach($deviceInstance['networkInterfaceInstances'] as $networkInterfaceInstance) {
+            $this->logger->debug("network intance ".$networkInterfaceInstance['networkInterface']['name']);
+
             $networkInterface = $networkInterfaceInstance['networkInterface'];
             $networkInterfaceName = substr($networkInterface['name'], 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
 
             if (!IPTools::networkInterfaceExists($networkInterfaceName)) {
                 IPTools::tuntapAdd($networkInterfaceName, IPTools::TUNTAP_MODE_TAP);
+                $this->logger->debug("Interface ".$networkInterfaceName." created");
+
             }
 
             if (!OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
                 OVS::portAdd($bridgeName, $networkInterfaceName);
+                $this->logger->debug("Interface ".$networkInterfaceName." added to OVS ".$bridgeName);
             }
             IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_UP);
+            $this->logger->debug("Interface ".$networkInterfaceName." set up");
 
-            $parameters['network'] += [ '-net', 'nic,macaddr=' . $networkInterface['macAddress'],
+
+            // Obsolete parameters
+            /*$parameters['network'] += [ '-net', 'nic,macaddr=' . $networkInterface['macAddress'],
                 '-net', 'tap,ifname=' . $networkInterfaceName . ',script=no'
-            ];
+            ];*/
+            
+            array_push($parameters['network'],'-device','e1000,netdev='.$networkInterfaceName.',mac='.$networkInterface['macAddress'],
+                '-netdev', 'tap,ifname='.$networkInterfaceName.',id='.$networkInterfaceName.',script=no');
 
-            if ($networkInterface['settings']['protocol'] === 'VNC' && (!$alreadyHasControlNic)) {
-                if (array_key_exists('ip',$networkInterface['settings']))
-                    $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
-                else 
-                    $vncAddress ="0.0.0.0";
-                $vncPort = $networkInterfaceInstance['remotePort'];
+            $this->logger->debug("parameters network ".implode(' ',$parameters['network']));
 
-                $process = new Process(['websockify', '-D', $vncAddress . ':' . ($vncPort + 1000), $vncAddress.':'.$vncPort]);
-                $process->mustRun();
+//-device e1000,netdev=my$((i)),mac=${MAC}$(printf %02x $i) -netdev tap,ifname=t_${NAME}_1,id=my$((i)),script=no
 
-                array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
-                array_push($parameters['local'], '-k', 'fr');
+           // If the VM has multiple network interface, only one is used to the vnc
+            if ( (!$alreadyHasControlNic) && array_key_exists('settings',$networkInterface) && array_key_exists('protocol',$networkInterface['settings']))
+                if ($networkInterface['settings']['protocol'] === 'VNC' ) {
+                    if (array_key_exists('ip',$networkInterface['settings']))
+                        $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
+                    else 
+                        $vncAddress ="0.0.0.0";
+                    $vncPort = $networkInterfaceInstance['remotePort'];
 
-                $alreadyHasControlNic = true;
-            }
+                    $process = new Process(['websockify', '-D', $vncAddress . ':' . ($vncPort + 1000), $vncAddress.':'.$vncPort]);
+                    $process->mustRun();
+
+                    array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
+                    array_push($parameters['local'], '-k', 'fr');
+
+                    $alreadyHasControlNic = true;
+                }
         }
 
         array_push($parameters['local'],
-            '-rtc', 'base=localtime,clock=host', // For qemu 3 support
+            '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
             '-smp', '4',
             '-vga', 'qxl'
         );
@@ -446,11 +463,12 @@ class LabController extends AbstractController
             $networkInterface = $networkInterfaceInstance['networkInterface'];
             $networkInterfaceName = substr($networkInterface['name'], 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
 
-            if ($networkInterface['settings']['protocol'] === 'VNC') {
-                if (array_key_exists('ip',$networkInterface['settings']))
-                    $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
-                else
-                    $vncAddress ="0.0.0.0";
+            if (array_key_exists('protocol',$networkInterface['settings']))
+                if ($networkInterface['settings']['protocol'] === 'VNC') {
+                    if (array_key_exists('ip',$networkInterface['settings']))
+                        $vncAddress = $networkInterface['settings']['ip'] ?: "0.0.0.0";
+                    else
+                        $vncAddress ="0.0.0.0";
 
                 $vncPort = $networkInterfaceInstance['remotePort'];
                 
@@ -518,6 +536,7 @@ class LabController extends AbstractController
 
         // Create new routing table for packet from the network of lab's device
         IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
+        IPTools::ruleAdd('to ' . $labNetwork, 'lookup 4');
         if (!IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
             IPTools::routeAdd($dataNetwork . ' dev ' . $bridgeInt, 4);
         }
