@@ -2,6 +2,7 @@
 namespace App\Controller;
 
 use App\Bridge\Network\OVS;
+use Psr\Log\LoggerInterface;
 use App\Bridge\Network\IPTools;
 use App\Bridge\Network\IPTables\Rule;
 use Symfony\Component\Process\Process;
@@ -14,7 +15,6 @@ use Doctrine\Common\Collections\ArrayCollection;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Psr\Log\LoggerInterface;
 
 class LabController extends AbstractController
 {
@@ -287,13 +287,24 @@ class LabController extends AbstractController
         $deviceInstance = reset($deviceInstance);
         $deviceInstanceUuid = $deviceInstance['uuid'];
         $labUser = $labInstance['userId'];
+        $ownedBy = $labInstance['ownedBy'];
         $labInstanceUuid = $labInstance['uuid'];
         $img = [
             "source" => $deviceInstance['device']['operatingSystem']['image']
         ];
 
         $filesystem = new Filesystem();
-        $filesystem->mkdir($this->workerDir . "/instances/" . $labUser . "/" . $labInstanceUuid . "/" . $deviceInstanceUuid);
+
+        $instancePath = $this->kernel->getProjectDir() . "/instances";
+        $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
+        $instancePath .= '/' . $labUser;
+        $instancePath .= '/' . $labInstanceUuid;
+        $instancePath .= '/' . $deviceInstanceUuid;
+
+        $filesystem->mkdir($instancePath);
+        if (!$filesystem->exists($this->kernel->getProjectDir() . "/images")) {
+            $filesystem->mkdir($this->kernel->getProjectDir() . "/images");
+        }
 
         if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
             if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
@@ -311,7 +322,7 @@ class LabController extends AbstractController
             }
         }
 
-        $img['destination'] = $this->kernel->getProjectDir() . "/instances/" . $labUser . "/" . $labInstanceUuid . "/" . $deviceInstanceUuid . "/" . basename($img['source']);
+        $img['destination'] = $instancePath . '/' . basename($img['source']);
         $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
 
         $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img['source'], $img['destination']]);
@@ -529,7 +540,7 @@ class LabController extends AbstractController
             // invalid json
             return;
         }
-            
+
         $bridge=$labInstance['bridgeName'];
         $this->LinkTwoOVS($bridge,$bridgeInt);
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
@@ -570,27 +581,30 @@ class LabController extends AbstractController
             return;
         }
 
-        $bridge=$labInstance['bridgeName'];
+        $bridge = $labInstance['bridgeName'];
 
-        $this->UnlinkTwoOVS($bridge,$bridgeInt);
+        $this->UnlinkTwoOVS($bridge, $bridgeInt);
 
         // Create new routing table for packet from the network of lab's device
-        IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
+        if (IPTools::ruleExists('from ' . $labNetwork, 'lookup 4')) {
+            IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
+        }
         if (IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
             IPTools::routeDelete($dataNetwork . ' dev ' . $bridgeInt, 4);
         }
         if (IPTools::routeExists('default via ' . $bridgeIntGateway, 4)) {
             IPTools::routeDelete('default via ' . $bridgeIntGateway, 4);
         }
-        IPTables::delete(
-            IPTables::CHAIN_POSTROUTING,
-            Rule::create()
-                ->setSource($labNetwork)
-                ->setOutInterface($bridgeInt)
-                ->setJump('MASQUERADE')
-            ,
-            'nat'
-        );
+
+        $rule = Rule::create()
+            ->setSource($labNetwork)
+            ->setOutInterface($bridgeInt)
+            ->setJump('MASQUERADE')
+        ;
+
+        if (IPTables::exists(IPTables::CHAIN_POSTROUTING, $rule, 'nat')) {
+            IPTables::delete(IPTables::CHAIN_POSTROUTING, $rule, 'nat');
+        }
     }
 
     public function interconnect(string $descriptor)
@@ -637,10 +651,15 @@ class LabController extends AbstractController
         ]);
     }
 
-    private function UnlinkTwoOVS(string $bridge,string $bridgeInt)
+    private function UnlinkTwoOVS(string $bridge, string $bridgeInt)
     {
-    OVS::portDelete($bridgeInt, "Patch-ovs-" . $bridgeInt, true);
-    OVS::portDelete($bridge, "Patch-ovs-" . $bridge, true);
+        if (OVS::ovsPortExists($bridgeInt, "Patch-ovs-" . $bridgeInt)) {
+            OVS::portDelete($bridgeInt, "Patch-ovs-" . $bridgeInt, true);
+        }
+        
+        if (OVS::ovsPortExists($bridge, "Patch-ovs-" . $bridge)) {
+            OVS::portDelete($bridge, "Patch-ovs-" . $bridge, true);
+        }
     }
 
     public function disinterconnect(string $descriptor)

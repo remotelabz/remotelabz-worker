@@ -84,11 +84,46 @@ class IPTables extends Bridge
             array_push($command, '-t', $table);
         }
 
-        array_push($command,'-D', $chain);
+        array_push($command, '-D', $chain);
 
         $rule = $rule->export();
         array_push($command, ...$rule);
 
         return static::exec($command);
+    }
+
+    /**
+     * Check if a rule exists in the selected chain.
+     *
+     * @param string $chain The chain to append the rule.
+     * @param Rule $rule The rule to delete.
+     * @param string $table The table to apply the rule.
+     * @throws Exception If the device name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return bool
+     */
+    public static function exists(string $chain, Rule $rule, string $table = null) : bool {
+        if (!static::isValidChain($chain)) {
+            throw new UnexpectedValueException($chain . ' is not a valid chain name.');
+        }
+
+        $command = [];
+
+        if (!empty($table)) {
+            array_push($command, '-t', $table);
+        }
+
+        array_push($command, '-C', $chain);
+
+        $rule = $rule->export();
+        array_push($command, ...$rule);
+
+        $output = static::exec($command, false);
+
+        if ($output->getExitCode() == 0) {
+            return true;
+        } else {
+            return false;
+        }
     }
 }

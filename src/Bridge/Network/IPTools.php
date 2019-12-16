@@ -224,6 +224,33 @@ class IPTools extends Bridge
         return static::exec($command);
     }
 
+    public static function ruleExists(string $selector, string $action) : bool
+    {
+        if (empty($selector) || empty($action)) {
+            throw new Exception("Selector or action cannot be empty.");
+        }
+        
+        $rule = $selector . ' ' . $action;
+
+        $selector = explode(' ', $selector);
+        $action = explode(' ', $action);
+
+        $command = [ 'rule', 'show' ];
+        array_push($command, ...$selector);
+        array_push($command, ...$action);
+
+        $output = static::exec($command);
+
+        $rule = preg_quote($rule, '/');
+        $rule = preg_replace('/$rule/', '\/', $rule);
+
+        if ($output->getExitCode() == 0 && preg_match('/(' . $rule . ')/', $output->getOutput())) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     /**
      * Add a TUN:TAP interface.
      *
