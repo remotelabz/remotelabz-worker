@@ -157,11 +157,7 @@ class OVS extends Bridge
         } catch (ProcessFailedException $exception) {
             return false;
         }
-        
-        if (strpos($process->getOutput(), $port) !== false) {
-            return true;
-        } else {
-            return false;
-        }
+
+        return true;
     }
 }

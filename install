@@ -91,8 +91,10 @@ mkdir -p "${INSTALL_LOG_PATH}"
 # Install packages
 echo -n "📦 Installing required packages... "
 debug "Running apt-get to grab required packages..."
+apt-get install software-properties-common >> "${INSTALL_LOG}" 2>&1
+add-apt-repository ppa:ondrej/php >> "${INSTALL_LOG}" 2>&1
 apt-get update >> "${INSTALL_LOG}" 2>&1
-apt-get install -y apache2 php zip unzip php-curl php-xdebug php-xml qemu libxml2-utils openvswitch-switch git python3 python3-pip python3-openvswitch >> "${INSTALL_LOG}" 2>&1
+apt-get install -y apache2 php7.3 zip unzip php7.3-curl php7.3-xml qemu libxml2-utils openvswitch-switch git python3 python3-pip python3-openvswitch >> "${INSTALL_LOG}" 2>&1
 echo "OK ✔️"
 
 # Copy self-directory into destination
@@ -136,7 +138,7 @@ fi
 
 echo -n "Configure data network"
 ovs-vsctl add-br "${BRIDGE_INT}"
-# TODO : Test if ${DATA_INTERFACE} has an IP to avoid to shutdown the connexion
+# TODO: Test if ${DATA_INTERFACE} has an IP to avoid to shutdown the connexion
 # If ${DATA_INTERFACE} has an IP address, perhaps it's the actual network interface
 # and not a second interface reserved for data of the VMs
 ovs-vsctl add-port "${BRIDGE_INT}" "${DATA_INTERFACE}"

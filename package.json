@@ -1,0 +1,20 @@
+{
+    "name": "remotelabz-worker",
+    "version": "1.0.0",
+    "description": "VM-side of RemoteLabz v2 project.",
+    "main": "index.js",
+    "directories": {
+      "doc": "docs"
+    },
+    "scripts": {
+      "consume": "sudo php bin/console messenger:consume worker",
+      "consume-debug": "sudo php bin/console messenger:consume worker -vvv"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git@gitlab.remotelabz.com:crestic/remotelabz-worker.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC"
+}
