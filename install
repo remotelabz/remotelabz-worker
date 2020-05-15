@@ -7,41 +7,24 @@ ENV_FILE=".env"
 if [ -f ./${ENV_FILE} ]; then
      source ./${ENV_FILE}
 else
-     echo "Error: Environment file .env not found in ${ENV_FILE}. Please check this file exists and try again." >&2
+     echo "Error: Environment file .env not found in ${ENV_FILE}. Please check this file exists and try again."
      exit 1
 fi
 
-export INSTALL_LOG_PATH="/var/log/remotelabz-worker"
-export INSTALL_LOG="${INSTALL_LOG_PATH}/install.log"
-
-
 function debug() {
-  if [ -d "${INSTALL_LOG_PATH}" ]; then
-    echo "[$(date -u)] $1" >> "${INSTALL_LOG}" 2>&1
-  fi
-
+  echo "$1"
 }
 
 function warning() {
-  if [ -d "${INSTALL_LOG_PATH}" ]; then
-    echo -ne "\e[33m" >> "${INSTALL_LOG}" 2>&1
-    echo -n "[$(date -u)] WARN: $1" >> "${INSTALL_LOG}" 2>&1
-    echo -e "\e[39m" >> "${INSTALL_LOG}" 2>&1
-  fi
+  echo "WARNING: $1"
 }
 
 function error() {
-  if [ -d "${INSTALL_LOG_PATH}" ]; then
-    echo -ne "\e[31m" >> "${INSTALL_LOG}" 2>&1
-    echo -n "[$(date -u)] ERROR: $1" >> "${INSTALL_LOG}" 2>&1
-    echo -e "\e[39m" >> "${INSTALL_LOG}" 2>&1
-  fi
+  echo "ERROR: $1"
 }
 
 function quit_on_error() {
-  echo "Error ❌"
   error $BASH_COMMAND ${BASH_LINENO[0]}
-  echo "Please check logs in ${INSTALL_LOG} to see what went wrong. Exiting..."
   exit 1
 }
 
@@ -49,10 +32,14 @@ trap 'quit_on_error' ERR
 
 debug "Starting remoteLabz-worker installation"
 
+# Check for ubuntu >18.04
+if [ ! $(which lsb_release) ] || [ $(lsb_release -is) != "Ubuntu" ]; then
+  error "Your platform is unsupported. Please use Ubuntu > 18.04."
+  exit 1
+fi
 # Check for root
 if [ "$(whoami)" != "root" ]; then
-    error "Installation aborted, root is required!"
-    echo "ERROR: This script must be executed as root! We need to hack some things on your computer. 😎"
+    error "Installation aborted, root is required! Please reload the script as root to continue..."
     exit 1
 fi
 
@@ -85,126 +72,88 @@ export DEBIAN_FRONTEND=noninteractive
 export COMPOSER_ALLOW_SUPERUSER=1
 SCRIPT=$(readlink -f "$0")
 SCRIPT_DIR=$(dirname "$SCRIPT")
-HAS_MOVED=0
 
-mkdir -p "${INSTALL_LOG_PATH}"
-# Install packages
-echo -n "📦 Installing required packages... "
-debug "Running apt-get to grab required packages..."
-apt-get install software-properties-common >> "${INSTALL_LOG}" 2>&1
-add-apt-repository ppa:ondrej/php >> "${INSTALL_LOG}" 2>&1
-apt-get update >> "${INSTALL_LOG}" 2>&1
-apt-get install -y apache2 php7.3 zip unzip php7.3-curl php7.3-xml qemu libxml2-utils openvswitch-switch git python3 python3-pip python3-openvswitch >> "${INSTALL_LOG}" 2>&1
+debug "Running apt-get to grab required packages"
+apt-get install -y software-properties-common
+add-apt-repository -y ppa:ondrej/php
+apt-get update
+apt-get install -y apache2 php7.3 zip unzip qemu openvswitch-switch git python3 python3-pip python3-openvswitch
 echo "OK ✔️"
 
-# Copy self-directory into destination
-# echo -n "📁 Copying files to ${REMOTELABZ_WORKER_PATH}... "
-# if [ "${SCRIPT_DIR}" != "${REMOTELABZ_WORKER_PATH}" ]; then
-#   cp -Rf "${SCRIPT_DIR}" "${REMOTELABZ_WORKER_PATH}"
-#   cd "${REMOTELABZ_WORKER_PATH}"
-#   HAS_MOVED=1
-#   echo "OK ✔️"
-# else
-#   echo "Files are already in the right location. Skipping... ✔️"
-# fi
-
 # Create user remotelabz and remotelabz group
-if [ ! $(getent passwd remotelabz) ]; then
-  echo "Creating remotelabz user"
-  useradd -N remotelabz
+if [ ! $(getent passwd remotelabz-worker) ]; then
+  echo "Creating remotelabz-worker user"
+  useradd -N remotelabz-worker
 fi
-if [ ! $(getent group remotelabz) ]; then
-  echo "Creating remotelabz group"
-  groupadd remotelabz
+if [ ! $(getent group remotelabz-worker) ]; then
+  echo "Creating remotelabz-worker group"
+  groupadd remotelabz-worker
 fi
 
-chgrp -R remotelabz "${SCRIPTPATH}"
+chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
-USER_VAGRANT_EXIST=``
-
-if [ ! $(getent passwd vagrant) ]; then
-    echo "Creating vagrant user"
-    useradd vagrant
-    usermod -aG remotelabz vagrant
-fi
-usermod -aG remotelabz www-data
-if [ ! $(getent group kvm) ]; then
-  usermod -aG kvm www-data #add www-data in kvm groups
-fi
-if [ -f "/dev/kvm" ]; then
-  chown www-data /dev/kvm
-fi
-
-echo -n "Configure data network"
-ovs-vsctl add-br "${BRIDGE_INT}"
+echo "Configure data network"
+ovs-vsctl --may-exist add-br "${BRIDGE_INT}"
 # TODO: Test if ${DATA_INTERFACE} has an IP to avoid to shutdown the connexion
 # If ${DATA_INTERFACE} has an IP address, perhaps it's the actual network interface
 # and not a second interface reserved for data of the VMs
-ovs-vsctl add-port "${BRIDGE_INT}" "${DATA_INTERFACE}"
+ovs-vsctl --may-exist add-port "${BRIDGE_INT}" "${DATA_INTERFACE}"
 ip link set up dev "${BRIDGE_INT}"
 ip link set up dev "${DATA_INTERFACE}"
 
-echo -n "IP configuration of the gateway to data network for the VMs"
-ip addr add "${BRIDGE_INT_IP_ADDRESS}" dev "${BRIDGE_INT}"
+echo "IP configuration of the gateway to data network for the VMs"
+ip addr add "${BRIDGE_INT_IP_ADDRESS}" dev "${BRIDGE_INT}" || true
 echo "OK ✔️"
 
-echo "www-data     ALL = (ALL) NOPASSWD: $(which ip), $(which iptables), $(which ovs-vsctl)" | sudo tee /etc/sudoers.d/www-data >> "${INSTALL_LOG}" 2>&1
+echo "Adding sudo permissions for remotelabz-worker user"
+echo "remotelabz-worker     ALL = (ALL) NOPASSWD: $(which ip), $(which iptables), $(which ovs-vsctl)" | sudo tee /etc/sudoers.d/remotelabz-worker
+echo "OK ✔️"
 
 # Composer
-echo -n "🤵 Installing Composer... "
+echo "Installing Composer"
 if ! [ $(command -v composer) ]; then
-    php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" >> "${INSTALL_LOG}" 2>&1
-    php composer-setup.php >> "${INSTALL_LOG}" 2>&1
-    php -r "unlink('composer-setup.php');" >> "${INSTALL_LOG}" 2>&1
-    mv composer.phar /usr/local/bin/composer >> "${INSTALL_LOG}" 2>&1
+    cp composer.phar /usr/local/bin/composer
     echo "OK ✔️"
 else
-  echo "Composer is already installed! Skipping... ✔️"
-  warning "Not installing Composer because it is done already."
+  echo "Composer is already installed! Skipping."
 fi
 
-echo -n "🎶 Downloading Composer packages... "
-(cd "${SCRIPTPATH}" && composer install --no-progress --no-suggest) >> "${INSTALL_LOG}" 2>&1
-echo "OK ✔️"
-chown -R remotelabz:remotelabz "${SCRIPTPATH}"/vendor
+echo "Downloading Composer packages"
+(cd "${SCRIPTPATH}" && composer install --no-progress --no-suggest)
+chown -R remotelabz-worker:remotelabz-worker "${SCRIPTPATH}"/vendor
 chmod -R 777 "${SCRIPTPATH}"/vendor
-
-echo -n "🔥 Warming cache... "
-php "${SCRIPTPATH}"/bin/console cache:warm >> "${INSTALL_LOG}" 2>&1
 echo "OK ✔️"
-chown -R www-data:remotelabz "${SCRIPTPATH}"/var
-chmod -R 775 "${SCRIPTPATH}"/var
 
 # Folders
 debug "Creating images folder if it does not exists already..."
+ln -fs "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/images"
-chmod g+w "${REMOTELABZ_WORKER_PATH}/images"
+chmod g+rwx "${REMOTELABZ_WORKER_PATH}/images"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
-chmod g+w "${REMOTELABZ_WORKER_PATH}/instances"
+chmod g+rwx "${REMOTELABZ_WORKER_PATH}/instances"
 
 # Websockify
-echo -n "📡 Installing WebSockify... "
+echo "Installing WebSockify"
 if ! [ $(command -v websockify) ]; then
     debug "Installing WebSockify..."
-    pip3 install setuptools >> "${INSTALL_LOG}" 2>&1
-    git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify" >> "${INSTALL_LOG}" 2>&1
-    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install) >> "${INSTALL_LOG}" 2>&1
-    rm -rf "${REMOTELABZ_WORKER_PATH}/websockify" >> "${INSTALL_LOG}" 2>&1
+    pip3 install setuptools
+    git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify"
+    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install)
+    rm -rf "${REMOTELABZ_WORKER_PATH}/websockify"
     echo "OK ✔️"
 else
-  echo "WebSockify is already installed! Skipping... ✔️"
-  warning "Not installing WebSockify because it is done already."
+  echo "WebSockify is already installed! Skipping."
 fi
 
 # Grant OVS permissions to remotelabz group
 chmod g+rwx /var/run/openvswitch/db.sock
-chgrp remotelabz /var/run/openvswitch/db.sock
+chgrp remotelabz-worker /var/run/openvswitch/db.sock
 
 # Configure apache
-echo -n "🌎 Configuring Apache with port ${REMOTELABZ_WORKER_PORT}... "
+echo "Configuring Apache with port ${REMOTELABZ_WORKER_PORT}"
 if grep -Fxq "Listen ${REMOTELABZ_WORKER_PORT}" /etc/apache2/ports.conf; then
-  echo "Port ${REMOTELABZ_WORKER_PORT} is already configured in apache2." >> "${INSTALL_LOG}" 2>&1
+  echo "Port ${REMOTELABZ_WORKER_PORT} is already configured in apache2."
 else
   echo "Listen ${REMOTELABZ_WORKER_PORT}" >> /etc/apache2/ports.conf
 fi
@@ -212,13 +161,14 @@ cp -f "${SCRIPTPATH}"/config/apache/100-remotelabz-worker.conf /etc/apache2/site
 sed -i "s/Listen 8080/Listen ${REMOTELABZ_WORKER_PORT}/g" /etc/apache2/sites-available/100-remotelabz-worker.conf
 sed -i 's,/var/www/html/remotelabz-worker,'"${SCRIPTPATH}"',' /etc/apache2/sites-available/100-remotelabz-worker.conf
 ln -fs /etc/apache2/sites-available/100-remotelabz-worker.conf /etc/apache2/sites-enabled/100-remotelabz-worker.conf
-apache2ctl restart >> "${INSTALL_LOG}" 2>&1
+apache2ctl restart || true
 echo "OK ✔️"
 
-echo "Done!"
-echo "RemoteLabz-worker is installed and ready to serve neat VMs! 🔥"
-# if [ $HAS_MOVED -eq 1 ]; then
-#   echo "You may now remove this folder. ♻️"
-# fi
+echo "Setup remotelabz service"
+ln -fs "${SCRIPTPATH}"/bin/remotelabz-worker.service /etc/systemd/system/remotelabz-worker.service
+systemctl daemon-reload || true
+echo "OK ✔️"
+
+echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
 echo "Thank you for using our software. ❤️"
 exit 0
