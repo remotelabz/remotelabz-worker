@@ -9,6 +9,8 @@ class InstanceStateMessage
     private $state;
     const TYPE_LAB = "lab";
     const TYPE_DEVICE = "device";
+    const STATE_CREATED = "created";
+    const STATE_DELETED = "deleted";
     const STATE_STARTING = "starting";
     const STATE_STOPPING = "stopping";
     const STATE_STARTED = "started";

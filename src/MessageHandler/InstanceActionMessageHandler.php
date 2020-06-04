@@ -8,10 +8,10 @@ use ErrorException;
 use App\Bridge\Network\OVS;
 use Psr\Log\LoggerInterface;
 use App\Bridge\Network\IPTools;
-use App\Message\InstanceMessage;
 use Symfony\Component\Dotenv\Dotenv;
 use App\Bridge\Network\IPTables\Rule;
 use App\Message\InstanceStateMessage;
+use App\Message\InstanceActionMessage;
 use Symfony\Component\Process\Process;
 use App\Bridge\Network\IPTables\IPTables;
 use App\Exception\BadDescriptorException;
@@ -21,7 +21,7 @@ use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
 
-class InstanceMessageHandler implements MessageHandlerInterface
+class InstanceActionMessageHandler implements MessageHandlerInterface
 {
     private $kernel;
     private $workerDir;
@@ -36,7 +36,7 @@ class InstanceMessageHandler implements MessageHandlerInterface
         $this->bus = $bus;
     }
 
-    public function __invoke(InstanceMessage $message)
+    public function __invoke(InstanceActionMessage $message)
     {
         $this->logger->debug("Received instance message.", [
             "uuid" => $message->getUuid(),
@@ -44,66 +44,116 @@ class InstanceMessageHandler implements MessageHandlerInterface
             "content" => $message->getContent()
         ]);
 
-        switch ($message->getAction()) {
-            case InstanceMessage::ACTION_START:
-                try {
-                    $this->startDeviceInstance($message->getContent(), $message->getUuid());
-                    $this->logger->info("Instance was started succesfully.", ["uuid" => $message->getUuid()]);
-                    $this->bus->dispatch(
-                        new InstanceStateMessage(InstanceStateMessage::TYPE_DEVICE, $message->getUuid(), InstanceStateMessage::STATE_STARTED)
-                    );
-                } catch (ProcessFailedException $e) {
-                    $this->logger->critical(
-                        "Starting device instance " . $message->getUuid() . " throwed an exception while executing a process.", [
-                            "output" => $e->getProcess()->getErrorOutput(),
-                            "instance" => $message->getUuid()
-                        ]
-                    );
-                    $this->bus->dispatch(
-                        new InstanceStateMessage(InstanceStateMessage::TYPE_DEVICE, $message->getUuid(), InstanceStateMessage::STATE_ERROR)
-                    );
-                } catch (Exception $e) {
-                    $this->logger->critical(
-                        "Starting device instance " . $message->getUuid() . " throwed an exception.", [
-                            "exception" => $e,
-                            "message" => $e->getMessage(),
-                            "instance" => $message->getUuid()
-                        ]);
-                    $this->bus->dispatch(
-                        new InstanceStateMessage(InstanceStateMessage::TYPE_DEVICE, $message->getUuid(), InstanceStateMessage::STATE_ERROR)
-                    );
-                }
-            break;
+        $returnState = "";
 
-            case InstanceMessage::ACTION_STOP:
-                try {
+        try {
+            switch ($message->getAction()) {
+                case InstanceActionMessage::ACTION_CREATE:
+                    $this->createLabInstance($message->getContent(), $message->getUuid());
+                    $returnState = InstanceStateMessage::STATE_CREATED;
+                    $instanceType = InstanceStateMessage::TYPE_LAB;
+                    break;
+
+                case InstanceActionMessage::ACTION_DELETE:
+                    $this->deleteLabInstance($message->getContent(), $message->getUuid());
+                    $returnState = InstanceStateMessage::STATE_DELETED;
+                    $instanceType = InstanceStateMessage::TYPE_LAB;
+                    break;
+
+                case InstanceActionMessage::ACTION_START:
+                    $this->startDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = InstanceStateMessage::STATE_STARTED;
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                    break;
+
+                case InstanceActionMessage::ACTION_STOP:
                     $this->stopDeviceInstance($message->getContent(), $message->getUuid());
-                    $this->logger->info("Instance was stopped succesfully.", ["uuid" => $message->getUuid()]);
-                    $this->bus->dispatch(
-                        new InstanceStateMessage(InstanceStateMessage::TYPE_DEVICE, $message->getUuid(), InstanceStateMessage::STATE_STOPPED)
-                    );
-                } catch (ProcessFailedException $e) {
-                    $this->logger->critical(
-                        "Stopping device instance " . $message->getUuid() . " throwed an exception while executing a process.", [
-                            "output" => $e->getProcess()->getErrorOutput(),
-                            "instance" => $message->getUuid()
-                        ]);
-                    $this->bus->dispatch(
-                        new InstanceStateMessage(InstanceStateMessage::TYPE_DEVICE, $message->getUuid(), InstanceStateMessage::STATE_ERROR)
-                    );
-                } catch (Exception $e) {
-                    $this->logger->critical(
-                        "Stopping device instance " . $message->getUuid() . " throwed an exception.", [
-                            "exception" => $e,
-                            "message" => $e->getMessage(),
-                            "instance" => $message->getUuid()
-                        ]);
-                    $this->bus->dispatch(
-                        new InstanceStateMessage(InstanceStateMessage::TYPE_DEVICE, $message->getUuid(), InstanceStateMessage::STATE_ERROR)
-                    );
-                }
-            break;
+                    $returnState = InstanceStateMessage::STATE_STOPPED;
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                    break;
+            }
+
+            $this->logger->info("Action " . $message->getAction() . " executed succesfully.", [
+                "uuid" => $message->getUuid()
+            ]);
+        } catch (ProcessFailedException $e) {
+            $this->logger->critical(
+                "Action \"" . $message->getAction() . "\" throwed an exception while executing a process.", [
+                    "output" => $e->getProcess()->getErrorOutput(),
+                    "instance" => $message->getUuid()
+                ]);
+            $returnState = InstanceStateMessage::STATE_ERROR;
+        } catch (Exception $e) {
+            $this->logger->critical(
+                "Action \"" . $message->getAction() . "\" throwed an exception.", [
+                    "exception" => $e,
+                    "message" => $e->getMessage(),
+                    "instance" => $message->getUuid()
+                ]);
+            $returnState = InstanceStateMessage::STATE_ERROR;
         }
+
+        // send back state
+        $this->bus->dispatch(
+            new InstanceStateMessage($instanceType, $message->getUuid(), $returnState)
+        );
+    }
+
+    public function createLabInstance(string $descriptor, string $uuid) {
+        /** @var array $labInstance */
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            $this->logger->error("Invalid JSON was provided!", ["instance" => $labInstance]);
+
+            throw new BadDescriptorException($labInstance);
+        }
+
+        try {
+            $bridgeName = $labInstance['bridgeName'];
+        } catch (ErrorException $e) {
+            $this->logger->error("Bridge name is missing!", ["instance" => $labInstance]);
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+        }
+
+        // OVS
+
+        if (!IPTools::networkInterfaceExists($bridgeName)) {
+            OVS::bridgeAdd($bridgeName, true);
+            $this->logger->info("Bridge doesn't exists. Creating bridge for lab instance.", [
+                'bridgeName' => $bridgeName,
+                'instance' => $labInstance['uuid']
+            ]);
+        } else {
+            $this->logger->debug("Bridge already exists. Skipping bridge creation for lab instance.", [
+                'bridgeName' => $bridgeName,
+                'instance' => $labInstance['uuid']
+            ]);
+        }
+    }
+
+    public function deleteLabInstance(string $descriptor, string $uuid) {
+        /** @var array $labInstance */
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            $this->logger->error("Invalid JSON was provided!", ["instance" => $labInstance]);
+
+            throw new BadDescriptorException($labInstance);
+        }
+
+        try {
+            $bridgeName = $labInstance['bridgeName'];
+        } catch (ErrorException $e) {
+            $this->logger->error("Bridge name is missing!", ["instance" => $labInstance]);
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+        }
+
+        // OVS
+
+        OVS::bridgeDelete($bridgeName, true);
     }
 
     /**
@@ -535,9 +585,6 @@ class InstanceMessageHandler implements MessageHandlerInterface
         $this->LinkTwoOVS($bridge,$bridgeInt);
 
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
-  
-        
-        
     }
 
     private function LinkTwoOVS(string $bridge,string $bridgeInt)

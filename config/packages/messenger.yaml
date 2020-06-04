@@ -10,14 +10,22 @@ framework:
                 dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
                 options:
                     queue_name: worker
+                    exchange:
+                        name: worker
+                    queues:
+                        messages_worker: ~
             front: 
                 dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
                 options:
                     queue_name: front
+                    exchange:
+                        name: front
+                    queues:
+                        messages_front: ~
             failed: 'doctrine://default?queue_name=failed'
             # sync: 'sync://'
 
         routing:
             # Route your messages to the transports
-            'App\Message\InstanceMessage': worker
+            'App\Message\InstanceActionMessage': worker
             'App\Message\InstanceStateMessage': front
