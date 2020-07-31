@@ -402,7 +402,8 @@ class InstanceActionMessageHandler implements MessageHandlerInterface
             // instance is already stopped or whatever
             return;
         } else {
-            $deviceInstance = $deviceInstance[0];
+            $deviceIndex = array_key_first($deviceInstance);
+            $deviceInstance = $deviceInstance[$deviceIndex];
         }
 
         try {
