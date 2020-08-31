@@ -1,4 +1,7 @@
 {
+    "crestic-urca/network-bundle": {
+        "version": "v1.0.2"
+    },
     "doctrine/annotations": {
         "version": "1.0",
         "recipe": {

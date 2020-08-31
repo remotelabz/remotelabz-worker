@@ -15,6 +15,8 @@ use App\Message\InstanceActionMessage;
 use Symfony\Component\Process\Process;
 use App\Bridge\Network\IPTables\IPTables;
 use App\Exception\BadDescriptorException;
+use Remotelabz\NetworkBundle\Entity\IP;
+use Remotelabz\NetworkBundle\Entity\Network;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -198,13 +200,13 @@ class InstanceActionMessageHandler implements MessageHandlerInterface
         }
 
         // TODO: add command sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
-        $labNetwork = explode('.', $_ENV['LAB_NETWORK']);
-        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$labNetwork[0] . '.' . $labNetwork[1] . '.' . $labNetwork[2] . '.254/24');
-        
-        $IP="".$labNetwork[0] . '.' . $labNetwork[1] . '.' . $labNetwork[2] . ".254/24";
-        $this->logger->debug("startDeviceInstance - Check if ".$IP." exist");
-        if (!IPTools::networkIPExists($bridgeName,$IP)) {
-            IPTools::addrAdd($bridgeName,"$IP");
+        // $labNetwork = explode('.', $_ENV['LAB_NETWORK']);
+        $labNetwork =  new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
+        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$labNetwork.'');
+
+        $this->logger->debug("startDeviceInstance - Check if ".$labNetwork." exist");
+        if (!IPTools::networkIPExists($bridgeName, $labNetwork)) {
+            IPTools::addrAdd($bridgeName, $labNetwork);
             $this->logger->debug("Set link ".$bridgeName." up");
         }
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
