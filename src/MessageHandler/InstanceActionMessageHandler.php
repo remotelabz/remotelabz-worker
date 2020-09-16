@@ -47,31 +47,32 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         ]);
 
         $returnState = "";
+        $instanceType = "";
 
         try {
             switch ($message->getAction()) {
                 case InstanceActionMessage::ACTION_CREATE:
+                    $instanceType = InstanceStateMessage::TYPE_LAB;
                     $this->createLabInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_CREATED;
-                    $instanceType = InstanceStateMessage::TYPE_LAB;
                     break;
 
                 case InstanceActionMessage::ACTION_DELETE:
+                    $instanceType = InstanceStateMessage::TYPE_LAB;
                     $this->deleteLabInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_DELETED;
-                    $instanceType = InstanceStateMessage::TYPE_LAB;
                     break;
 
                 case InstanceActionMessage::ACTION_START:
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     $this->startDeviceInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STARTED;
-                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     break;
 
                 case InstanceActionMessage::ACTION_STOP:
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     $this->stopDeviceInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STOPPED;
-                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     break;
             }
 
