@@ -15,6 +15,7 @@ use App\Message\InstanceActionMessage;
 use Symfony\Component\Process\Process;
 use App\Bridge\Network\IPTables\IPTables;
 use App\Exception\BadDescriptorException;
+use Psr\Log\LoggerAwareInterface;
 use Remotelabz\NetworkBundle\Entity\IP;
 use Remotelabz\NetworkBundle\Entity\Network;
 use Symfony\Component\Filesystem\Filesystem;
@@ -23,7 +24,7 @@ use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
 
-class InstanceActionMessageHandler implements MessageHandlerInterface
+class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwareInterface
 {
     private $kernel;
     private $workerDir;
@@ -31,10 +32,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface
     private $logger;
     private $bus;
 
-    public function __construct(KernelInterface $kernel, LoggerInterface $logger, MessageBusInterface $bus) {
+    public function __construct(KernelInterface $kernel, MessageBusInterface $bus) {
         $this->kernel = $kernel;
         $this->workerDir = realpath(dirname(__FILE__) . "/../../");
-        $this->logger = $logger;
         $this->bus = $bus;
     }
 
@@ -636,7 +636,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface
         $bridge=$labInstance['bridgeName'];
 
         $this->UnlinkTwoOVS($bridge,$bridgeInt);
+    }
 
-       
+    public function setLogger(LoggerInterface $logger) {
+        $this->logger = $logger;
     }
 }
