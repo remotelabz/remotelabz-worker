@@ -160,6 +160,17 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
     }
 
     /**
+     * Find last IP of a network
+     * @param string $network the network of form X.X.X.X/M
+     */
+    public function lastIP(string $network) :string {
+        list($range, $netmask) = explode('/', $network, 2);
+        $nb_host=1 << (32-$netmask); //number of host in the range
+        return long2ip(ip2long($range)+$nb_host-2);
+
+    }
+
+    /**
      * Start an instance described by JSON descriptor for device instance specified by UUID.
      *
      * @param string $descriptor JSON representation of a lab instance.
@@ -169,6 +180,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
      */
     public function startDeviceInstance(string $descriptor, string $uuid) {
         /** @var array $labInstance */
+
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
 
         if (!is_array($labInstance)) {
@@ -202,12 +214,14 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
         // TODO: add command sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
         // $labNetwork = explode('.', $_ENV['LAB_NETWORK']);
-        $labNetwork =  new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
-        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$labNetwork.'');
+        $labNetwork =  new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  
+        
+        $BridgeIP= new Network($this->lastIP($labNetwork),$labInstance['network']['netmask']['addr']);
+        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$BridgeIP.'/'.$labInstance['network']['netmask']['addr']);
 
-        $this->logger->debug("startDeviceInstance - Check if ".$labNetwork." exist");
-        if (!IPTools::networkIPExists($bridgeName, $labNetwork)) {
-            IPTools::addrAdd($bridgeName, $labNetwork);
+        $this->logger->debug("startDeviceInstance - Check if ".$BridgeIP." exist");
+        if (!IPTools::networkIPExists($bridgeName, $BridgeIP)) {
+            IPTools::addrAdd($bridgeName, $BridgeIP);
             $this->logger->debug("Set link ".$bridgeName." up");
         }
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
