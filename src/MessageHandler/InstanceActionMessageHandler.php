@@ -217,7 +217,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         $labNetwork =  new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  
         
         $BridgeIP= new Network($this->lastIP($labNetwork),$labInstance['network']['netmask']['addr']);
-        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$BridgeIP.'/'.$labInstance['network']['netmask']['addr']);
+        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$BridgeIP);
 
         $this->logger->debug("startDeviceInstance - Check if ".$BridgeIP." exist");
         if (!IPTools::networkIPExists($bridgeName, $BridgeIP)) {
