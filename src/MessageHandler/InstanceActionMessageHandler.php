@@ -470,6 +470,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                             if ($pid != "") {
                                 $process = new Process(['kill', '-9', $pid]);
                                 $process->mustRun();
+                                $this->logger->debug("Kill websockify process number".$pid);
                             }
                         }
                     }
@@ -481,7 +482,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
                 if (IPTools::networkInterfaceExists($networkInterfaceName)) {
                     IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_DOWN);
-                    // IPTools::linkDelete($networkInterfaceName);
+                    $this->logger->debug("Interface ".$networkInterfaceName." set down");
+                    IPTools::linkDelete($networkInterfaceName);
+                    $this->logger->debug("Interface ".$networkInterfaceName." deleted");
                 }
             }
         }
