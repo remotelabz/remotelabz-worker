@@ -326,7 +326,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                 '-net', 'tap,ifname=' . $networkInterfaceName . ',script=no'
             ];*/
             
-            array_push($parameters['network'],'-device','e1000,netdev='.$networkInterfaceName.',mac='.$networkInterface['macAddress'],
+            array_push($parameters['network'],'-device','e1000,netdev='.$networkInterfaceName.',mac='.$networkInterfaceInstance['macAddress'],
                 '-netdev', 'tap,ifname='.$networkInterfaceName.',id='.$networkInterfaceName.',script=no');
 
             $this->logger->debug("parameters network ".implode(' ',$parameters['network']));

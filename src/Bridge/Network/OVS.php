@@ -122,7 +122,7 @@ class OVS extends Bridge
             throw new Exception("Bridge and port name cannot be empty.");
         }
 
-        $command = [ 'list-posts', $bridge ];
+        $command = [ 'list-ports', $bridge ];
 
         return static::exec($command);
     }
