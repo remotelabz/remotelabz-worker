@@ -6,23 +6,25 @@
         "ext-ctype": "*",
         "ext-iconv": "*",
         "crestic-urca/network-bundle": "^1.0",
+        "crestic-urca/remotelabz-message-bundle": "^1.0",
         "jms/serializer-bundle": "^3.1",
         "laminas/laminas-code": "^3.4",
         "laminas/laminas-eventmanager": "^3.2",
         "sensio/framework-extra-bundle": "^5.2",
-        "symfony/console": "5.0.*",
+        "symfony/amqp-messenger": "5.1.*",
+        "symfony/console": "5.1.*",
         "symfony/debug-pack": "^1.0",
-        "symfony/dotenv": "5.0.*",
-        "symfony/error-handler": "5.0.*",
+        "symfony/dotenv": "5.1.*",
+        "symfony/error-handler": "5.1.*",
         "symfony/flex": "^1.1",
-        "symfony/framework-bundle": "5.0.*",
-        "symfony/http-kernel": "5.0.*",
-        "symfony/messenger": "5.0.*",
+        "symfony/framework-bundle": "5.1.*",
+        "symfony/http-kernel": "5.1.*",
+        "symfony/messenger": "5.1.*",
         "symfony/monolog-bundle": "^3.5",
         "symfony/orm-pack": "^1.0",
-        "symfony/process": "5.0.*",
-        "symfony/twig-bundle": "5.0.*",
-        "symfony/yaml": "5.0.*"
+        "symfony/process": "5.1.*",
+        "symfony/twig-bundle": "5.1.*",
+        "symfony/yaml": "5.1.*"
     },
     "config": {
         "preferred-install": {
@@ -66,7 +68,7 @@
     "extra": {
         "symfony": {
             "allow-contrib": false,
-            "require": "5.0.*"
+            "require": "5.1.*"
         }
     },
     "require-dev": {
@@ -76,6 +78,10 @@
         {
             "type": "vcs",
             "url": "https://github.com/crestic-urca/network-bundle.git"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/crestic-urca/remotelabz-message-bundle.git"
         }
     ]
 }
