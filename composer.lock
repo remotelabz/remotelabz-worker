@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d9a11f8b2ccedf5467376b531eea3a79",
+    "content-hash": "c8e3fa381227338acd988efe129551e9",
     "packages": [
         {
             "name": "composer/package-versions-deprecated",
@@ -131,16 +131,16 @@
         },
         {
             "name": "crestic-urca/remotelabz-message-bundle",
-            "version": "1.0.0",
+            "version": "dev-master",
             "source": {
                 "type": "git",
                 "url": "https://github.com/crestic-urca/remotelabz-message-bundle.git",
-                "reference": "a1dea66d75ce20da8a5f703ef307fff5ee96e6b7"
+                "reference": "627cfec57a94d8772a75057c794a21982dadbf34"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/crestic-urca/remotelabz-message-bundle/zipball/a1dea66d75ce20da8a5f703ef307fff5ee96e6b7",
-                "reference": "a1dea66d75ce20da8a5f703ef307fff5ee96e6b7",
+                "url": "https://api.github.com/repos/crestic-urca/remotelabz-message-bundle/zipball/627cfec57a94d8772a75057c794a21982dadbf34",
+                "reference": "627cfec57a94d8772a75057c794a21982dadbf34",
                 "shasum": ""
             },
             "require": {
@@ -150,6 +150,7 @@
                 "squizlabs/php_codesniffer": "3.*",
                 "symfony/phpunit-bridge": "^5.1"
             },
+            "default-branch": true,
             "type": "symfony-bundle",
             "autoload": {
                 "psr-4": {
@@ -186,7 +187,7 @@
                 "source": "https://github.com/crestic-urca/remotelabz-message-bundle/tree/master",
                 "issues": "https://github.com/crestic-urca/remotelabz-message-bundle/issues"
             },
-            "time": "2020-10-29T15:07:44+00:00"
+            "time": "2020-10-30T13:07:02+00:00"
         },
         {
             "name": "doctrine/annotations",
@@ -6080,7 +6081,9 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {
+        "crestic-urca/remotelabz-message-bundle": 20
+    },
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
@@ -6089,5 +6092,5 @@
         "ext-iconv": "*"
     },
     "platform-dev": [],
-    "plugin-api-version": "1.1.0"
+    "plugin-api-version": "2.0.0"
 }

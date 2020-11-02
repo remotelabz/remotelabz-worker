@@ -1,4 +1,6 @@
 {
+    "name": "crestic-urca/remotelabz-worker",
+    "description": "VM-side of the RemoteLabz project.",
     "type": "project",
     "license": "proprietary",
     "require": {
@@ -6,7 +8,7 @@
         "ext-ctype": "*",
         "ext-iconv": "*",
         "crestic-urca/network-bundle": "^1.0",
-        "crestic-urca/remotelabz-message-bundle": "^1.0",
+        "crestic-urca/remotelabz-message-bundle": "dev-master",
         "jms/serializer-bundle": "^3.1",
         "laminas/laminas-code": "^3.4",
         "laminas/laminas-eventmanager": "^3.2",
