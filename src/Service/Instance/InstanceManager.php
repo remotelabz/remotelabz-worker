@@ -87,17 +87,22 @@ class InstanceManager
         // OVS
 
         OVS::bridgeDelete($bridgeName, true);
-    }
 
-    /**
-     * Find last IP of a network
-     * @param string $network the network of form X.X.X.X/M
-     */
-    public function lastIP(string $network) :string {
-        list($range, $netmask) = explode('/', $network, 2);
-        $nb_host=1 << (32-$netmask); //number of host in the range
-        return long2ip(ip2long($range)+$nb_host-2);
+        try {
+            $labUser = $labInstance['owner']['uuid'];
+            $ownedBy = $labInstance['ownedBy'];
+            $labInstanceUuid = $labInstance['uuid'];
+        } catch (ErrorException $e) {
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+        }
 
+        $instancePath = $this->kernel->getProjectDir() . "/instances";
+        $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
+        $instancePath .= '/' . $labUser;
+        $instancePath .= '/' . $labInstanceUuid;
+
+        $filesystem = new Filesystem();
+        $filesystem->remove($instancePath);
     }
 
     /**
@@ -144,14 +149,13 @@ class InstanceManager
 
         // TODO: add command sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
         // $labNetwork = explode('.', $_ENV['LAB_NETWORK']);
-        $labNetwork =  new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  
-        
-        $BridgeIP= new Network($this->lastIP($labNetwork),$labInstance['network']['netmask']['addr']);
-        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$BridgeIP);
+        $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  
+        $gateway = $labNetwork->getLastAddress();
+        $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$gateway);
 
-        $this->logger->debug("startDeviceInstance - Check if ".$BridgeIP." exist");
-        if (!IPTools::networkIPExists($bridgeName, $BridgeIP)) {
-            IPTools::addrAdd($bridgeName, $BridgeIP);
+        $this->logger->debug("startDeviceInstance - Check if ".$gateway." exist");
+        if (!IPTools::networkIPExists($bridgeName, $gateway)) {
+            IPTools::addrAdd($bridgeName, $gateway);
             $this->logger->debug("Set link ".$bridgeName." up");
         }
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
@@ -170,7 +174,7 @@ class InstanceManager
             $deviceIndex = array_key_first($deviceInstance);
             $deviceInstance = $deviceInstance[$deviceIndex];
         }
-        
+
         try {
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
@@ -215,8 +219,10 @@ class InstanceManager
         $img['destination'] = $instancePath . '/' . basename($img['source']);
         $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
 
-        $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img['source'], $img['destination']]);
-        $process->mustRun();
+        if (!$filesystem->exists($img['destination'])) {
+            $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img['source'], $img['destination']]);
+            $process->mustRun();
+        }
 
         $parameters = [
             'system' => [
@@ -230,57 +236,43 @@ class InstanceManager
             'local' => []
         ];
 
-        $alreadyHasControlNic = false;
+        foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+            $this->logger->debug("network intance ".$nic['networkInterface']['name']);
 
-        foreach($deviceInstance['networkInterfaceInstances'] as $networkInterfaceInstance) {
-            $this->logger->debug("network intance ".$networkInterfaceInstance['networkInterface']['name']);
-
-            $networkInterface = $networkInterfaceInstance['networkInterface'];
-            $networkInterfaceName = substr(str_replace(' ', '_', $networkInterface['name']), 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
-
-            if (!IPTools::networkInterfaceExists($networkInterfaceName)) {
-                IPTools::tuntapAdd($networkInterfaceName, IPTools::TUNTAP_MODE_TAP);
-                $this->logger->debug("Interface ".$networkInterfaceName." created");
-
+            $nicTemplate = $nic['networkInterface'];
+            $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
+            $nicVlan = null;
+            if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
+                $nicVlan = $nicTemplate['vlan'];
             }
 
-            if (!OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
-                OVS::portAdd($bridgeName, $networkInterfaceName, true);
-                $this->logger->debug("Interface ".$networkInterfaceName." added to OVS ".$bridgeName);
+            if (!IPTools::networkInterfaceExists($nicName)) {
+                IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
+                $this->logger->debug("Interface ".$nicName." created");
             }
-            IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_UP);
-            $this->logger->debug("Interface ".$networkInterfaceName." set up");
 
-            // Obsolete parameters
-            /*$parameters['network'] += [ '-net', 'nic,macaddr=' . $networkInterface['macAddress'],
-                '-net', 'tap,ifname=' . $networkInterfaceName . ',script=no'
-            ];*/
-            
-            array_push($parameters['network'],'-device','e1000,netdev='.$networkInterfaceName.',mac='.$networkInterfaceInstance['macAddress'],
-                '-netdev', 'tap,ifname='.$networkInterfaceName.',id='.$networkInterfaceName.',script=no');
+            if (!OVS::ovsPortExists($bridgeName, $nicName)) {
+                OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                $this->logger->debug("Interface ".$nicName." added to OVS ".$bridgeName);
+            }
+            IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
+            $this->logger->debug("Interface ".$nicName." set up");
+
+            array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
+                '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
 
             $this->logger->debug("parameters network ".implode(' ',$parameters['network']));
+        }
 
-            //-device e1000,netdev=my$((i)),mac=${MAC}$(printf %02x $i) -netdev tap,ifname=t_${NAME}_1,id=my$((i)),script=no
+        if ($deviceInstance['device']['vnc'] === true) {
+            $vncAddress = "0.0.0.0";
+            $vncPort = $deviceInstance['remotePort'];
 
-           // If the VM has multiple network interface, only one is used to the vnc
-            if (
-                !$alreadyHasControlNic &&
-                array_key_exists('accessType', $networkInterface)
-            ) {
-                if ($networkInterface['accessType'] === 'VNC' ) {
-                    $vncAddress ="0.0.0.0";
-                    $vncPort = $networkInterfaceInstance['remotePort'];
+            $process = new Process(['websockify', '-D', $vncAddress . ':' . ($vncPort + 1000), $vncAddress.':'.$vncPort]);
+            $process->mustRun();
 
-                    $process = new Process(['websockify', '-D', $vncAddress . ':' . ($vncPort + 1000), $vncAddress.':'.$vncPort]);
-                    $process->mustRun();
-
-                    array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
-                    array_push($parameters['local'], '-k', 'fr');
-
-                    $alreadyHasControlNic = true;
-                }
-            }
+            array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
+            array_push($parameters['local'], '-k', 'fr');
         }
 
         array_push($parameters['local'],
@@ -377,45 +369,42 @@ class InstanceManager
             }
         }
 
+        if ($deviceInstance['device']['vnc'] === true) {
+            $vncAddress = "0.0.0.0";
+            $vncPort = $deviceInstance['remotePort'];
+
+            $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
+            $process->mustRun();
+
+            $pidWebsockify = $process->getOutput();
+
+            if ($pidWebsockify != "") {
+                $pidWebsockify = explode("\n", $pidWebsockify);
+
+                foreach ($pidWebsockify as $pid) {
+                    if ($pid != "") {
+                        $process = new Process(['kill', '-9', $pid]);
+                        $process->mustRun();
+                        $this->logger->debug("Kill websockify process number".$pid);
+                    }
+                }
+            }
+        }
         // Network interfaces
 
         foreach($deviceInstance['networkInterfaceInstances'] as $networkInterfaceInstance) {
             $networkInterface = $networkInterfaceInstance['networkInterface'];
             $networkInterfaceName = substr(str_replace(' ', '_', $networkInterface['name']), 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
 
-            if (array_key_exists('accessType', $networkInterface)) {
-                if ($networkInterface['accessType'] === 'VNC') {
-                    $vncAddress = "0.0.0.0";
-                    $vncPort = $networkInterfaceInstance['remotePort'];
+            if (OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
+                OVS::portDelete($bridgeName, $networkInterfaceName, true);
+            }
 
-                    $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
-                    $process->mustRun();
-
-                    $pidWebsockify = $process->getOutput();
-
-                    if ($pidWebsockify != "") {
-                        $pidWebsockify = explode("\n", $pidWebsockify);
-
-                        foreach ($pidWebsockify as $pid) {
-                            if ($pid != "") {
-                                $process = new Process(['kill', '-9', $pid]);
-                                $process->mustRun();
-                                $this->logger->debug("Kill websockify process number".$pid);
-                            }
-                        }
-                    }
-                }
-
-                // if (OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
-                //     OVS::portDelete($bridgeName, $networkInterfaceName, true);
-                // }
-
-                if (IPTools::networkInterfaceExists($networkInterfaceName)) {
-                    IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_DOWN);
-                    $this->logger->debug("Interface ".$networkInterfaceName." set down");
-                    IPTools::linkDelete($networkInterfaceName);
-                    $this->logger->debug("Interface ".$networkInterfaceName." deleted");
-                }
+            if (IPTools::networkInterfaceExists($networkInterfaceName)) {
+                IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_DOWN);
+                $this->logger->debug("Interface ".$networkInterfaceName." set down");
+                IPTools::linkDelete($networkInterfaceName);
+                $this->logger->debug("Interface ".$networkInterfaceName." deleted");
             }
         }
 

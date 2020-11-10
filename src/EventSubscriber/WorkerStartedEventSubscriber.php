@@ -30,10 +30,13 @@ class WorkerStartedEventSubscriber implements EventSubscriberInterface
 
     public function dispatchHandshake()
     {
-        $this->logger->info('Dispatching handshake message');
+        $message = new WorkerHandshakeMessage('id');
+        $this->logger->info('Dispatching handshake message', [
+            'id' => $message->getId()
+        ]);
 
         $this->bus->dispatch(
-            new WorkerHandshakeMessage('id')
+            $message
         );
     }
 }

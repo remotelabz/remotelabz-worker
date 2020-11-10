@@ -78,6 +78,8 @@ class OVS extends Bridge
 
         if (!empty($options))
             array_push($command, ...$options);
+        
+        $command = ArrayTools::arrayFilterEmpty($command);
 
         return static::exec($command);
     }
@@ -158,7 +160,16 @@ class OVS extends Bridge
             return false;
         }
 
-        return true;
+        $output = $process->getOutput();
+        if (empty($output)) {
+            return false;
+        }
+
+        if (strpos($output, $port) !== false) {
+            return true;
+        }
+        
+        return false;
     }
 
     public static function LinkTwoOVS(string $bridge, string $bridgeInt)

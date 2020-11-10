@@ -77,6 +77,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
             $this->logger->critical(
                 "Action \"" . $message->getAction() . "\" throwed an exception while executing a process.", [
                     "output" => $e->getProcess()->getErrorOutput(),
+                    "process" => $e->getProcess()->getCommandLine(),
                     "instance" => $message->getUuid()
                 ]);
             $returnState = InstanceStateMessage::STATE_ERROR;
