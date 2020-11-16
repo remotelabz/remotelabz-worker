@@ -26,5 +26,6 @@ framework:
         routing:
             # Route your messages to the transports
             'Remotelabz\Message\Message\InstanceActionMessage': worker
+            'Remotelabz\Message\Message\InstanceLogMessage': front
             'Remotelabz\Message\Message\InstanceStateMessage': front
             'Remotelabz\Message\Message\WorkerHandshakeMessage': front
