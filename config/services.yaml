@@ -4,6 +4,13 @@
 # Put parameters here that don't need to change on each machine where the app is deployed
 # https://symfony.com/doc/current/best_practices/configuration.html#application-related-configuration
 parameters:
+    app.network.lab.interface: '%env(resolve:ADM_INTERFACE)%'
+    app.network.lab.cidr: '%env(resolve:LAB_NETWORK)%'
+    app.network.data.interface: '%env(resolve:DATA_INTERFACE)%'
+    app.network.data.cidr: '%env(resolve:DATA_NETWORK)%'
+    app.bridge.name: '%env(resolve:BRIDGE_INT)%'
+    app.bridge.ip: '%env(resolve:BRIDGE_INT_IP_ADDRESS)%'
+    app.bridge.gateway: '%env(resolve:BRIDGE_INT_GW)%'
 
 services:
     # default configuration for services in *this* file

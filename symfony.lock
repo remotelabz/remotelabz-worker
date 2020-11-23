@@ -2,6 +2,9 @@
     "crestic-urca/network-bundle": {
         "version": "v1.0.2"
     },
+    "crestic-urca/remotelabz-message-bundle": {
+        "version": "dev-master"
+    },
     "doctrine/annotations": {
         "version": "1.0",
         "recipe": {
@@ -78,47 +81,8 @@
     "doctrine/reflection": {
         "version": "v1.0.0"
     },
-    "hoa/compiler": {
-        "version": "3.17.08.08"
-    },
-    "hoa/consistency": {
-        "version": "1.17.05.02"
-    },
-    "hoa/event": {
-        "version": "1.17.01.13"
-    },
-    "hoa/exception": {
-        "version": "1.17.01.16"
-    },
-    "hoa/file": {
-        "version": "1.17.07.11"
-    },
-    "hoa/iterator": {
-        "version": "2.17.01.10"
-    },
-    "hoa/math": {
-        "version": "1.17.05.16"
-    },
-    "hoa/protocol": {
-        "version": "1.17.01.14"
-    },
-    "hoa/regex": {
-        "version": "1.17.01.13"
-    },
-    "hoa/stream": {
-        "version": "1.17.02.21"
-    },
-    "hoa/ustring": {
-        "version": "4.17.01.16"
-    },
-    "hoa/visitor": {
-        "version": "2.17.01.16"
-    },
-    "hoa/zformat": {
-        "version": "1.17.01.10"
-    },
-    "jdorn/sql-formatter": {
-        "version": "v1.2.17"
+    "doctrine/sql-formatter": {
+        "version": "1.1.1"
     },
     "jms/metadata": {
         "version": "2.0.0"
@@ -188,6 +152,9 @@
             "config/packages/sensio_framework_extra.yaml"
         ]
     },
+    "symfony/amqp-messenger": {
+        "version": "v5.1.8"
+    },
     "symfony/cache": {
         "version": "v4.2.3"
     },
@@ -228,8 +195,14 @@
     "symfony/dependency-injection": {
         "version": "v4.2.3"
     },
+    "symfony/deprecation-contracts": {
+        "version": "v2.2.0"
+    },
     "symfony/doctrine-bridge": {
         "version": "v5.0.4"
+    },
+    "symfony/doctrine-messenger": {
+        "version": "v5.1.8"
     },
     "symfony/dotenv": {
         "version": "v4.2.3"
@@ -280,6 +253,9 @@
             "src/Kernel.php"
         ]
     },
+    "symfony/http-client-contracts": {
+        "version": "v2.3.1"
+    },
     "symfony/http-foundation": {
         "version": "v4.2.3"
     },
@@ -307,9 +283,6 @@
             "./config/packages/messenger.yaml"
         ]
     },
-    "symfony/mime": {
-        "version": "v5.0.4"
-    },
     "symfony/monolog-bridge": {
         "version": "v4.2.4"
     },
@@ -330,23 +303,29 @@
     "symfony/orm-pack": {
         "version": "v1.0.7"
     },
-    "symfony/polyfill-intl-idn": {
-        "version": "v1.13.1"
+    "symfony/polyfill-intl-grapheme": {
+        "version": "v1.20.0"
+    },
+    "symfony/polyfill-intl-normalizer": {
+        "version": "v1.20.0"
     },
     "symfony/polyfill-mbstring": {
         "version": "v1.10.0"
     },
-    "symfony/polyfill-php72": {
-        "version": "v1.13.1"
-    },
     "symfony/polyfill-php73": {
         "version": "v1.13.1"
+    },
+    "symfony/polyfill-php80": {
+        "version": "v1.20.0"
     },
     "symfony/process": {
         "version": "v4.2.3"
     },
     "symfony/profiler-pack": {
         "version": "v1.0.4"
+    },
+    "symfony/redis-messenger": {
+        "version": "v5.1.8"
     },
     "symfony/routing": {
         "version": "4.2",
@@ -368,6 +347,9 @@
     },
     "symfony/stopwatch": {
         "version": "v5.0.4"
+    },
+    "symfony/string": {
+        "version": "v5.1.8"
     },
     "symfony/translation-contracts": {
         "version": "v2.0.1"
@@ -414,6 +396,9 @@
     },
     "twig/twig": {
         "version": "v2.6.2"
+    },
+    "webimpress/safe-writer": {
+        "version": "2.1.0"
     },
     "zendframework/zend-code": {
         "version": "3.4.1"
