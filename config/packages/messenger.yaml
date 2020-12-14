@@ -9,7 +9,6 @@ framework:
             worker: 
                 dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
                 options:
-                    queue_name: worker
                     exchange:
                         name: worker
                     queues:
@@ -17,7 +16,6 @@ framework:
             front: 
                 dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
                 options:
-                    queue_name: front
                     exchange:
                         name: front
                     queues:
@@ -27,5 +25,7 @@ framework:
 
         routing:
             # Route your messages to the transports
-            'App\Message\InstanceActionMessage': worker
-            'App\Message\InstanceStateMessage': front
+            'Remotelabz\Message\Message\InstanceActionMessage': worker
+            'Remotelabz\Message\Message\InstanceLogMessage': front
+            'Remotelabz\Message\Message\InstanceStateMessage': front
+            'Remotelabz\Message\Message\WorkerHandshakeMessage': front

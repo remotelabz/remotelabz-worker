@@ -90,6 +90,9 @@ if [ ! $(getent group remotelabz-worker) ]; then
   groupadd remotelabz-worker
 fi
 
+usermod -aG remotelabz-worker www-data
+usermod -aG remotelabz-worker remotelabz-worker
+
 chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
@@ -107,7 +110,7 @@ ip addr add "${BRIDGE_INT_IP_ADDRESS}" dev "${BRIDGE_INT}" || true
 echo "OK ✔️"
 
 echo "Adding sudo permissions for remotelabz-worker user"
-echo "remotelabz-worker     ALL = (ALL) NOPASSWD: $(which ip), $(which iptables), $(which ovs-vsctl)" | sudo tee /etc/sudoers.d/remotelabz-worker
+echo "%remotelabz-worker     ALL = (ALL) NOPASSWD: $(which ip), $(which iptables), $(which ovs-vsctl), $(which systemctl) start remotelabz*, $(which systemctl) stop remotelabz*, $(which systemctl) restart remotelabz*, $(which systemctl) status remotelabz*" | sudo tee /etc/sudoers.d/remotelabz-worker
 echo "OK ✔️"
 
 # Composer
