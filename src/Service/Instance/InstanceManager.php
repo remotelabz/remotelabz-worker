@@ -157,10 +157,15 @@ class InstanceManager
         $gateway = $labNetwork->getLastAddress();
         
         if (!IPTools::networkIPExists($bridgeName, $gateway)) {
-            $this->logger->debug("Set IP address of bridge ".$bridgeName." to ".$gateway);
+            $this->logger->debug("Adding IP address to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'bridge' => $bridgeName,
+                'ip' => $gateway
+            ]);
             IPTools::addrAdd($bridgeName, $gateway);
         }
-        $this->logger->debug("Set link ".$bridgeName." up");
+        $this->logger->debug("OVS bridge set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+            'bridge' => $bridgeName
+        ]);
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
 
         // Network interfaces
@@ -170,7 +175,9 @@ class InstanceManager
         });
 
         if (!count($deviceInstance)) {
-            $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC);
+            $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'uuid' => $deviceInstance['uuid']
+            ]);
             // instance is already started or whatever
             return;
         } else {
@@ -204,7 +211,9 @@ class InstanceManager
 
         if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
             if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
-                $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+                    "image" => $img['source']
+                ]);
                 // check image size
                 $headers = get_headers($img["source"], 1);
                 $headers = array_change_key_case($headers);
@@ -213,7 +222,9 @@ class InstanceManager
                     $fileSize = (float) $headers['content-length'];
                 }
 
-                $this->logger->info('Image size is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info('Image size is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
+                    "image" => $img['source']
+                ]);
                 $chunkSize = 1024 * 1024;
                 $fd = fopen($img["source"], 'rb');
                 $downloaded = 0.0;
@@ -229,12 +240,16 @@ class InstanceManager
                     $downloaded = (float) filesize($this->kernel->getProjectDir() . "/images/" . basename($img["source"]));
                     $downloadedPercent = floor(($downloaded/$fileSize) * 100.0);
                     if ($downloadedPercent - $lastNotification >= 5.0) {
-                        $this->logger->info('Downloading image... '.$downloadedPercent.'%', InstanceLogMessage::SCOPE_PUBLIC);
+                        $this->logger->info('Downloading image... '.$downloadedPercent.'%', InstanceLogMessage::SCOPE_PUBLIC, [
+                            "image" => $img['source']
+                        ]);
                         $lastNotification = $downloadedPercent;
                     }
                 }
 
-                $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
+                    "image" => $img['source']
+                ]);
                 fclose($fd);
             }
         }
@@ -243,10 +258,14 @@ class InstanceManager
         $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
 
         if (!$filesystem->exists($img['destination'])) {
-            $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC);
+            $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                'source' => $img['source']
+            ]);
             $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img['source'], $img['destination']]);
             $process->mustRun();
-            $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC);
+            $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                'path' => $img['destination']
+            ]);
         }
 
         $parameters = [
@@ -262,8 +281,6 @@ class InstanceManager
         ];
 
         foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
-            $this->logger->debug("network intance ".$nic['networkInterface']['name']);
-
             $nicTemplate = $nic['networkInterface'];
             $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
             $nicVlan = null;
@@ -273,20 +290,25 @@ class InstanceManager
 
             if (!IPTools::networkInterfaceExists($nicName)) {
                 IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
-                $this->logger->debug("Interface ".$nicName." created");
+                $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'NIC' => $nicName
+                ]);
             }
 
             if (!OVS::ovsPortExists($bridgeName, $nicName)) {
                 OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
-                $this->logger->debug("Interface ".$nicName." added to OVS ".$bridgeName);
+                $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'NIC' => $nicName,
+                    'bridge' => $bridgeName
+                ]);
             }
             IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
-            $this->logger->debug("Interface ".$nicName." set up");
+            $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'NIC' => $nicName
+            ]);
 
             array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
                 '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
-
-            $this->logger->debug("parameters network ".implode(' ',$parameters['network']));
         }
 
         if ($deviceInstance['device']['vnc'] === true) {
@@ -300,7 +322,9 @@ class InstanceManager
             $process->mustRun();
             $pidProcess = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
             $pidProcess->mustRun();
-            $this->logger->debug("Websockify process started with PID ".$pidProcess->getOutput().".");
+            $this->logger->debug("Websockify process started.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "PID" => (int) str_replace("\n", '', $pidProcess->getOutput())
+            ]);
 
             array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
             array_push($parameters['local'], '-k', 'fr');
@@ -331,7 +355,9 @@ class InstanceManager
         }
 
         $this->logger->info("Starting Virtual Machine...", InstanceLogMessage::SCOPE_PUBLIC);
-        $this->logger->debug("Starting qemu with command `".implode(' ',$command)."`");
+        $this->logger->debug("Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
 
         $process = new Process($command);
         $process->mustRun();
@@ -414,14 +440,17 @@ class InstanceManager
 
             $pidWebsockify = $process->getOutput();
 
-            if ($pidWebsockify != "") {
+            if (!empty($pidWebsockify)) {
                 $pidWebsockify = explode("\n", $pidWebsockify);
 
                 foreach ($pidWebsockify as $pid) {
-                    if ($pid != "") {
+                    if (!empty($pid)) {
+                        $pid = str_replace("\n", '', $pid);
                         $process = new Process(['kill', '-9', $pid]);
                         $process->mustRun();
-                        $this->logger->debug("Kill websockify process number".$pid);
+                        $this->logger->debug("Killing websockify process", InstanceLogMessage::SCOPE_PRIVATE, [
+                            "PID" => $pid
+                        ]);
                     }
                 }
             }

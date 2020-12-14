@@ -29,11 +29,8 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
     public function __invoke(InstanceActionMessage $message)
     {
-        $this->logger->debug("Received instance message.", [
-            "uuid" => $message->getUuid(),
-            "action" => $message->getAction(),
-            "content" => $message->getContent()
-        ]);
+        $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".", json_decode($message->getContent(), true)
+        );
 
         $returnState = "";
         $instanceType = "";
