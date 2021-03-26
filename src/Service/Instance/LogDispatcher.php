@@ -66,9 +66,10 @@ class LogDispatcher
 
     public function debug($message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {
         $this->logger->debug($message, $context);
-        $this->bus->dispatch(
+/*        $this->bus->dispatch(
             new InstanceLogMessage($this->uuid, $message, InstanceLogMessage::TYPE_DEBUG, $scope)
         );
+        */
     }
 
     public function log($level, $message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {
