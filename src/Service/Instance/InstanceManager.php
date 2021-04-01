@@ -17,8 +17,9 @@ use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Process\Process;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 
-class InstanceManager
+class InstanceManager extends AbstractController
 {
     protected $kernel;
     protected $logger;
@@ -317,7 +318,15 @@ class InstanceManager
             $vncPort = $deviceInstance['remotePort'];
 
             $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PUBLIC);
-            $command = ['websockify', '-D', $vncAddress . ':' . ($vncPort + 1000), $vncAddress.':'.$vncPort];
+            
+            $command = ['websockify', '-D'];
+            if ($this->getParameter('app.services.proxy.wss')) {
+                $this->logger->debug("Websocket use wss", InstanceLogMessage::SCOPE_PRIVATE);
+                array_push($command,'--cert='.$this->getParameter('app.services.proxy.cert'),'--key='.$this->getParameter('app.services.proxy.key'));
+            } else
+                $this->logger->debug("Websocket without wss", InstanceLogMessage::SCOPE_PRIVATE);
+            array_push($command, $vncAddress.':' . ($vncPort + 1000), $vncAddress.':'.$vncPort);
+            //$command = ['websockify', '-D','--cert='.$this->getParameter('app.services.proxy.cert'),'--key='.$this->getParameter('app.services.proxy.key'),$vncAddress . ':' . ($vncPort + 1000), $vncAddress.':'.$vncPort];
             $process = new Process($command);
             $process->mustRun();
             $pidProcess = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
