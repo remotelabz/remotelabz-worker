@@ -162,7 +162,7 @@ class InstanceManager extends AbstractController
                 'bridge' => $bridgeName,
                 'ip' => $gateway
             ]);
-            IPTools::addrAdd($bridgeName, $gateway);
+            IPTools::addrAdd($bridgeName, $gateway."/".$labInstance['network']['netmask']['addr']);
         }
         $this->logger->debug("OVS bridge set up.", InstanceLogMessage::SCOPE_PRIVATE, [
             'bridge' => $bridgeName
