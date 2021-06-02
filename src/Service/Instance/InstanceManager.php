@@ -620,4 +620,119 @@ class InstanceManager extends AbstractController
 
         OVS::UnlinkTwoOVS($bridge, $bridgeInt);
     }
+
+    /**
+     * Export an instance described by JSON descriptor for device instance specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to export.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return void
+     */
+    public function exportDeviceInstance(string $descriptor, string $uuid)
+    {
+        $this->logger->setUuid($uuid);
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
+            return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] == 'exporting');
+        });
+
+        if (!count($deviceInstance)) {
+            $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'uuid' => $deviceInstance['uuid']
+            ]);
+            // instance is already started or whatever
+            return;
+        } else {
+            $deviceIndex = array_key_first($deviceInstance);
+            $deviceInstance = $deviceInstance[$deviceIndex];
+        }
+
+        try {
+            $labUser = $labInstance['owner']['uuid'];
+            $ownedBy = $labInstance['ownedBy'];
+            $labInstanceUuid = $labInstance['uuid'];
+            $img = [
+                "source" => $deviceInstance['device']['operatingSystem']['image']
+            ];
+            $newImageName = $labInstance['new_os_name'];
+        } catch (ErrorException $e) {
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+        }
+
+        $instancePath = $this->kernel->getProjectDir() . "/instances";
+        $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
+        $instancePath .= '/' . $labUser;
+        $instancePath .= '/' . $labInstanceUuid;
+        $instancePath .= '/' . $uuid;
+
+        $imagePath = $this->kernel->getProjectDir() . "/images";
+
+        $newImagePath = $imagePath . '/' . $newImageName;
+        $copyInstancePath = $instancePath . '/snap-' . basename($img["source"]);
+
+        $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC);
+
+        $command = [
+            'cp',
+            $imagePath . '/' . basename($img["source"]),
+            $newImagePath
+        ];
+
+        $this->logger->debug("Copying base image.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        $process->mustRun();
+
+        $command = [
+            'cp',
+            $instancePath . '/' . basename($img["source"]),
+            $copyInstancePath
+        ];
+
+        $this->logger->debug("Copying backing image file.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        $process->mustRun();
+
+        $command = [
+            'qemu-img',
+            'rebase',
+            '-b',
+            $newImagePath,
+            $copyInstancePath
+        ];
+
+        $this->logger->debug("Rebasing backing and base image", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        $process->mustRun();
+
+        $command = [
+            'qemu-img',
+            'commit',
+            $copyInstancePath
+        ];
+
+        $this->logger->debug("Commit change on image.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        $process->mustRun();
+
+        $command = [
+            'rm',
+            $copyInstancePath
+        ];
+
+        $this->logger->info("Image exported successfully!");
+    }
 }
