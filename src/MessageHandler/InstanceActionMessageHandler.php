@@ -29,8 +29,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
     public function __invoke(InstanceActionMessage $message)
     {
-        $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".", json_decode($message->getContent(), true)
-        );
+
+        // The following generate an error on json param
+       // $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".", json_decode($message->getContent(), true));
 
         $returnState = "";
         $instanceType = "";
@@ -65,11 +66,22 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     $this->instanceManager->connectToInternet($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STARTED;
                     break;
+
+                case InstanceActionMessage::ACTION_EXPORT:
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                    $exportDeviceReturnArray= $this->instanceManager->exportDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $exportDeviceReturnArray[0];
+                    break;
+                
+                //When an error is generated and we want to delete on filesystem the file created
+                case InstanceActionMessage::ACTION_DELETEDEV:
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                    $this->instanceManager->deleteDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = InstanceStateMessage::STATE_ERROR;
+                    break;
             }
 
-            $this->logger->info("Action " . $message->getAction() . " executed succesfully.", [
-                "uuid" => $message->getUuid()
-            ]);
+            
         } catch (ProcessFailedException $e) {
             $this->logger->critical(
                 "Action \"" . $message->getAction() . "\" throwed an exception while executing a process.", [
@@ -89,8 +101,19 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         }
 
         // send back state
+        $this->logger->info("State " . $returnState . " send back to the front", [
+            "uuid" => $message->getUuid()
+        ]);
+
+            if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
+                $return_array=implode(",",$exportDeviceReturnArray);
+            }
+            else {
+                $return_array=$message->getUuid();
+            }
+
         $this->bus->dispatch(
-            new InstanceStateMessage($instanceType, $message->getUuid(), $returnState)
+            new InstanceStateMessage($instanceType, $return_array,$returnState)
         );
     }
 

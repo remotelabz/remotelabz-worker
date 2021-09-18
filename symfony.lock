@@ -29,6 +29,9 @@
     "doctrine/dbal": {
         "version": "v2.10.1"
     },
+    "doctrine/deprecations": {
+        "version": "v0.5.3"
+    },
     "doctrine/doctrine-bundle": {
         "version": "2.0",
         "recipe": {
@@ -128,6 +131,9 @@
     "php": {
         "version": "7.4"
     },
+    "phpstan/phpdoc-parser": {
+        "version": "0.5.7"
+    },
     "psr/cache": {
         "version": "1.0.1"
     },
@@ -188,9 +194,6 @@
         "files": [
             "config/packages/dev/debug.yaml"
         ]
-    },
-    "symfony/debug-pack": {
-        "version": "v1.0.7"
     },
     "symfony/dependency-injection": {
         "version": "v4.2.3"
@@ -300,9 +303,6 @@
             "config/packages/test/monolog.yaml"
         ]
     },
-    "symfony/orm-pack": {
-        "version": "v1.0.7"
-    },
     "symfony/polyfill-intl-grapheme": {
         "version": "v1.20.0"
     },
@@ -320,9 +320,6 @@
     },
     "symfony/process": {
         "version": "v4.2.3"
-    },
-    "symfony/profiler-pack": {
-        "version": "v1.0.4"
     },
     "symfony/redis-messenger": {
         "version": "v5.1.8"
@@ -396,9 +393,6 @@
     },
     "twig/twig": {
         "version": "v2.6.2"
-    },
-    "webimpress/safe-writer": {
-        "version": "2.1.0"
     },
     "zendframework/zend-code": {
         "version": "3.4.1"

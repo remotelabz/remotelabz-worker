@@ -57,7 +57,7 @@ class InstanceManager extends AbstractController
 
         if (!IPTools::networkInterfaceExists($bridgeName)) {
             OVS::bridgeAdd($bridgeName, true);
-            $this->logger->info("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
                 'bridgeName' => $bridgeName,
                 'instance' => $labInstance['uuid']
             ]);
@@ -620,4 +620,163 @@ class InstanceManager extends AbstractController
 
         OVS::UnlinkTwoOVS($bridge, $bridgeInt);
     }
+
+    /**
+     * Export an instance described by JSON descriptor for device instance specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to export.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return [$state,$newOS_id,$newDev_id,$name,$imagename] Return the state of the instance : InstanceStateMessage::STATE_STARTED, InstanceStateMessage::STATE_EXPORTED or InstanceStateMessage::STATE_ERROR
+     */
+    public function exportDeviceInstance(string $descriptor, string $uuid) {
+        $this->logger->setUuid($uuid);
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
+            return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] == 'exporting');
+        });
+
+        if (!count($deviceInstance)) {
+            $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'uuid' => $deviceInstance['uuid']
+            ]);
+            // instance is already started or whatever
+            return [InstanceStateMessage::STATE_STARTED,$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
+        } else {
+            $deviceIndex = array_key_first($deviceInstance);
+            $deviceInstance = $deviceInstance[$deviceIndex];
+        }
+
+        try {
+            $labUser = $labInstance['owner']['uuid'];
+            $ownedBy = $labInstance['ownedBy'];
+            $labInstanceUuid = $labInstance['uuid'];
+            $img = [
+                "source" => $deviceInstance['device']['operatingSystem']['image']
+            ];
+            $newImageName = $labInstance['new_os_name'];
+        } catch (ErrorException $e) {
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+        }
+
+        $instancePath = $this->kernel->getProjectDir() . "/instances";
+        $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
+        $instancePath .= '/' . $labUser;
+        $instancePath .= '/' . $labInstanceUuid;
+        $instancePath .= '/' . $uuid;
+
+        $imagePath = $this->kernel->getProjectDir() . "/images";
+
+        $newImagePath = $imagePath . '/' . $newImageName;
+        $copyInstancePath = $instancePath . '/snap-' . basename($img["source"]);
+
+        // Test if the image instance file exists. If the device has not been started before the export, the image instance doesn't exist.
+            
+        $filename=$instancePath . '/' . basename($img["source"]);
+        $this->logger->debug("Test if image exist $filename",InstanceLogMessage::SCOPE_PRIVATE);
+            
+        if (file_exists($filename)) {
+            $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC);
+
+            $command = [
+            'cp',
+            $imagePath . '/' . basename($img["source"]),
+            $newImagePath
+            ];
+
+            $this->logger->debug("Copying base image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ',$command)
+            ]);
+
+            $process = new Process($command);
+            $process->mustRun();
+
+            $command = [
+                'cp',
+                $instancePath . '/' . basename($img["source"]),
+                $copyInstancePath
+            ];
+
+            $this->logger->debug("Copying backing image file.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ',$command)
+            ]);
+
+            $process = new Process($command);
+            $process->mustRun();
+
+            $command = [
+                'qemu-img',
+                'rebase',
+                '-b',
+                $newImagePath,
+                $copyInstancePath
+            ];
+
+            $this->logger->debug("Rebasing backing and base image", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ',$command)
+            ]);
+
+            $process = new Process($command);
+            $process->mustRun();
+
+            $command = [
+                'qemu-img',
+                'commit',
+                $copyInstancePath
+            ];
+
+            $this->logger->debug("Commit change on image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ',$command)
+            ]);
+
+            $process = new Process($command);
+            $process->mustRun();
+
+            $command = [
+                'rm',
+                $copyInstancePath
+            ];
+            $this->logger->debug("Delete image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ',$command)
+            ]);
+
+            $process = new Process($command);
+            $process->mustRun();
+
+            $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC);
+            return [InstanceStateMessage::STATE_EXPORTED,$uuid,$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
+        }
+        else {
+        $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC);
+        // Get the uuid of the device templace create from it's name
+        // Return this uuid in the state message with setUuid()
+        return [InstanceStateMessage::STATE_ERROR,$deviceInstance['uuid'],$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
+        
+        }
+    }
+
+    /**
+     * Delete an instance described by JSON descriptor for device instance specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to delete.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return void
+     */
+    public function deleteDeviceInstance(string $descriptor, string $uuid) {
+        $this->logger->setUuid($uuid);
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $this->logger->debug("JSON received in deleteDeviceInstance", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+
+            throw new BadDescriptorException($labInstance);
+        }
+
+        //Delete on filesystem : $labInstance[5]
+
+    }
+
 }
