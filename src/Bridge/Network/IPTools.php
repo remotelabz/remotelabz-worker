@@ -320,4 +320,129 @@ class IPTools extends Bridge
 
     }
 
+    /**
+     * Add a network in Kea DHCP
+     * @param string $host hostname of the Kea DHCP agent
+     * @param integer $port port of the Kea DHCP agent
+     * @param string $filename Kea DHCP configuration filename. Must be absolute path
+     * @param network  $address The address to add. Should be in CIDR notation.
+     * @throws Exception If the device name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function NetworkIfExistDHCP(string $host, $port, string $filename, $address) : bool {
+        $fileContent = file_get_contents($filename);
+        $tab = json_decode($fileContent, true);
+        $result=false;
+        $i=0;
+        while ($result) {
+            if ($tab['Dhcp4']['subnet4']==$address->__toString())
+                $result=true;
+        }
+        return $result;
+    }
+
+    /**
+     * Add a network in Kea DHCP
+     * @param string $host hostname of the Kea DHCP agent
+     * @param integer $port port of the Kea DHCP agent
+     * @param Network $address The address to add. Should be in CIDR notation.
+     * @param IP $minIP The first IP of the pool.
+     * @param IP $maxIP The second IP of the pool.
+     * @throws Exception If the device name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function addnetworkDHCP(string $host, $port, string $filename, $address, $minIP, $maxIP) {
+        try {
+            $fileContent = file_get_contents($filename);
+        }
+            catch(ErrorException $e) {
+                throw new Exception("Error opening file");
+        }
+// TODO : test if the json_decode return NULL
+// The Kea DHCP accept comment with // but it's not json valide
+        $tab = json_decode($fileContent, true);
+        
+        if (!static::NetworkIfExistDHCP($host, $port, $filename, $address)) {
+            $idMAX = 1;
+            //looking for the last ID to generate a new ID for the new pool
+
+            for ($i = 0; $i < count($tab['Dhcp4']['subnet4']); $i++){
+                if ($tab['Dhcp4']['subnet4'][$i]['id'] > $idMAX){
+                    $idMAX = $tab['Dhcp4']['subnet4'][$i]['id'];
+                }
+            }
+            #on incrémente l'ID max de 1 afin d'attribuer à notre nouveau subnet
+            #un ID qui n'est pas encore utilisé
+            $idMAX++;
+            print "\n##### Subnet absent, ajout du subnet puis du pool. #####\n";
+            #ajout du subnet dans le tableau subnet4
+            $subnet[] = array("subnet" => $address->__toString(), "id" => $idMAX);
+            $tab['Dhcp4']['subnet4'] = array_merge($tab['Dhcp4']['subnet4'], $subnet);
+            #création du pool
+            $firstIP=$minIP->getAddr();
+            $lastIP=$maxIP->getAddr();
+            $pool[] = array("pool" => "$firstIP - $lastIP");
+            #création du tableau pools pour ajout
+            $pools = array("pools" => $pool);
+            #on détermine l'indice du subnet ajouté
+            for ($i = 0; $i < count($tab['Dhcp4']['subnet4']); $i++){
+                if($tab['Dhcp4']['subnet4'][$i]['subnet'] == $address->__toString()){
+                    #on ajoute le tableau pools
+                    $tab['Dhcp4']['subnet4'][$i] = array_merge($tab['Dhcp4']['subnet4'][$i], $pools);
+                }
+            }
+        }
+        $json = array(
+            "command" => "config-set",
+            "service" => [ "dhcp4" ],
+            "arguments" => $tab
+        );
+    
+        $contenu = json_encode($json);
+        
+        #on envoie le json à l'agent KEA
+        $options = array(
+            'http' => array(
+                'method' => 'POST',
+                'header' => "Content-Type: application/json\r\n" . "Accept: application/json\r\n",
+                'content' => $contenu
+            )
+        );
+    
+        $url = "http://$host:$port";
+        $context = stream_context_create($options);
+        $result = file_get_contents($url, false, $context);
+        $response = json_decode($result);
+    
+        #on met le json des arguments de la commande write sous forme de tab php
+        $arguments = '{"filename": '.$filename.'}';
+        $arguments = json_decode($arguments, true);
+        
+        $json = array(
+            "command" => "config-write",
+            "service" => [ "dhcp4" ],
+            "arguments" => $tab
+        );
+    
+        $contenu = json_encode($json);
+    
+        #on envoie le json à l'agent KEA
+        $options = array(
+            'http' => array(
+                'method' => 'POST',
+                'header' => "Content-Type: application/json\r\n" . "Accept: application/json\r\n",
+                'content' => $contenu
+            )
+        );
+    
+        $context = stream_context_create($options);
+        $result = file_get_contents($url, false, $context);
+        $response = json_decode($result);
+        
+        //return true;
+    
+    }
+
 }

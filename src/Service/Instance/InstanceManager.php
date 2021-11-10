@@ -152,8 +152,6 @@ class InstanceManager extends AbstractController
             ]);
         }
 
-        // TODO: add command sudo ip addr add $(echo ${NETWORK_LAB} | cut -d. -f1-3).1/24 dev ${BRIDGE_NAME}
-        // $labNetwork = explode('.', $_ENV['LAB_NETWORK']);
         $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  
         $gateway = $labNetwork->getLastAddress();
         
@@ -169,7 +167,36 @@ class InstanceManager extends AbstractController
         ]);
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
 
+        // DHCP
+        if (IPTools::NetworkIfExistDHCP("localhost",8000,"/etc/kea/kea-dhcp4.conf",$labNetwork))
+            $this->logger->debug("Network ".$labNetwork->__toString()." already in the DHCP configuration file");
+        else
+            $this->logger->debug("DHCP registration of network ".$labNetwork->__toString());
         // Network interfaces
+        $this->logger->debug("First IP and last for DHCP registration ".$labNetwork->getFirstAddress()->getAddr()." ".$labNetwork->getLastAddress()->getAddr());
+        
+
+        /*        $filename="/etc/kea/kea-dhcp4.conf";
+        $fileContent="";
+        try {
+            $fileContent = file_get_contents($filename);
+        }
+            catch(ErrorException $e) {
+                throw new Exception("Error opening file");
+        }
+        try {
+            $tab = json_decode($fileContent, true);
+        }
+            catch(ErrorException $e) {
+                throw new Exception("Error json_decode of DHCP configuration file");
+        }
+
+        $this->logger->debug("File 1 content: ".$fileContent);
+        $this->logger->debug("Tab 1 content: ".json_decode($fileContent, true));
+*/
+
+        IPTools::addnetworkDHCP("localhost",8000,"/etc/kea/kea-dhcp4.conf",$labNetwork,$labNetwork->getFirstAddress(),$labNetwork->getLastAddress());
+        
 
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] != 'started');
