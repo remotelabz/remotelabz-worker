@@ -13,6 +13,7 @@ use Psr\Log\LoggerInterface;
 use Remotelabz\Message\Message\InstanceLogMessage;
 use Remotelabz\Message\Message\InstanceStateMessage;
 use Remotelabz\NetworkBundle\Entity\Network;
+use Remotelabz\NetworkBundle\Entity\IP;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpKernel\KernelInterface;
@@ -379,17 +380,17 @@ class InstanceManager extends AbstractController
                     $this->logger->error("Websockify starting process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                 }
                 $command="ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'";
-                $pidProcess = Process::fromShellCommandline($command);
+                $this->logger->debug("List websockify:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+
+                $error=false;
                 try {
-                    $process->mustRun();
+                    $pidProcess = Process::fromShellCommandline($command);
                 }   catch (ProcessFailedException $exception) {
                     $this->logger->error("Listing process to find websockify process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                     $error=true;
                 }
                 if (!$error)
-                    $this->logger->debug("Websockify process started.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        "PID" => (int) str_replace("\n", '', $pidProcess->getOutput())
-                    ]);
+                    $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PRIVATE);
                 $error=false;
 
                 array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
@@ -402,17 +403,28 @@ class InstanceManager extends AbstractController
                 '-vga', 'qxl'
             );
             
-            $this->start_qemu($parameters,$uuid);
+            if (!$this->start_qemu($parameters,$uuid)){
+                $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info("Virtual Machine can be configured on network:".$labNetwork, InstanceLogMessage::SCOPE_PUBLIC);
+            }
+            else
+                $this->logger->info("Virtual Machine doesn't start !", InstanceLogMessage::SCOPE_PUBLIC);
+
         }
         elseif ($deviceInstance['device']['hypervisor'] == 'lxc') {
             $this->logger->debug("Device is a LXC container", InstanceLogMessage::SCOPE_PRIVATE);
             if (!$this->exist_lxc($uuid)) {
                 $this->clone_lxc("Service",$uuid);
             }
-            $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$gateway);
+            //Return the last IP - 1 to address the LXC service container
+            //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
+            $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
+            $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
 
-            if (!$this->start_lxc($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway))
-                $this->logger->info("LXC container started successfully!", InstanceLogMessage::SCOPE_PUBLIC);
+            if (!$this->start_lxc($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway)){
+                $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC);
+            }
             else 
                 return $deviceInstance['state'] == InstanceStateMessage::STATE_ERROR;
             }
@@ -424,7 +436,7 @@ class InstanceManager extends AbstractController
      * Build the template file 
      * 
      */
-    public function build_template($uuid,$path,string $bridgeName,string $gateway_IP) {
+    public function build_template($uuid,$path,string $bridgeName,string $network_addr,string $gateway_IP) {
             $command = [
                 'cp',
                 $this->kernel->getProjectDir().'/scripts/template.txt',
@@ -444,7 +456,7 @@ class InstanceManager extends AbstractController
 
             //sed  -e "s/XVLANY/$VLAN/g" -e "s/NAME-CONT/$NAME/g" -e "s/IP-ADM/$ADMIN_IP\/$ADMIN_MASK/g" -e "s/IP-DATA/$DATA_IP\/$DATA_MASK/g" ${SOURCE} > $FILE
 
-            $IP="10.10.10.10";
+            $IP=$network_addr;
             $IP_GW=$gateway_IP;
             $MASK="24";
             $INTERFACE="veth0";
@@ -518,7 +530,7 @@ class InstanceManager extends AbstractController
     public function start_qemu(array $parameters,string $uuid ){
         // TODO return value to detect error
         $arch = posix_uname()['machine'];
-
+        $error=false;
         $command = [
             'qemu-system-' . $arch,
             '-enable-kvm',
@@ -543,9 +555,9 @@ class InstanceManager extends AbstractController
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
             $this->logger->error("Starting QEMU virtual machine error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $error=true;
         }
-
-        $this->logger->info("Virtual Machine started successfully!", InstanceLogMessage::SCOPE_PUBLIC);
+        return $error;
     }
 
     /**
@@ -718,12 +730,16 @@ class InstanceManager extends AbstractController
                 $vncPort = $deviceInstance['remotePort'];
 
                 $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
+                $error=false;
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
                     $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $error=true;
                 }
-                $pidWebsockify = $process->getOutput();
+                if (!$error)
+                    $pidWebsockify = $process->getOutput();
+                $error=false;
 
                 if (!empty($pidWebsockify)) {
                     $pidWebsockify = explode("\n", $pidWebsockify);
