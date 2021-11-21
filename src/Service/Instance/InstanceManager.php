@@ -420,6 +420,9 @@ class InstanceManager extends AbstractController
             //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
             $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
             $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+            $first_ip=$labNetwork->getFirstAddress();
+            $last_ip=long2ip(ip2long($ip_addr)-1);
+            $this->add_dhcp_dnsmasq_lxc($uuid,$first_ip,$last_ip);
 
             if (!$this->start_lxc($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway)){
                 $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC);
@@ -433,8 +436,36 @@ class InstanceManager extends AbstractController
     }
 
     /**
-     * Build the template file 
-     * 
+     * Configure the dnsmasq configuration file to add the network in a range
+     * @param string $uuid the $uuid of the device
+     * @param string $first_ip the first IP of the range
+     * @param string $last_ip the last IP of the range
+     */
+    public function add_dhcp_dnsmasq_lxc($uuid,$first_ip,$last_ip){
+        $line_to_add=$first_ip.",".$last_ip.",1h";     
+        $file_path="/var/lib/lxc/".$uuid."/rootfs/etc/dnsmasq.conf";
+        $source_file_path="/var/lib/lxc/Service/rootfs/etc/dnsmasq.conf";
+        $command="sed \
+            -e \"s/RANGE_TO_DEFINED/".$line_to_add."/g\" \
+            ".$source_file_path." > ".$file_path;
+
+        $process = Process::fromShellCommandline($command);
+        $this->logger->debug("Add dhcp range to dnsmasq configuration:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+            try {
+                $process->mustRun();
+            }   catch (ProcessFailedException $exception) {
+                $this->logger->error("Dhcp adding in error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            }
+    }
+
+    /**
+     * Build a template file for LXC container with 1 network interface configured with the $network_addr IP
+     * and the $gateway_IP as gateway
+     * @param string $uuid the $uuid of the device
+     * @param string $path the absolute path to the template to configured
+     * @param string $bridgeName the bridge name on with we have to connect this container
+     * @param string $network_addr the IP of the container
+     * @param string $gateway_IP the gateway the container uses
      */
     public function build_template($uuid,$path,string $bridgeName,string $network_addr,string $gateway_IP) {
             $command = [
@@ -608,7 +639,7 @@ class InstanceManager extends AbstractController
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container deleted error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("LXC container deleted error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
         }
         $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC);
     }
