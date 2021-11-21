@@ -77,7 +77,7 @@ debug "Running apt-get to grab required packages"
 apt-get install -y software-properties-common
 #add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp lxc
+apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc
 echo "OK ✔️"
 
 # Create user remotelabz and remotelabz group
@@ -165,6 +165,11 @@ sed -i "s/Listen 8080/Listen ${REMOTELABZ_WORKER_PORT}/g" /etc/apache2/sites-ava
 sed -i 's,/var/www/html/remotelabz-worker,'"${SCRIPTPATH}"',' /etc/apache2/sites-available/100-remotelabz-worker.conf
 ln -fs /etc/apache2/sites-available/100-remotelabz-worker.conf /etc/apache2/sites-enabled/100-remotelabz-worker.conf
 apache2ctl restart || true
+echo "OK ✔️"
+
+#Configure logrotate
+echo "Configuring logrotate"
+cp -f "${SCRIPTPATH}"/config/logrotate/remotelabz-worker /etc/logrotate.d
 echo "OK ✔️"
 
 echo "Setup remotelabz service"
