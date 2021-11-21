@@ -312,7 +312,6 @@ class InstanceManager extends AbstractController
                     'path' => $img['destination']
                 ]);
             }
-        
 
             $parameters = [
                 'system' => [
@@ -377,18 +376,21 @@ class InstanceManager extends AbstractController
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    $this->logger->error("Websockify starting process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                 }
-
-                $pidProcess = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
+                $command="ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'";
+                $pidProcess = Process::fromShellCommandline($command);
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Listing process to find vnc error !", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    $this->logger->error("Listing process to find websockify process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $error=true;
                 }
-                $this->logger->debug("Websockify process started.", InstanceLogMessage::SCOPE_PRIVATE, [
-                    "PID" => (int) str_replace("\n", '', $pidProcess->getOutput())
-                ]);
+                if (!$error)
+                    $this->logger->debug("Websockify process started.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "PID" => (int) str_replace("\n", '', $pidProcess->getOutput())
+                    ]);
+                $error=false;
 
                 array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
                 array_push($parameters['local'], '-k', 'fr');
@@ -407,11 +409,64 @@ class InstanceManager extends AbstractController
             if (!$this->exist_lxc($uuid)) {
                 $this->clone_lxc("Service",$uuid);
             }
-            $this->start_lxc($uuid);
-        }
-        $this->logger->info("Device started succesfully!", InstanceLogMessage::SCOPE_PUBLIC);
+            $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$gateway);
+
+            if (!$this->start_lxc($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway))
+                $this->logger->info("LXC container started successfully!", InstanceLogMessage::SCOPE_PUBLIC);
+            else 
+                return $deviceInstance['state'] == InstanceStateMessage::STATE_ERROR;
+            }
+        
+        $this->logger->info("Device started successfully!", InstanceLogMessage::SCOPE_PUBLIC);
     }
 
+    /**
+     * Build the template file 
+     * 
+     */
+    public function build_template($uuid,$path,string $bridgeName,string $gateway_IP) {
+            $command = [
+                'cp',
+                $this->kernel->getProjectDir().'/scripts/template.txt',
+                $path
+            ];
+
+            $this->logger->debug("Copying LXC template to instance path.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ',$command)
+            ]);
+
+            $process = new Process($command);
+            try {
+                $process->mustRun();
+            }   catch (ProcessFailedException $exception) {
+                $this->logger->error("Copying LXC template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            }
+
+            //sed  -e "s/XVLANY/$VLAN/g" -e "s/NAME-CONT/$NAME/g" -e "s/IP-ADM/$ADMIN_IP\/$ADMIN_MASK/g" -e "s/IP-DATA/$DATA_IP\/$DATA_MASK/g" ${SOURCE} > $FILE
+
+            $IP="10.10.10.10";
+            $IP_GW=$gateway_IP;
+            $MASK="24";
+            $INTERFACE="veth0";
+            $BRIDGE_NAME=$bridgeName;
+            $MAC_ADDR="00:50:50:14:12:16";
+            $command="sed \
+            -e \"s/NAME-CONT/".$uuid."/g\" \
+            -e \"s/INTERFACE/".$INTERFACE."/g\" \
+            -e \"s/BRIDGE_NAME/".$BRIDGE_NAME."/g\" \
+            -e \"s/IP_GW/".$IP_GW."/g\" \
+            -e \"s/IP/".$IP."\/".$MASK."/g\" \
+            -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
+
+            $process = Process::fromShellCommandline($command);
+            $this->logger->debug("Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+            try {
+                $process->mustRun();
+            }   catch (ProcessFailedException $exception) {
+                $this->logger->error("sed exec to build template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            }
+
+    }
     /**
      * Test if the LXC container with name $name exists
      * @param string $name : the name of the LXC container to test
@@ -490,7 +545,7 @@ class InstanceManager extends AbstractController
             $this->logger->error("Starting QEMU virtual machine error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
         }
 
-        $this->logger->info("Virtual Machine started succesfully!", InstanceLogMessage::SCOPE_PUBLIC);
+        $this->logger->info("Virtual Machine started successfully!", InstanceLogMessage::SCOPE_PUBLIC);
     }
 
     /**
@@ -518,7 +573,7 @@ class InstanceManager extends AbstractController
             $this->logger->error("LXC container cloned error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
         }
 
-        $this->logger->info("LXC container cloned succesfully", InstanceLogMessage::SCOPE_PUBLIC);
+        $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC);
         
     }
 
@@ -552,12 +607,16 @@ class InstanceManager extends AbstractController
      * TODO finish this function start_lxc
      * @param array $parameters Array of all parameters to the command qemu.
      * @param string $uuid UUID of the device instance to start.
+     * @param string $template the absolute path to the template file of the LXC container
      */
-    public function start_lxc(string $lxc_name){
+    public function start_lxc(string $lxc_name,string $template){
+        $error=false;
         $command = [
             'lxc-start',
             '-n',
-            $lxc_name
+            $lxc_name,
+            '-f',
+            $template
         ];
 
         $this->logger->debug("Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -568,10 +627,12 @@ class InstanceManager extends AbstractController
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container started error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("LXC container started error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            $error=true;
         }
 
-        $this->logger->info("LXC container started succesfully!", InstanceLogMessage::SCOPE_PUBLIC);
+        return $error;
+        
     }
 
     /**
@@ -632,7 +693,7 @@ class InstanceManager extends AbstractController
             try {
                 $process->mustRun();
             }   catch (ProcessFailedException $exception) {
-                $this->logger->error("Process listing error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                $this->logger->error("Process listing error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
             }
 
             $pidInstance = $process->getOutput();
@@ -646,7 +707,7 @@ class InstanceManager extends AbstractController
                         try {
                             $process->mustRun();
                         }   catch (ProcessFailedException $exception) {
-                            $this->logger->error("Killing exec error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                            $this->logger->error("Killing exec error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                         }
                     }
                 }
@@ -660,7 +721,7 @@ class InstanceManager extends AbstractController
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Process listing error to find vnc error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                 }
                 $pidWebsockify = $process->getOutput();
 
@@ -674,7 +735,7 @@ class InstanceManager extends AbstractController
                             try {
                                 $process->mustRun();
                             }   catch (ProcessFailedException $exception) {
-                                $this->logger->error("Killing websockify error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                                $this->logger->error("Killing websockify error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                             }
                             $this->logger->debug("Killing websockify process", InstanceLogMessage::SCOPE_PRIVATE, [
                                 "PID" => $pid
@@ -715,7 +776,10 @@ class InstanceManager extends AbstractController
             $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance
             ]);
-            $this->stop_lxc($uuid);
+            if (!$this->stop_lxc($uuid))
+                $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC);
+            else
+                return $deviceInstance['state'] == InstanceStateMessage::STATE_ERROR;
         }
         // $filesystem = new Filesystem();
         // $filesystem->remove($this->workerDir . '/instances/' . $labUser . '/' . $labInstanceUuid . '/' . $uuid);
@@ -728,7 +792,7 @@ class InstanceManager extends AbstractController
      * @param string $uuid UUID of the device instance to start.
      */
     public function stop_lxc(string $lxc_name){
-        
+        $error=false;
         $command = [
             'lxc-stop',
             '-n',
@@ -743,10 +807,10 @@ class InstanceManager extends AbstractController
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container stopping error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("LXC container stopping error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            $error=true;
         }
-
-        $this->logger->info("LXC container stopped succesfully!", InstanceLogMessage::SCOPE_PUBLIC);
+        return $error;
     }
 
     public function connectToInternet(string $descriptor)
