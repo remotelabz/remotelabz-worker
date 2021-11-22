@@ -122,12 +122,12 @@ class InstanceManager extends AbstractController
      * @param string $descriptor JSON representation of a lab instance.
      * @param string $uuid UUID of the device instance to start.
      * @throws ProcessFailedException When a process failed to run.
-     * @return void
+     * @return true if no error, false else
      */
     public function startDeviceInstance(string $descriptor, string $uuid) {
         # TODO: send lab logs
         /** @var array $labInstance */
-
+        $error=false;
         $this->logger->setUuid($uuid);
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
 
@@ -143,6 +143,7 @@ class InstanceManager extends AbstractController
         } catch (ErrorException $e) {
             $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance, "", 0, $e);
+            $error=true;
         }
 
         // OVS
@@ -234,6 +235,7 @@ class InstanceManager extends AbstractController
             ];
         } catch (ErrorException $e) {
             throw new BadDescriptorException($labInstance, "", 0, $e);
+            $error=true;
         }
 
         $filesystem = new Filesystem();
@@ -307,7 +309,8 @@ class InstanceManager extends AbstractController
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    $this->logger->error("QEMU commit error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $error=true;
                 }
                 $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
                     'path' => $img['destination']
@@ -378,11 +381,11 @@ class InstanceManager extends AbstractController
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
                     $this->logger->error("Websockify starting process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $error=true;
                 }
                 $command="ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'";
                 $this->logger->debug("List websockify:".$command, InstanceLogMessage::SCOPE_PRIVATE);
 
-                $error=false;
                 try {
                     $pidProcess = Process::fromShellCommandline($command);
                 }   catch (ProcessFailedException $exception) {
@@ -391,7 +394,6 @@ class InstanceManager extends AbstractController
                 }
                 if (!$error)
                     $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PRIVATE);
-                $error=false;
 
                 array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
                 array_push($parameters['local'], '-k', 'fr');
@@ -407,8 +409,10 @@ class InstanceManager extends AbstractController
                 $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC);
                 $this->logger->info("Virtual Machine can be configured on network:".$labNetwork, InstanceLogMessage::SCOPE_PUBLIC);
             }
-            else
+            else {
                 $this->logger->info("Virtual Machine doesn't start !", InstanceLogMessage::SCOPE_PUBLIC);
+                $error=true;
+            }
 
         }
         elseif ($deviceInstance['device']['hypervisor'] == 'lxc') {
@@ -429,10 +433,16 @@ class InstanceManager extends AbstractController
                 $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC);
             }
             else 
-                return $deviceInstance['state'] == InstanceStateMessage::STATE_ERROR;
+                $error=true;
             }
-        
-        $this->logger->info("Device started successfully!", InstanceLogMessage::SCOPE_PUBLIC);
+
+        if (!$error) {
+            $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC);
+        }
+        else {
+            $this->stopDeviceInstance($descriptor,$uuid);
+            return InstanceStateMessage::STATE_ERROR;
+        }
     }
 
     /**
@@ -585,7 +595,7 @@ class InstanceManager extends AbstractController
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Starting QEMU virtual machine error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
             $error=true;
         }
         return $error;
@@ -828,6 +838,8 @@ class InstanceManager extends AbstractController
             else
                 return $deviceInstance['state'] == InstanceStateMessage::STATE_ERROR;
         }
+        $this->logger->info("Device stopped successfully", InstanceLogMessage::SCOPE_PUBLIC);
+
         // $filesystem = new Filesystem();
         // $filesystem->remove($this->workerDir . '/instances/' . $labUser . '/' . $labInstanceUuid . '/' . $uuid);
     }

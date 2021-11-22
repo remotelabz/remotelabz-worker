@@ -52,8 +52,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
                 case InstanceActionMessage::ACTION_START:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    $this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid());
-                    $returnState = InstanceStateMessage::STATE_STARTED;
+                    if (!$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid()))
+                        $returnState = InstanceStateMessage::STATE_STARTED;
+                    else $returnState = InstanceStateMessage::STATE_ERROR;
                     break;
 
                 case InstanceActionMessage::ACTION_STOP:
