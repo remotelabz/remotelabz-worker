@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ed495617a649c0f17cb4dc1f40f1ff4e",
+    "content-hash": "7612b50d93d948ee7cb72acfb5abab34",
     "packages": [
         {
             "name": "composer/package-versions-deprecated",
@@ -135,16 +135,16 @@
         },
         {
             "name": "crestic-urca/remotelabz-message-bundle",
-            "version": "1.0.2",
+            "version": "dev-fnolot/issue3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/crestic-urca/remotelabz-message-bundle.git",
-                "reference": "768cf9818ae45db3337b35ae62034c9abe08413f"
+                "reference": "779cce674a7f6536755dec74761a61b1c4a7d15c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/crestic-urca/remotelabz-message-bundle/zipball/768cf9818ae45db3337b35ae62034c9abe08413f",
-                "reference": "768cf9818ae45db3337b35ae62034c9abe08413f",
+                "url": "https://api.github.com/repos/crestic-urca/remotelabz-message-bundle/zipball/779cce674a7f6536755dec74761a61b1c4a7d15c",
+                "reference": "779cce674a7f6536755dec74761a61b1c4a7d15c",
                 "shasum": ""
             },
             "require": {
@@ -187,10 +187,10 @@
             ],
             "description": "Shared messages between remotelabz components.",
             "support": {
-                "source": "https://github.com/crestic-urca/remotelabz-message-bundle/tree/1.0.2",
+                "source": "https://github.com/crestic-urca/remotelabz-message-bundle/tree/fnolot/issue3",
                 "issues": "https://github.com/crestic-urca/remotelabz-message-bundle/issues"
             },
-            "time": "2021-09-18T09:38:53+00:00"
+            "time": "2021-12-02T10:32:51+00:00"
         },
         {
             "name": "doctrine/annotations",
@@ -6243,7 +6243,9 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {
+        "crestic-urca/remotelabz-message-bundle": 20
+    },
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {

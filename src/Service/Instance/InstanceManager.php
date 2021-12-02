@@ -109,7 +109,8 @@ class InstanceManager extends AbstractController
         $filesystem->remove($instancePath);
 
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
-            if ($deviceInstance["device"]["hypervisor"]=="lxc")
+            if ($deviceInstance["device"]["hypervisor"]=="lxc" && $this->exist_lxc($uuid))
+            
                 $this->delete_lxc($deviceInstance["uuid"]);
         }
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
@@ -541,7 +542,7 @@ class InstanceManager extends AbstractController
         //The pipe seems not to work in an array
         $exist=false;
         foreach( explode(' ',preg_replace('/\s+/',' ',$process->getOutput())) as $chr) {
-            $this->logger->debug("line:".$chr, InstanceLogMessage::SCOPE_PRIVATE);    
+            //$this->logger->debug("line:".$chr, InstanceLogMessage::SCOPE_PRIVATE);    
             if (strcmp($chr,$name) == 0){
                 $exist=true || $exist;
             }
@@ -550,7 +551,7 @@ class InstanceManager extends AbstractController
             }
         }
 
-        $this->logger->debug("LXC container $name existence testing. Process return:".$exist, InstanceLogMessage::SCOPE_PRIVATE);
+        //$this->logger->debug("LXC container $name existence testing. Process return:".$exist, InstanceLogMessage::SCOPE_PRIVATE);
         
         if ($exist) {
             $this->logger->debug("The LXC container $name exists", InstanceLogMessage::SCOPE_PRIVATE);
@@ -651,6 +652,7 @@ class InstanceManager extends AbstractController
         }   catch (ProcessFailedException $exception) {
             $this->logger->error("LXC container deleted error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
         }
+        
         $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC);
     }
 
@@ -1034,7 +1036,8 @@ class InstanceManager extends AbstractController
         } catch (ErrorException $e) {
             throw new BadDescriptorException($labInstance, "", 0, $e);
         }
-
+        // Test here if hypervisor is qemu
+        if ($deviceInstance['device']['hypervisor'] == 'qemu') {
         $instancePath = $this->kernel->getProjectDir() . "/instances";
         $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
         $instancePath .= '/' . $labUser;
@@ -1138,6 +1141,7 @@ class InstanceManager extends AbstractController
             }   catch (ProcessFailedException $exception) {
                 $this->logger->error("Export: QEMU delete image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
             }
+        }
 
             $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC);
             return [InstanceStateMessage::STATE_EXPORTED,$uuid,$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];

@@ -42,14 +42,14 @@ class LogDispatcher
     public function error($message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {
         $this->logger->error($message, $context);
         $this->bus->dispatch(
-            new InstanceLogMessage($this->uuid, $message, InstanceLogMessage::TYPE_ERROR, $scope)
+            new InstanceLogMessage($message, InstanceLogMessage::TYPE_ERROR, $scope)
         );
     }
 
     public function warning($message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {
         $this->logger->warning($message, $context);
         $this->bus->dispatch(
-            new InstanceLogMessage($this->uuid, $message, InstanceLogMessage::TYPE_WARNING, $scope)
+            new InstanceLogMessage($message, InstanceLogMessage::TYPE_WARNING, $scope)
         );
     }
 
@@ -60,7 +60,7 @@ class LogDispatcher
     public function info($message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {
         $this->logger->info($message, $context);
         $this->bus->dispatch(
-            new InstanceLogMessage($this->uuid, $message, InstanceLogMessage::TYPE_INFO, $scope)
+            new InstanceLogMessage($message, InstanceLogMessage::TYPE_INFO, $scope)
         );
     }
 
@@ -75,7 +75,7 @@ class LogDispatcher
     public function log($level, $message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {
         $this->logger->log($level, $message, $context);
         $this->bus->dispatch(
-            new InstanceLogMessage($this->uuid, $message, $level)
+            new InstanceLogMessage($message, $level, $scope)
         );
     }
     
