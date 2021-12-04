@@ -129,7 +129,7 @@ class InstanceManager extends AbstractController
         # TODO: send lab logs
         /** @var array $labInstance */
         $error=false;
-        $this->logger->setUuid($uuid);
+        //$this->logger->setUuid($uuid);
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
 
         if (!is_array($labInstance)) {
@@ -215,7 +215,7 @@ class InstanceManager extends AbstractController
 
         if (!count($deviceInstance)) {
             $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'uuid' => $deviceInstance['uuid']
+                'instance' => $deviceInstance['uuid']
             ]);
             // instance is already started or whatever
             return;
@@ -226,7 +226,8 @@ class InstanceManager extends AbstractController
 
         try {
             $this->logger->debug("Lab instance starting", InstanceLogMessage::SCOPE_PRIVATE, [
-                'labInstance' => $labInstance
+                'labInstance' => $labInstance,
+                'instance' => $deviceInstance['uuid']
             ]);
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
@@ -257,7 +258,8 @@ class InstanceManager extends AbstractController
             if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
                 if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
                     $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source']
+                        "image" => $img['source'],
+                        'instance' => $deviceInstance['uuid']
                     ]);
                     // check image size
                     $headers = get_headers($img["source"], 1);
@@ -268,7 +270,8 @@ class InstanceManager extends AbstractController
                     }
 
                     $this->logger->info('Image size is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source']
+                        "image" => $img['source'],
+                        'instance' => $deviceInstance['uuid']
                     ]);
                     $chunkSize = 1024 * 1024;
                     $fd = fopen($img["source"], 'rb');
@@ -293,7 +296,8 @@ class InstanceManager extends AbstractController
                     }
 
                     $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source']
+                        "image" => $img['source'],
+                        'instance' => $deviceInstance['uuid']
                     ]);
                     fclose($fd);
                 }
@@ -304,17 +308,21 @@ class InstanceManager extends AbstractController
 
             if (!$filesystem->exists($img['destination'])) {
                 $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
-                    'source' => $img['source']
+                    'source' => $img['source'],
+                    'instance' => $deviceInstance['uuid']
                 ]);
                 $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img['source'], $img['destination']]);
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("QEMU commit error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->error("QEMU commit error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
                     $error=true;
                 }
                 $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
-                    'path' => $img['destination']
+                    'path' => $img['destination'],
+                    'instance' => $deviceInstance['uuid']
                 ]);
             }
 
@@ -363,38 +371,55 @@ class InstanceManager extends AbstractController
             }
 
             if ($deviceInstance['device']['vnc'] === true) {
-                $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid']
+                ]
+            );
                 $vncAddress = "0.0.0.0";
                 $vncPort = $deviceInstance['remotePort'];
 
-                $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
                 
                 $command = ['websockify', '-D'];
                 if ($this->getParameter('app.services.proxy.wss')) {
-                    $this->logger->debug("Websocket use wss", InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->debug("Websocket use wss", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
                     array_push($command,'--cert='.$this->getParameter('app.services.proxy.cert'),'--key='.$this->getParameter('app.services.proxy.key'));
                 } else
-                    $this->logger->debug("Websocket without wss", InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->debug("Websocket without wss", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
                 array_push($command, $vncAddress.':' . ($vncPort + 1000), $vncAddress.':'.$vncPort);
                 
                 $process = new Process($command);
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Websockify starting process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->error("Websockify starting process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
                     $error=true;
                 }
                 $command="ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'";
-                $this->logger->debug("List websockify:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                $this->logger->debug("List websockify:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
 
                 try {
                     $pidProcess = Process::fromShellCommandline($command);
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Listing process to find websockify process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->error("Listing process to find websockify process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
                     $error=true;
                 }
                 if (!$error)
-                    $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
 
                 array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
                 array_push($parameters['local'], '-k', 'fr');
@@ -407,17 +432,25 @@ class InstanceManager extends AbstractController
             );
             
             if (!$this->start_qemu($parameters,$uuid)){
-                $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC);
-                $this->logger->info("Virtual Machine can be configured on network:".$labNetwork, InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                $this->logger->info("Virtual Machine can be configured on network:".$labNetwork, InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
             }
             else {
-                $this->logger->info("Virtual Machine doesn't start !", InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info("Virtual Machine doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
                 $error=true;
             }
 
         }
         elseif ($deviceInstance['device']['hypervisor'] == 'lxc') {
-            $this->logger->debug("Device is a LXC container", InstanceLogMessage::SCOPE_PRIVATE);
+            $this->logger->debug("Device is a LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid']
+                ]);
             if (!$this->exist_lxc($uuid)) {
                 $this->clone_lxc("Service",$uuid);
             }
@@ -430,15 +463,22 @@ class InstanceManager extends AbstractController
             $this->add_dhcp_dnsmasq_lxc($uuid,$first_ip,$last_ip);
 
             if (!$this->start_lxc($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway)){
-                $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC);
-                $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
             }
             else 
                 $error=true;
             }
 
         if (!$error) {
-            $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC);
+            $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']
+                ]
+            );
         }
         else {
             $this->stopDeviceInstance($descriptor,$uuid);
@@ -840,7 +880,9 @@ class InstanceManager extends AbstractController
             else
                 return $deviceInstance['state'] == InstanceStateMessage::STATE_ERROR;
         }
-        $this->logger->info("Device stopped successfully", InstanceLogMessage::SCOPE_PUBLIC);
+        $this->logger->info("Device stopped successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $deviceInstance['uuid']]
+        );
 
         // $filesystem = new Filesystem();
         // $filesystem->remove($this->workerDir . '/instances/' . $labUser . '/' . $labInstanceUuid . '/' . $uuid);
@@ -1014,9 +1056,10 @@ class InstanceManager extends AbstractController
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] == 'exporting');
         });
 
+        $this->logger->debug("instance descriptor :".$descriptor);
         if (!count($deviceInstance)) {
             $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'uuid' => $deviceInstance['uuid']
+                'instance' => $deviceInstance['uuid']
             ]);
             // instance is already started or whatever
             return [InstanceStateMessage::STATE_STARTED,$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
@@ -1055,7 +1098,9 @@ class InstanceManager extends AbstractController
         $this->logger->debug("Test if image exist $filename",InstanceLogMessage::SCOPE_PRIVATE);
             
         if (file_exists($filename)) {
-            $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC);
+            $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']
+            ]);
 
             $command = [
             'cp',
@@ -1081,7 +1126,8 @@ class InstanceManager extends AbstractController
             ];
 
             $this->logger->debug("Copying backing image file.", InstanceLogMessage::SCOPE_PRIVATE, [
-                "command" => implode(' ',$command)
+                "command" => implode(' ',$command),
+                'instance' => $deviceInstance['uuid']
             ]);
 
             $process = new Process($command);
@@ -1100,7 +1146,9 @@ class InstanceManager extends AbstractController
             ];
 
             $this->logger->debug("Rebasing backing and base image", InstanceLogMessage::SCOPE_PRIVATE, [
-                "command" => implode(' ',$command)
+                "command" => implode(' ',$command),
+                'instance' => $deviceInstance['uuid']
+
             ]);
 
             $process = new Process($command);
@@ -1143,11 +1191,15 @@ class InstanceManager extends AbstractController
             }
         }
 
-            $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC);
+            $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC,[
+                'instance' => $deviceInstance['uuid']
+            ]);
             return [InstanceStateMessage::STATE_EXPORTED,$uuid,$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
         }
         else {
-        $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC);
+        $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC,[
+            'instance' => $deviceInstance['uuid']
+        ]);
         // Get the uuid of the device templace create from it's name
         // Return this uuid in the state message with setUuid()
         return [InstanceStateMessage::STATE_ERROR,$deviceInstance['uuid'],$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
