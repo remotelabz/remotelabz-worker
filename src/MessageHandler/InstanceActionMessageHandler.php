@@ -35,6 +35,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
         $returnState = "";
         $instanceType = "";
+        $exportDeviceReturnArray = null;
 
         try {
             switch ($message->getAction()) {
@@ -107,14 +108,15 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         ]);
 
             if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
-                $return_array=implode(",",$exportDeviceReturnArray);
+                $this->logger->debug("export and error".$exportDeviceReturnArray);
+                $return_array=$exportDeviceReturnArray["uuid"];
             }
             else {
                 $return_array=$message->getUuid();
             }
 
         $this->bus->dispatch(
-            new InstanceStateMessage($instanceType, $return_array,$returnState)
+            new InstanceStateMessage($instanceType, $return_array,$returnState,$exportDeviceReturnArray)
         );
     }
 

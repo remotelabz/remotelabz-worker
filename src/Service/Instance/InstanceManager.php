@@ -1201,7 +1201,15 @@ class InstanceManager extends AbstractController
             $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC,[
                 'instance' => $deviceInstance['uuid']
             ]);
-            return [InstanceStateMessage::STATE_EXPORTED,$uuid,$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
+            $result=array(
+                "state" => InstanceStateMessage::STATE_EXPORTED,
+                "uuid" => $deviceInstance['uuid'],
+                "newOs_id" => $labInstance["newOS_id"],
+                "newDevice_id" => $labInstance["newDevice_id"],
+                "new_os_name" => $labInstance["new_os_name"],
+                "new_os_imagename" => $labInstance["new_os_imagename"]
+            );
+            return $result;
         }
         else {
         $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC,[
@@ -1209,7 +1217,16 @@ class InstanceManager extends AbstractController
         ]);
         // Get the uuid of the device templace create from it's name
         // Return this uuid in the state message with setUuid()
-        return [InstanceStateMessage::STATE_ERROR,$deviceInstance['uuid'],$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
+        $result=array(
+            "state" => InstanceStateMessage::STATE_ERROR,
+            "uuid" => $deviceInstance['uuid'],
+            "newOs_id" => $labInstance["newOS_id"],
+            "newDevice_id" => $labInstance["newDevice_id"],
+            "new_os_name" => $labInstance["new_os_name"],
+            "new_os_imagename" => $labInstance["new_os_imagename"]
+        );
+        
+        return $result;
         
         }
     }
