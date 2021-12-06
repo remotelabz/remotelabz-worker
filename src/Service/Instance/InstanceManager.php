@@ -41,6 +41,7 @@ class InstanceManager extends AbstractController
         /** @var array $labInstance */
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
 
+        //$this->logger->debug("from_export ? :".$labInstance['from_export']);
         if (!is_array($labInstance)) {
             // invalid json
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
@@ -56,7 +57,6 @@ class InstanceManager extends AbstractController
         }
 
         // OVS
-
         if (!IPTools::networkInterfaceExists($bridgeName)) {
             OVS::bridgeAdd($bridgeName, true);
             $this->logger->debug("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -289,7 +289,8 @@ class InstanceManager extends AbstractController
                         $downloadedPercent = floor(($downloaded/$fileSize) * 100.0);
                         if ($downloadedPercent - $lastNotification >= 5.0) {
                             $this->logger->info('Downloading image... '.$downloadedPercent.'%', InstanceLogMessage::SCOPE_PUBLIC, [
-                                "image" => $img['source']
+                                "image" => $img['source'],
+                                'instance' => $deviceInstance['uuid']
                             ]);
                             $lastNotification = $downloadedPercent;
                         }
@@ -655,7 +656,9 @@ class InstanceManager extends AbstractController
             '-N',
             "$dst_lxc_name"
         ];
-        $this->logger->info("Cloning LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC);
+        $this->logger->info("Cloning LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $dst_lxc_name]
+        );
         $this->logger->debug("Cloning LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
@@ -667,7 +670,8 @@ class InstanceManager extends AbstractController
             $this->logger->error("LXC container cloned error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
         }
 
-        $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC);
+        $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $dst_lxc_name]);
         
     }
 
@@ -693,7 +697,8 @@ class InstanceManager extends AbstractController
             $this->logger->error("LXC container deleted error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
         }
         
-        $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC);
+        $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $deviceInstance['uuid']]);
     }
 
 
@@ -767,7 +772,8 @@ class InstanceManager extends AbstractController
         });
 
         if (!count($deviceInstance)) {
-            $this->logger->debug("Device instance is already stopped.", InstanceLogMessage::SCOPE_PUBLIC);
+            $this->logger->debug("Device instance is already stopped.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']]);
             // instance is already stopped or whatever
             return;
         } else {
@@ -876,7 +882,8 @@ class InstanceManager extends AbstractController
                 'labInstance' => $labInstance
             ]);
             if (!$this->stop_lxc($uuid))
-                $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC);
+                $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']]);
             else
                 return $deviceInstance['state'] == InstanceStateMessage::STATE_ERROR;
         }
