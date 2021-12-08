@@ -72,7 +72,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                 case InstanceActionMessage::ACTION_EXPORT:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     $exportDeviceReturnArray= $this->instanceManager->exportDeviceInstance($message->getContent(), $message->getUuid());
-                    $returnState = $exportDeviceReturnArray[0];
+                    $returnState = $exportDeviceReturnArray["state"];
                     break;
                 
                 //When an error is generated and we want to delete on filesystem the file created
@@ -106,14 +106,18 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         $this->logger->info("State " . $returnState . " send back to the front", [
             "uuid" => $message->getUuid()
         ]);
-
+        $return_array="";
             if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
-                $this->logger->debug("export and error".$exportDeviceReturnArray);
+                $this->logger->debug("export and error");
                 $return_array=$exportDeviceReturnArray["uuid"];
             }
             else {
+                $this->logger->debug("no export or no error");
                 $return_array=$message->getUuid();
             }
+
+
+            $this->logger->debug("value of return array before InstanceStateMessage :".json_encode($return_array));
 
         $this->bus->dispatch(
             new InstanceStateMessage($instanceType, $return_array,$returnState,$exportDeviceReturnArray)

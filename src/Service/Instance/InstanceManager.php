@@ -1054,10 +1054,11 @@ class InstanceManager extends AbstractController
      * @param string $descriptor JSON representation of a lab instance.
      * @param string $uuid UUID of the device instance to export.
      * @throws ProcessFailedException When a process failed to run.
-     * @return [$state,$newOS_id,$newDev_id,$name,$imagename] Return the state of the instance : InstanceStateMessage::STATE_STARTED, InstanceStateMessage::STATE_EXPORTED or InstanceStateMessage::STATE_ERROR
+     * @return array ["state", "uuid", "newOs_id", "newDevice_id", "new_os_name", "new_os_imagename"]
      */
     public function exportDeviceInstance(string $descriptor, string $uuid) {
         $this->logger->setUuid($uuid);
+        $result="";
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] == 'exporting');
@@ -1087,148 +1088,157 @@ class InstanceManager extends AbstractController
             throw new BadDescriptorException($labInstance, "", 0, $e);
         }
         // Test here if hypervisor is qemu
-        if ($deviceInstance['device']['hypervisor'] == 'qemu') {
-        $instancePath = $this->kernel->getProjectDir() . "/instances";
-        $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
-        $instancePath .= '/' . $labUser;
-        $instancePath .= '/' . $labInstanceUuid;
-        $instancePath .= '/' . $uuid;
+        if ($deviceInstance['device']['hypervisor'] === "qemu") {
+                $this->logger->debug("qemu image to export detected");
+                $instancePath = $this->kernel->getProjectDir() . "/instances";
+                $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
+                $instancePath .= '/' . $labUser;
+                $instancePath .= '/' . $labInstanceUuid;
+                $instancePath .= '/' . $uuid;
 
-        $imagePath = $this->kernel->getProjectDir() . "/images";
+                $imagePath = $this->kernel->getProjectDir() . "/images";
 
-        $newImagePath = $imagePath . '/' . $newImageName;
-        $copyInstancePath = $instancePath . '/snap-' . basename($img["source"]);
+                $newImagePath = $imagePath . '/' . $newImageName;
+                $copyInstancePath = $instancePath . '/snap-' . basename($img["source"]);
 
-        // Test if the image instance file exists. If the device has not been started before the export, the image instance doesn't exist.
-            
-        $filename=$instancePath . '/' . basename($img["source"]);
-        $this->logger->debug("Test if image exist $filename",InstanceLogMessage::SCOPE_PRIVATE);
-            
-        if (file_exists($filename)) {
-            $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC, [
-                'instance' => $deviceInstance['uuid']
-            ]);
+                // Test if the image instance file exists. If the device has not been started before the export, the image instance doesn't exist.
+                    
+                $filename=$instancePath . '/' . basename($img["source"]);
+                $this->logger->debug("Test if image exist $filename",InstanceLogMessage::SCOPE_PRIVATE);
+                    
+                if (file_exists($filename)) {
+                    $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                    ]);
 
-            $command = [
-            'cp',
-            $imagePath . '/' . basename($img["source"]),
-            $newImagePath
-            ];
+                    $command = [
+                    'cp',
+                    $imagePath . '/' . basename($img["source"]),
+                    $newImagePath
+                    ];
 
-            $this->logger->debug("Copying base image.", InstanceLogMessage::SCOPE_PRIVATE, [
-                "command" => implode(' ',$command)
-            ]);
+                    $this->logger->debug("Copying base image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "command" => implode(' ',$command)
+                    ]);
 
-            $process = new Process($command);
-            try {
-                $process->mustRun();
-            }   catch (ProcessFailedException $exception) {
-                $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    $process = new Process($command);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    }
+
+                    $command = [
+                        'cp',
+                        $instancePath . '/' . basename($img["source"]),
+                        $copyInstancePath
+                    ];
+
+                    $this->logger->debug("Copying backing image file.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "command" => implode(' ',$command),
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+
+                    $process = new Process($command);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    }
+
+                    $command = [
+                        'qemu-img',
+                        'rebase',
+                        '-b',
+                        $newImagePath,
+                        $copyInstancePath
+                    ];
+
+                    $this->logger->debug("Rebasing backing and base image", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "command" => implode(' ',$command),
+                        'instance' => $deviceInstance['uuid']
+
+                    ]);
+
+                    $process = new Process($command);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    }
+
+                    $command = [
+                        'qemu-img',
+                        'commit',
+                        $copyInstancePath
+                    ];
+
+                    $this->logger->debug("Commit change on image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "command" => implode(' ',$command)
+                    ]);
+
+                    $process = new Process($command);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    }
+
+                    $command = [
+                        'rm',
+                        $copyInstancePath
+                    ];
+                    $this->logger->debug("Delete image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "command" => implode(' ',$command)
+                    ]);
+
+                    $process = new Process($command);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Export: QEMU delete image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                    }
+                
+                $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC,[
+                    'instance' => $deviceInstance['uuid']
+                ]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_EXPORTED,
+                    "uuid" => $deviceInstance['uuid'],
+                    "newOS_id" => $labInstance["newOS_id"],
+                    "newDevice_id" => $labInstance["newDevice_id"],
+                    "new_os_name" => $labInstance["new_os_name"],
+                    "new_os_imagename" => $labInstance["new_os_imagename"]
+                );
             }
-
-            $command = [
-                'cp',
-                $instancePath . '/' . basename($img["source"]),
-                $copyInstancePath
-            ];
-
-            $this->logger->debug("Copying backing image file.", InstanceLogMessage::SCOPE_PRIVATE, [
-                "command" => implode(' ',$command),
-                'instance' => $deviceInstance['uuid']
-            ]);
-
-            $process = new Process($command);
-            try {
-                $process->mustRun();
-            }   catch (ProcessFailedException $exception) {
-                $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
-            }
-
-            $command = [
-                'qemu-img',
-                'rebase',
-                '-b',
-                $newImagePath,
-                $copyInstancePath
-            ];
-
-            $this->logger->debug("Rebasing backing and base image", InstanceLogMessage::SCOPE_PRIVATE, [
-                "command" => implode(' ',$command),
-                'instance' => $deviceInstance['uuid']
-
-            ]);
-
-            $process = new Process($command);
-            try {
-                $process->mustRun();
-            }   catch (ProcessFailedException $exception) {
-                $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
-            }
-
-            $command = [
-                'qemu-img',
-                'commit',
-                $copyInstancePath
-            ];
-
-            $this->logger->debug("Commit change on image.", InstanceLogMessage::SCOPE_PRIVATE, [
-                "command" => implode(' ',$command)
-            ]);
-
-            $process = new Process($command);
-            try {
-                $process->mustRun();
-            }   catch (ProcessFailedException $exception) {
-                $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
-            }
-
-            $command = [
-                'rm',
-                $copyInstancePath
-            ];
-            $this->logger->debug("Delete image.", InstanceLogMessage::SCOPE_PRIVATE, [
-                "command" => implode(' ',$command)
-            ]);
-
-            $process = new Process($command);
-            try {
-                $process->mustRun();
-            }   catch (ProcessFailedException $exception) {
-                $this->logger->error("Export: QEMU delete image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            else {
+                $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC,[
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                // Get the uuid of the device templace create from it's name
+                // Return this uuid in the state message with setUuid()
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "newOS_id" => $labInstance["newOS_id"],
+                    "newDevice_id" => $labInstance["newDevice_id"],
+                    "new_os_name" => $labInstance["new_os_name"],
+                    "new_os_imagename" => $labInstance["new_os_imagename"]
+                );
             }
         }
-
-            $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC,[
-                'instance' => $deviceInstance['uuid']
-            ]);
+        else {
+            // LXC container
             $result=array(
-                "state" => InstanceStateMessage::STATE_EXPORTED,
+                "state" => InstanceStateMessage::STATE_ERROR,
                 "uuid" => $deviceInstance['uuid'],
-                "newOs_id" => $labInstance["newOS_id"],
+                "newOS_id" => $labInstance["newOS_id"],
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
                 "new_os_imagename" => $labInstance["new_os_imagename"]
             );
-            return $result;
         }
-        else {
-        $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC,[
-            'instance' => $deviceInstance['uuid']
-        ]);
-        // Get the uuid of the device templace create from it's name
-        // Return this uuid in the state message with setUuid()
-        $result=array(
-            "state" => InstanceStateMessage::STATE_ERROR,
-            "uuid" => $deviceInstance['uuid'],
-            "newOs_id" => $labInstance["newOS_id"],
-            "newDevice_id" => $labInstance["newDevice_id"],
-            "new_os_name" => $labInstance["new_os_name"],
-            "new_os_imagename" => $labInstance["new_os_imagename"]
-        );
-        
         return $result;
-        
-        }
     }
 
     /**
