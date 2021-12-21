@@ -105,13 +105,17 @@ class InstanceManager extends AbstractController
         $instancePath .= '/' . $labUser;
         $instancePath .= '/' . $labInstanceUuid;
 
-        $filesystem = new Filesystem();
-        $filesystem->remove($instancePath);
+        if (file_exists($instancePath)) {
+            $filesystem = new Filesystem();
+            $filesystem->remove($instancePath);
+        }
 
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
-            if ($deviceInstance["device"]["hypervisor"]=="lxc" && $this->exist_lxc($uuid))
-            
+            $this->logger->debug("Device to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
+            if ($deviceInstance["device"]["hypervisor"]=="lxc" && $this->exist_lxc($deviceInstance["uuid"])) {
+                $this->logger->debug("Device to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
                 $this->delete_lxc($deviceInstance["uuid"]);
+            }
         }
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
 
@@ -448,7 +452,7 @@ class InstanceManager extends AbstractController
             }
 
         }
-        elseif ($deviceInstance['device']['hypervisor'] == 'lxc') {
+        elseif ($deviceInstance['device']['hypervisor'] == 'lxc' && $deviceInstance['device']['name'] == 'Service') {
             $this->logger->debug("Device is a LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $deviceInstance['uuid']
                 ]);
@@ -459,6 +463,9 @@ class InstanceManager extends AbstractController
             //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
             $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
             $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+            /*$mask="24";
+            $this->create_lxc_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
+            */
             $first_ip=$labNetwork->getFirstAddress();
             $last_ip=long2ip(ip2long($ip_addr)-1);
             $this->add_dhcp_dnsmasq_lxc($uuid,$first_ip,$last_ip);
@@ -571,12 +578,12 @@ class InstanceManager extends AbstractController
         //$process = new Process(['lxc-ls','-f','|grep','-e',"$name",'|grep','-v','grep']);      
         //$process = new Process('lxc-ls -f | grep "$VAR1" | grep -v "$VAR2"');
         //$cmd="lxc-ls -f | grep ".$name;
-        $process = Process::fromShellCommandline("lxc-ls -f");
+        $process = Process::fromShellCommandline("lxc list");
 
         try {
             $process->mustRun();
         } catch (ProcessFailedException $exception) {
-            $this->logger->error("Execution lxc-ls error", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("Execution lxc list error", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
         }
         //Filter each ligne because the fromShellCommandLine("lxc-ls -f |grep $name | grep -v grep") doesn't work.
         //May be because the | and a - in the $name generate an issue
@@ -604,6 +611,20 @@ class InstanceManager extends AbstractController
         return $exist;
     }
 
+    /**
+     * Fuction to create a network for LXD
+     * @param string $uuid the $uuid of the device
+     * @param string $bridgeName the bridge name on with we have to connect this container
+     * @param string $network_addr the IP of the container
+     * @param string $gateway_IP the gateway the container uses
+     */
+
+     public function create_lxd_network($uuid,string $bridgeName,string $network_addr,string $gateway_IP,string $mask) {
+        $ipv4_address='ipv4.address='.$network_addr.'/'.$mask;
+        $command = [
+            'lxc','network','create','uuid-network','--type=bridge',$ipv4_address,'ipv6.address=none'
+        ];
+     }
     /**
      * Function to start qemu
      * TODO finish this function start_qemu
@@ -648,6 +669,37 @@ class InstanceManager extends AbstractController
      * @param string $src_lxc_name Name of the LXC contianer to clone.
      * @param string $dst_lxc_name Name of the new LXC container created.
      */
+    public function clone_lxd(string $src_lxc_name,string $dst_lxc_name){
+        $command = [
+            'lxc copy',
+            "$src_lxc_name",
+            "$dst_lxc_name"
+        ];
+        $this->logger->info("Cloning LXD container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $dst_lxc_name]
+        );
+        $this->logger->debug("Cloning LXD container.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        try {
+            $process->mustRun();
+        }   catch (ProcessFailedException $exception) {
+            $this->logger->error("LXD container cloned error ! ", InstanceLogMessage::SCOPE_PRIVATE, [
+                'error' => $exception->getMessage()
+            ]);
+        }
+
+        $this->logger->info("LXD container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $dst_lxc_name]);
+    }
+
+    /**
+     * Function to clone a LXC container
+     * @param string $src_lxc_name Name of the LXC contianer to clone.
+     * @param string $dst_lxc_name Name of the new LXC container created.
+     */
     public function clone_lxc(string $src_lxc_name,string $dst_lxc_name){
         $command = [
             'lxc-copy',
@@ -667,7 +719,10 @@ class InstanceManager extends AbstractController
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container cloned error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("LXC container cloned error ! ", InstanceLogMessage::SCOPE_PRIVATE, [
+                'error' => $exception->getMessage(),
+                'instance' => $dst_lxc_name
+            ]);
         }
 
         $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -698,7 +753,7 @@ class InstanceManager extends AbstractController
         }
         
         $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
-            'instance' => $deviceInstance['uuid']]);
+            'instance' => $uuid]);
     }
 
 
@@ -1064,13 +1119,20 @@ class InstanceManager extends AbstractController
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] == 'exporting');
         });
 
-        $this->logger->debug("instance descriptor :".$descriptor);
+        $this->logger->debug("export process, instance descriptor argument: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
         if (!count($deviceInstance)) {
             $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']
             ]);
             // instance is already started or whatever
-            return [InstanceStateMessage::STATE_STARTED,$labInstance["newOS_id"],$labInstance["newDevice_id"],$labInstance["new_os_name"],$labInstance["new_os_imagename"]];
+            $result=array(
+                "state" => InstanceStateMessage::STATE_STARTED,
+                "uuid" => $deviceInstance['uuid'],
+                "newOS_id" => $labInstance["newOS_id"],
+                "newDevice_id" => $labInstance["newDevice_id"],
+                "new_os_name" => $labInstance["new_os_name"],
+                "new_os_imagename" => $labInstance["new_os_imagename"]
+            );
         } else {
             $deviceIndex = array_key_first($deviceInstance);
             $deviceInstance = $deviceInstance[$deviceIndex];
@@ -1089,7 +1151,7 @@ class InstanceManager extends AbstractController
         }
         // Test here if hypervisor is qemu
         if ($deviceInstance['device']['hypervisor'] === "qemu") {
-                $this->logger->debug("qemu image to export detected");
+                $this->logger->debug("Qemu image exportation detected");
                 $instancePath = $this->kernel->getProjectDir() . "/instances";
                 $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
                 $instancePath .= '/' . $labUser;
@@ -1211,12 +1273,18 @@ class InstanceManager extends AbstractController
                     "new_os_imagename" => $labInstance["new_os_imagename"]
                 );
             }
-            else {
+        } 
+        
+        elseif ($deviceInstance['device']['hypervisor'] === "lxc") {
+            $this->logger->debug("LXC device for export",InstanceLogMessage::SCOPE_PRIVATE,[
+                'instance' => $deviceInstance['uuid']
+                ]);
+            if (!$this->exist_lxc($deviceInstance['uuid'])) {
                 $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC,[
                     'instance' => $deviceInstance['uuid']
                     ]);
-                // Get the uuid of the device templace create from it's name
-                // Return this uuid in the state message with setUuid()
+                    
+                // LXC container
                 $result=array(
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
@@ -1226,8 +1294,27 @@ class InstanceManager extends AbstractController
                     "new_os_imagename" => $labInstance["new_os_imagename"]
                 );
             }
+            else {                
+                $this->clone_lxc($deviceInstance['uuid'],$labInstance['new_os_name']);
+                $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
+                    'instance' => $deviceInstance['uuid']
+                ]);
+                $this->delete_lxc($deviceInstance['uuid']);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_EXPORTED,
+                    "uuid" => $deviceInstance['uuid'],
+                    "newOS_id" => $labInstance["newOS_id"],
+                    "newDevice_id" => $labInstance["newDevice_id"],
+                    "new_os_name" => $labInstance["new_os_name"],
+                    "new_os_imagename" => $labInstance["new_os_imagename"]
+                );
+            }
         }
         else {
+            $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC,[
+                'instance' => $deviceInstance['uuid']
+                ]);
+                
             // LXC container
             $result=array(
                 "state" => InstanceStateMessage::STATE_ERROR,
