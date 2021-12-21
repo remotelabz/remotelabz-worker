@@ -1,0 +1,95 @@
+#!/usr/bin/env php
+<?php
+
+use Symfony\Component\Process\Process;
+use Remotelabz\NetworkBundle\Entity\Network;
+use Remotelabz\NetworkBundle\Entity\IP;
+use App\Bridge\Network\IPTools;
+
+
+require dirname(__DIR__).'/config/bootstrap.php';
+
+# Configure the data network to exchange between the front and the back
+
+$cmd = ['ip','addr','add'];
+
+if ( array_key_exists('BRIDGE_INT_IP_ADDRESS', $_ENV)
+    && array_key_exists('BRIDGE_INT', $_ENV)
+    ) {
+    $cmd[]=$_ENV['BRIDGE_INT_IP_ADDRESS'];
+    $cmd[]='dev';
+    $cmd[]=$_ENV['BRIDGE_INT'];
+}
+
+$process = new Process($cmd);
+$process->setTimeout(null);
+
+$process->run(function ($type, $buffer) {
+    echo $buffer;
+});
+
+$cmd = ['ip','link','set', 'up', 'dev'];
+
+if ( array_key_exists('DATA_INTERFACE', $_ENV)
+    ) {
+    $cmd[]=$_ENV['DATA_INTERFACE'];
+}
+
+$process = new Process($cmd);
+$process->setTimeout(null);
+
+$process->run(function ($type, $buffer) {
+    echo $buffer;
+});
+
+$cmd = ['ip','link','set', 'up', 'dev'];
+
+if ( array_key_exists('BRIDGE_INT', $_ENV)
+    ) {
+    $cmd[]=$_ENV['BRIDGE_INT'];
+}
+
+$process = new Process($cmd);
+$process->setTimeout(null);
+
+$process->run(function ($type, $buffer) {
+    echo $buffer;
+});
+
+$cmd = ['ovs-vsctl','add-port'];
+
+if ( array_key_exists('DATA_INTERFACE', $_ENV)
+    && array_key_exists('BRIDGE_INT', $_ENV)
+    ) {
+    $cmd[]=$_ENV['BRIDGE_INT'];
+    $cmd[]=$_ENV['DATA_INTERFACE'];
+}
+
+$process = new Process($cmd);
+$process->setTimeout(null);
+
+$process->run(function ($type, $buffer) {
+    echo $buffer;
+});
+
+
+# Configure route back to VPN
+
+$cmd = ['ip','route','add'];
+
+if ( array_key_exists('VPN_NETWORK', $_ENV) && array_key_exists('FRONT_DATA_IP', $_ENV) ) {
+    $base_ip = new IP($_ENV['VPN_NETWORK']);
+    $network = new Network($base_ip, $_ENV['VPN_NETWORK_NETMASK']);
+    $cmd[]=$network->__toString();
+    $cmd[]='via';
+    $cmd[]=$_ENV['FRONT_DATA_IP'];
+}
+
+$process = new Process($cmd);
+$process->setTimeout(null);
+
+$process->run(function ($type, $buffer) {
+    echo $buffer;
+});
+
+
