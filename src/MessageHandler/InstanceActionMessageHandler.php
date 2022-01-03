@@ -31,55 +31,60 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
     {
 
        // The following generate an error on json param
-       // $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".", json_decode($message->getContent(), true));
+       $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".", json_decode($message->getContent(), true));
 
         $returnState = "";
         $instanceType = "";
-        $exportDeviceReturnArray = null;
+        $ReturnArray = null;
 
         try {
             switch ($message->getAction()) {
                 case InstanceActionMessage::ACTION_CREATE:
                     $instanceType = InstanceStateMessage::TYPE_LAB;
-                    $this->instanceManager->createLabInstance($message->getContent(), $message->getUuid());
+                    $ReturnArray=$this->instanceManager->createLabInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_CREATED;
                     break;
 
                 case InstanceActionMessage::ACTION_DELETE:
                     $instanceType = InstanceStateMessage::TYPE_LAB;
-                    $this->instanceManager->deleteLabInstance($message->getContent(), $message->getUuid());
+                    $ReturnArray=$this->instanceManager->deleteLabInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_DELETED;
                     break;
 
                 case InstanceActionMessage::ACTION_START:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    if (!$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid()))
-                        $returnState = InstanceStateMessage::STATE_STARTED;
-                    else $returnState = InstanceStateMessage::STATE_ERROR;
+                    $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $ReturnArray["state"];
+                    //ReturnArray has a state in $ReturnArray['state']
                     break;
 
                 case InstanceActionMessage::ACTION_STOP:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    $this->instanceManager->stopDeviceInstance($message->getContent(), $message->getUuid());
+                    $ReturnArray=$this->instanceManager->stopDeviceInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STOPPED;
                     break;
                 
                 case InstanceActionMessage::ACTION_CONNECT:
-                    $this->instanceManager->connectToInternet($message->getContent(), $message->getUuid());
+                    $ReturnArray=$this->instanceManager->connectToInternet($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STARTED;
                     break;
 
                 case InstanceActionMessage::ACTION_EXPORT:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    $exportDeviceReturnArray= $this->instanceManager->exportDeviceInstance($message->getContent(), $message->getUuid());
-                    $returnState = $exportDeviceReturnArray["state"];
+                    $ReturnArray= $this->instanceManager->exportDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $ReturnArray["state"];
                     break;
-                
-                //When an error is generated and we want to delete on filesystem the file created
+
                 case InstanceActionMessage::ACTION_DELETEDEV:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    $this->instanceManager->deleteDeviceInstance($message->getContent(), $message->getUuid());
-                    $returnState = InstanceStateMessage::STATE_ERROR;
+                    $ReturnArray=$this->instanceManager->deleteDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $ReturnArray['state'];
+                    break;
+                
+                case InstanceActionMessage::ACTION_DELETEOS:
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                    $ReturnArray=$this->instanceManager->deleteOS($message->getContent(), $message->getUuid());
+                    $returnState = InstanceStateMessage::STATE_DELETED;
                     break;
             }
 
@@ -106,21 +111,18 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         $this->logger->info("State " . $returnState . " send back to the front", [
             "uuid" => $message->getUuid()
         ]);
-        $return_array="";
-            if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
-                $this->logger->debug("export and error");
-                $return_array=$exportDeviceReturnArray["uuid"];
-            }
-            else {
-                $this->logger->debug("no export or no error");
-                $return_array=$message->getUuid();
-            }
-
-
-            $this->logger->debug("value of return array before InstanceStateMessage :".json_encode($return_array));
-
+        
+        if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
+            $this->logger->debug("export and error");
+        }
+        else {
+            $this->logger->debug("no export or no error");
+        }
+        
+        $this->logger->debug("value of return array before InstanceStateMessage :".json_encode($ReturnArray));
+        
         $this->bus->dispatch(
-            new InstanceStateMessage($instanceType, $return_array,$returnState,$exportDeviceReturnArray)
+            new InstanceStateMessage($instanceType, $ReturnArray["uuid"],$returnState,$ReturnArray["options"])
         );
     }
 
