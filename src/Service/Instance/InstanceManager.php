@@ -12,6 +12,7 @@ use App\Service\Instance\LogDispatcher;
 use Psr\Log\LoggerInterface;
 use Remotelabz\Message\Message\InstanceLogMessage;
 use Remotelabz\Message\Message\InstanceStateMessage;
+use Remotelabz\Message\Message\InstanceActionMessage;
 use Remotelabz\NetworkBundle\Entity\Network;
 use Remotelabz\NetworkBundle\Entity\IP;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
@@ -1570,5 +1571,112 @@ public function websockify_start($uuid,$IpAddress,$Port){
         //No uuid because we have no instance in this function
         return array("uuid"=>"","state"=>InstanceStateMessage::STATE_DELETED ,"options"=> null);
 
+    }
+
+    /**
+     * Delete the file or the container of an OS
+     * @return Array("state","uuid","options"=array())
+     */
+    public function renameOS(string $descriptor, int $id){
+        $error=false;
+        $name_received = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $this->logger->debug("JSON received in renameOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $name_received]);
+        $result=explode("://",$name_received['old_name']);
+        
+        $source=$result[1];
+        $result=explode("://",$name_received['new_name']);
+        $destination=$result[1];
+
+        $this->logger->debug("new name", InstanceLogMessage::SCOPE_PRIVATE, ["hypervisor" => $result[0] ,
+    "source" => $source, "new_name" => $destination]);
+
+        if ($result[0]==="lxc")
+            $hypervisor="lxc";
+        elseif ( ($result[0] === "qemu") || ($result[0] === "file") )
+            $hypervisor="qemu";
+
+        switch($hypervisor){
+            case "qemu":
+                $this->qemu_rename($this->kernel->getProjectDir()."/images/".$result[1]);
+                break;
+            case "lxc":
+                if (!$this->lxc_clone($source,$destination))
+                    $this->lxc_destroy($source);
+                else
+                    $error=true;
+                break;
+        }
+        if (!$error)
+            //No uuid because we have no instance in this function
+            return array("uuid"=>$id,"state"=>InstanceStateMessage::STATE_RENAMED ,"options"=> null);
+        else
+            return array("uuid"=>$id,"state"=>InstanceStateMessage::STATE_ERROR ,
+            "options"=> [
+                "state" =>InstanceActionMessage::ACTION_RENAMEOS,
+                "old_name" => $source,
+                "new_name" => $destination]
+        );
+    }
+
+    /**
+     * Function to destroy a LXC container
+     * @param string $src_lxc_name Name of the LXC contianer to clone.
+     * @return $error: true if error or false if no error
+     */
+    public function lxc_destroy(string $src_lxc_name){
+        $error=null;
+        $command = [
+            'lxc-destroy',
+            '-n',
+            "$src_lxc_name"
+        ];
+        $this->logger->info("Destroy LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $src_lxc_name]
+        );
+        $this->logger->debug("Destroying LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        try {
+            $process->mustRun();
+            $error=false;
+        }   catch (ProcessFailedException $exception) {
+            $error=true;
+            $this->logger->error("LXC container destroy is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                'error' => $exception->getMessage(),
+                'instance' => $src_lxc_name
+            ]);
+        }
+        if (!$error)
+            $this->logger->info("LXC container destroyed successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $src_lxc_name]);
+
+        return $error;
+    }
+
+    /**
+     * Copy an image on the filesystem
+     *
+     * @param string $file file in absolute path to delete
+     * @throws ProcessFailedException When a process failed to run.
+     * @return void
+     */
+    public function qemu_copy($source,$destination){
+        $command = [
+            'mv',
+            $source,
+            $destination
+        ];
+        $this->logger->debug("Rename image.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+    
+        $process = new Process($command);
+        try {
+            $process->mustRun();
+        }   catch (ProcessFailedException $exception) {
+            $this->logger->error("Export: QEMU rename image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+        }
     }
 }
