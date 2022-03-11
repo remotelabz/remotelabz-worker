@@ -403,7 +403,7 @@ class InstanceManager extends AbstractController
                                 'instance' => $deviceInstance['uuid']
                                 ]);
                     else {
-                        $this->logger->error("Websockify starting process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                        $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
                             'instance' => $deviceInstance['uuid']
                             ]);
                         }
@@ -484,7 +484,8 @@ class InstanceManager extends AbstractController
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
                 $first_ip=$labNetwork->getFirstAddress();
                 $last_ip=long2ip(ip2long($ip_addr)-1);
-                $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip);
+                $netmask=$labNetwork->getNetmask();
+                $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask);
                 }
                 $result=$this->lxc_start($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
@@ -587,9 +588,10 @@ public function websockify_start($uuid,$IpAddress,$Port){
      * @param string $uuid the $uuid of the device
      * @param string $first_ip the first IP of the range
      * @param string $last_ip the last IP of the range
+     * @param string $netmask the netmaks of the network
      */
-    public function lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip){
-        $line_to_add=$first_ip.",".$last_ip.",1h";     
+    public function lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask){
+        $line_to_add=$first_ip.",".$last_ip.",".$netmask.",1h";     
         $file_path="/var/lib/lxc/".$uuid."/rootfs/etc/dnsmasq.conf";
         $source_file_path="/var/lib/lxc/Service/rootfs/etc/dnsmasq.conf";
         $command="sed \

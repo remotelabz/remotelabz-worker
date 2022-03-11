@@ -11,7 +11,7 @@ require dirname(__DIR__).'/config/bootstrap.php';
 
 # Configure the data network to exchange between the front and the back
 
-$cmd = ['ip','addr','add'];
+$cmd = ['ip','addr','replace'];
 
 if ( array_key_exists('BRIDGE_INT_IP_ADDRESS', $_ENV)
     && array_key_exists('BRIDGE_INT', $_ENV)
@@ -56,7 +56,7 @@ $process->run(function ($type, $buffer) {
     echo $buffer;
 });
 
-$cmd = ['ovs-vsctl','add-port'];
+$cmd = ['ovs-vsctl','--may-exist','add-port'];
 
 if ( array_key_exists('DATA_INTERFACE', $_ENV)
     && array_key_exists('BRIDGE_INT', $_ENV)
