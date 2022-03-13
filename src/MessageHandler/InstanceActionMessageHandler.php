@@ -93,7 +93,6 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                         $returnState = $ReturnArray['state'];
                         break;
             }
-
             
         } catch (ProcessFailedException $e) {
             $this->logger->critical(
