@@ -587,7 +587,7 @@ public function websockify_start($uuid,$IpAddress,$Port){
  */
 public function ttyd_start($uuid,$interface,$port){
     $result=true;
-    $command = ['screen','-dm','ttyd'];
+    $command = ['screen','-S',$uuid,'-dm','ttyd'];
     if ($this->getParameter('app.services.proxy.wss')) {
         $this->logger->debug("Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
@@ -597,8 +597,8 @@ public function ttyd_start($uuid,$interface,$port){
         $this->logger->debug("Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
-    $port=$port+1000;
-    array_push($command, '-p '.$port,'-i '.$interface,'-b "/device/'.$uuid.'"','lxc-attach','-n',$uuid,'&');
+
+    array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
     $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid,
         'command' => $command
@@ -1130,6 +1130,43 @@ public function ttyd_start($uuid,$interface,$port){
                 $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']]);
             }
+
+            if ($deviceInstance['device']['vnc'] === true) {
+                $vncAddress = "0.0.0.0";
+                $vncPort = $deviceInstance['remotePort'];
+
+                $process = Process::fromShellCommandline("ps aux | grep screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'");
+                $error=false;
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $error=true;
+                }
+                if (!$error)
+                    $pidscreen = $process->getOutput();
+                $error=false;
+
+                if (!empty($$pidscreen)) {
+                    $pidscreen = explode("\n", $pidscreen);
+
+                    foreach ($pidscreen as $pid) {
+                        if (!empty($pid)) {
+                            $pid = str_replace("\n", '', $pid);
+                            $process = new Process(['kill', '-9', $pid]);
+                            try {
+                                $process->mustRun();
+                            }   catch (ProcessFailedException $exception) {
+                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                            }
+                            $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                "PID" => $pid
+                            ]);
+                        }
+                    }
+                }
+            }
+
         }
         return $result;
 
