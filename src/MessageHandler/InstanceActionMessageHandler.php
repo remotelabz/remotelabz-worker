@@ -125,6 +125,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         }
         
         $this->logger->debug("value of return array before InstanceStateMessage :".json_encode($ReturnArray));
+        $this->logger->debug("value of returnState before InstanceStateMessage:".$returnState);
         
         $this->bus->dispatch(
             new InstanceStateMessage($instanceType,
