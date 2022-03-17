@@ -1134,8 +1134,11 @@ public function ttyd_start($uuid,$interface,$port){
             if ($deviceInstance['device']['vnc'] === true) {
                 $vncAddress = "0.0.0.0";
                 $vncPort = $deviceInstance['remotePort'];
-
-                $process = Process::fromShellCommandline("ps aux | grep screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'");
+                $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
+                $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+                    'labInstance' => $labInstance
+                ]);
+                $process = Process::fromShellCommandline($cmd);
                 $error=false;
                 try {
                     $process->mustRun();
@@ -1147,7 +1150,7 @@ public function ttyd_start($uuid,$interface,$port){
                     $pidscreen = $process->getOutput();
                 $error=false;
 
-                if (!empty($$pidscreen)) {
+                if (!empty($pidscreen)) {
                     $pidscreen = explode("\n", $pidscreen);
 
                     foreach ($pidscreen as $pid) {
