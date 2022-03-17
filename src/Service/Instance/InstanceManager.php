@@ -495,7 +495,27 @@ class InstanceManager extends AbstractController
                     $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    
+                    if ($deviceInstance['device']['vnc'] === true) {
+                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+                        
+                        $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $vncInterface=$this->getParameter('app.network.data.interface');
+                        $vncPort = $deviceInstance['remotePort'];
+                        if ($this->ttyd_start($deviceInstance['uuid'],$vncInterface,$vncPort))
+                            $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                                    'instance' => $deviceInstance['uuid']
+                                    ]);
+                        else {
+                            $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid']
+                                ]);
+                            }
+                        }
+
                 } else {
                     $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
@@ -523,7 +543,7 @@ class InstanceManager extends AbstractController
 
     }
 
-    /**
+ /**
  * @return true if no error, false if error
  */
 public function websockify_start($uuid,$IpAddress,$Port){
@@ -561,6 +581,58 @@ public function websockify_start($uuid,$IpAddress,$Port){
         }
     return $result;
 }
+
+ /**
+ * @return true if no error, false if error
+ */
+public function ttyd_start($uuid,$interface,$port){
+    $result=true;
+    $command = ['screen','-S',$uuid,'-dm','ttyd'];
+    if ($this->getParameter('app.services.proxy.wss')) {
+        $this->logger->debug("Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+            ]);
+        //array_push($command,'-S','-C',$this->getParameter('app.services.proxy.cert'),'-K',$this->getParameter('app.services.proxy.key'));
+    } else
+        $this->logger->debug("Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+            ]);
+
+    array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+    $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
+        'instance' => $uuid,
+        'command' => $command
+            ]);
+
+    $process = new Process($command);
+    try {
+        $process->start();
+    }   catch (ProcessFailedException $exception) {
+        $result=false;
+        $this->logger->debug("Ttyd error command", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid,
+            'exception' => $exception
+                ]);
+    }
+    $command="ps aux | grep ". $port . " | grep ttyd | grep -v grep | awk '{print $2}'";
+    $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+        'instance' => $uuid
+        ]);
+
+    try {
+        $pidProcess = Process::fromShellCommandline($command);
+    }   catch (ProcessFailedException $exception) {
+        $this->logger->error("Listing process to find ttyd process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+            ]);
+            $result=false;
+        }
+    return $result;
+}
+
+
+
+
 
     /**
      * Create a qemu image file
@@ -1058,6 +1130,46 @@ public function websockify_start($uuid,$IpAddress,$Port){
                 $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']]);
             }
+
+            if ($deviceInstance['device']['vnc'] === true) {
+                $vncAddress = "0.0.0.0";
+                $vncPort = $deviceInstance['remotePort'];
+                $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
+                $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+                    'labInstance' => $labInstance
+                ]);
+                $process = Process::fromShellCommandline($cmd);
+                $error=false;
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $error=true;
+                }
+                if (!$error)
+                    $pidscreen = $process->getOutput();
+                $error=false;
+
+                if (!empty($pidscreen)) {
+                    $pidscreen = explode("\n", $pidscreen);
+
+                    foreach ($pidscreen as $pid) {
+                        if (!empty($pid)) {
+                            $pid = str_replace("\n", '', $pid);
+                            $process = new Process(['kill', '-9', $pid]);
+                            try {
+                                $process->mustRun();
+                            }   catch (ProcessFailedException $exception) {
+                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                            }
+                            $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                "PID" => $pid
+                            ]);
+                        }
+                    }
+                }
+            }
+
         }
         return $result;
 
