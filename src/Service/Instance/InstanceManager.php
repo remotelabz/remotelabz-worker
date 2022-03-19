@@ -598,7 +598,8 @@ public function ttyd_start($uuid,$interface,$port){
             'instance' => $uuid
             ]);
 
-    array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+//    array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
     $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid,
         'command' => $command
@@ -1666,20 +1667,13 @@ public function ttyd_start($uuid,$interface,$port){
     public function deleteOS(string $descriptor, int $id){
         $operatingSystem = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
-        $result=explode("://",$operatingSystem["imageFilename"]);
-        $this->logger->debug("result", InstanceLogMessage::SCOPE_PRIVATE, ["result" => $result]);
-
-        if ($result[0]==="lxc")
-            $hypervisor="lxc";
-        elseif ( ($result[0] === "qemu") || ($result[1] === "file") )
-            $hypervisor="qemu";
-
-        switch($hypervisor){
+        
+        switch($operatingSystem["hypervisor"]["name"]){
             case "qemu":
-                $this->qemu_delete($this->kernel->getProjectDir()."/images/".$result[1]);
+                $this->qemu_delete($this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
                 break;
             case "lxc":
-                $this->lxc_delete($result[1]);
+                $this->lxc_delete($operatingSystem["imageFilename"]);
                 break;
         }
         //No uuid because we have no instance in this function
@@ -1695,23 +1689,18 @@ public function ttyd_start($uuid,$interface,$port){
         $error=false;
         $name_received = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("JSON received in renameOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $name_received]);
-        $result=explode("://",$name_received['old_name']);
         
-        $source=$result[1];
-        $result=explode("://",$name_received['new_name']);
-        $destination=$result[1];
+        $source=$name_received['old_name'];
+        $destination=$name_received['new_name'];
+        $hypervisor=$name_received['hypervisor'];
 
-        $this->logger->debug("new name", InstanceLogMessage::SCOPE_PRIVATE, ["hypervisor" => $result[0] ,
+        $this->logger->debug("new name", InstanceLogMessage::SCOPE_PRIVATE, ["hypervisor" => $hypervisor ,
     "source" => $source, "new_name" => $destination]);
-
-        if ($result[0]==="lxc")
-            $hypervisor="lxc";
-        elseif ( ($result[0] === "qemu") || ($result[0] === "file") )
-            $hypervisor="qemu";
 
         switch($hypervisor){
             case "qemu":
-                $this->qemu_rename($this->kernel->getProjectDir()."/images/".$result[1]);
+                $this->logger->debug("Rename image qemu from ".$this->kernel->getProjectDir()."/images/".$source." to ".$this->kernel->getProjectDir()."/images/".$destination, InstanceLogMessage::SCOPE_PRIVATE, []);
+                $this->qemu_rename($this->kernel->getProjectDir()."/images/".$source,$this->kernel->getProjectDir()."/images/".$destination);
                 break;
             case "lxc":
                 if (!$this->lxc_clone($source,$destination))
@@ -1776,7 +1765,7 @@ public function ttyd_start($uuid,$interface,$port){
      * @throws ProcessFailedException When a process failed to run.
      * @return void
      */
-    public function qemu_copy($source,$destination){
+    public function qemu_rename($source,$destination){
         $command = [
             'mv',
             $source,
@@ -1790,7 +1779,9 @@ public function ttyd_start($uuid,$interface,$port){
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Export: QEMU rename image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("Export: QEMU rename image file ! ", InstanceLogMessage::SCOPE_PRIVATE,[
+                'error' => $exception->getMessage(),
+                'instance' => $source]);
         }
     }
 }
