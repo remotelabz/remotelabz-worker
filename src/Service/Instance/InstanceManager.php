@@ -1424,9 +1424,9 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
         } catch (ErrorException $e) {
             throw new BadDescriptorException($labInstance, "", 0, $e);
         }
-        $result=explode("://",$newImageName);
-        $hypervisor=$result[0];
-        $imagefilename=$result[1];
+        
+        $hypervisor=$deviceInstance['device']['operatingSystem']['hypervisor']['name'];
+        $imagefilename=$newImageName;
         
         // Test here if hypervisor is qemu
         if (($hypervisor === "qemu") || ($hypervisor === "file")) {
