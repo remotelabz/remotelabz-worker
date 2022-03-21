@@ -476,25 +476,33 @@ class InstanceManager extends AbstractController
             if (!$error) {
                 //Return the last IP - 1 to address the LXC service container
                 //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
-                $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
-                $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+                
+                //$this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
                 /*$mask="24";
                 $this->lxc_create_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
                 */
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
-                $first_ip=$labNetwork->getFirstAddress();
-                $last_ip=long2ip(ip2long($ip_addr)-1);
-                $netmask=$labNetwork->getNetmask();
-                $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask);
+                    $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
+                    $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+                    $first_ip=$labNetwork->getFirstAddress();
+                    $last_ip=long2ip(ip2long($ip_addr)-1);
+                    $netmask=$labNetwork->getNetmask();
+                    $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask);
+                }
+                else {
+                    $ip_addr="0.0.0.0";
+                    $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
                 }
                 $result=$this->lxc_start($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                     $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
+                    if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
+                        $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                    }
                     if ($deviceInstance['device']['vnc'] === true) {
                         $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid']
