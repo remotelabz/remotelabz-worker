@@ -712,9 +712,10 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
             $IP=$network_addr;
             $IP_GW=$gateway_IP;
             $MASK="24";
-            $INTERFACE="veth0";
+            $INTERFACE="eth0";
             $BRIDGE_NAME=$bridgeName;
-            $MAC_ADDR="00:50:50:14:12:16";
+            //random mac
+            $MAC_ADDR="00:50:50:".str_pad( dechex( mt_rand( 1, 255 ) ), 2, '0', STR_PAD_LEFT).":".str_pad( dechex( mt_rand( 1, 255 ) ), 2, '0', STR_PAD_LEFT).":".str_pad( dechex( mt_rand( 1, 255 ) ), 2, '0', STR_PAD_LEFT);
             $command="sed \
             -e \"s/NAME-CONT/".$uuid."/g\" \
             -e \"s/INTERFACE/".$INTERFACE."/g\" \
