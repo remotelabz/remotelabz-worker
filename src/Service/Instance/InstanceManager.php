@@ -477,13 +477,13 @@ class InstanceManager extends AbstractController
                 //Return the last IP - 1 to address the LXC service container
                 //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
                 
-                //$this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+                //$this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$gateway);
                 /*$mask="24";
                 $this->lxc_create_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
                 */
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
                     $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
-                    $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+                    $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway);
                     $first_ip=$labNetwork->getFirstAddress();
                     $last_ip=long2ip(ip2long($ip_addr)-1);
                     $netmask=$labNetwork->getNetmask();
@@ -491,8 +491,13 @@ class InstanceManager extends AbstractController
                 }
                 else {
                     $ip_addr="0.0.0.0";
-                    $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+                    $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway);
                 }
+
+                foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+                    //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
+                }
+
                 $result=$this->lxc_start($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                     $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -522,7 +527,7 @@ class InstanceManager extends AbstractController
                                 'instance' => $deviceInstance['uuid']
                                 ]);
                             }
-                        }
+                    }
 
                 } else {
                     $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -697,17 +702,21 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
      * @param string $network_addr the IP of the container
      * @param string $gateway_IP the gateway the container uses
      */
-    public function build_template($uuid,$path,string $bridgeName,string $network_addr,string $gateway_IP) {
+    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP) {
+        $this->logger->debug("Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "networkinterfaceinstance" => $networkinterfaceinstance[0]
+        ]);    
+        $path=$instance_path."/".$filename;
             $command = [
                 'cp',
                 $this->kernel->getProjectDir().'/scripts/template.txt',
                 $path
             ];
-
+            
             $this->logger->debug("Copying LXC template to instance path.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "command" => implode(' ',$command)
             ]);
-
+            
             $process = new Process($command);
             try {
                 $process->mustRun();
@@ -716,28 +725,133 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
             }
 
             //sed  -e "s/XVLANY/$VLAN/g" -e "s/NAME-CONT/$NAME/g" -e "s/IP-ADM/$ADMIN_IP\/$ADMIN_MASK/g" -e "s/IP-DATA/$DATA_IP\/$DATA_MASK/g" ${SOURCE} > $FILE
+            $this->logger->debug("networkinterfaceinstance in template", InstanceLogMessage::SCOPE_PRIVATE, [
+                "array" => $networkinterfaceinstance,
+                "size" => count($networkinterfaceinstance)
+            ]);
+        
+                $IP=$network_addr;
+                $IP_GW=$gateway_IP;
+                $MASK="24";
+                $INTERFACE="eth0";
+                $BRIDGE_NAME=$bridgeName;
+                //random mac
+                
+                $MAC_ADDR=$networkinterfaceinstance[0]["macAddress"];
+                $command="sed \
+                -e \"s/NAME-CONT/".$uuid."/g\" \
+                -e \"s/INTERFACE/".$INTERFACE."/g\" \
+                -e \"s/BRIDGE_NAME/".$BRIDGE_NAME."/g\" \
+                -e \"s/IP_GW/".$IP_GW."/g\" \
+                -e \"s/IP/".$IP."\/".$MASK."/g\" \
+                -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
+                -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
 
-            $IP=$network_addr;
-            $IP_GW=$gateway_IP;
-            $MASK="24";
-            $INTERFACE="eth0";
-            $BRIDGE_NAME=$bridgeName;
-            //random mac
-            $MAC_ADDR="00:50:50:".str_pad( dechex( mt_rand( 1, 255 ) ), 2, '0', STR_PAD_LEFT).":".str_pad( dechex( mt_rand( 1, 255 ) ), 2, '0', STR_PAD_LEFT).":".str_pad( dechex( mt_rand( 1, 255 ) ), 2, '0', STR_PAD_LEFT);
-            $command="sed \
-            -e \"s/NAME-CONT/".$uuid."/g\" \
-            -e \"s/INTERFACE/".$INTERFACE."/g\" \
-            -e \"s/BRIDGE_NAME/".$BRIDGE_NAME."/g\" \
-            -e \"s/IP_GW/".$IP_GW."/g\" \
-            -e \"s/IP/".$IP."\/".$MASK."/g\" \
-            -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
+                $process = Process::fromShellCommandline($command);
+                $this->logger->debug("Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("sed exec to build template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                }
 
-            $process = Process::fromShellCommandline($command);
-            $this->logger->debug("Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
-            try {
-                $process->mustRun();
-            }   catch (ProcessFailedException $exception) {
-                $this->logger->error("sed exec to build template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+
+            $size=count($networkinterfaceinstance);
+            if ($size>0) {
+                $this->logger->debug("More than one interface detected.", InstanceLogMessage::SCOPE_PRIVATE);
+                $command="";
+                $file=$path."-new";
+                $i=0;
+                $vlan=$networkinterfaceinstance[$i]["networkInterface"]["vlan"];
+                $this->logger->debug("Detect vlan ".$vlan, InstanceLogMessage::SCOPE_PRIVATE);
+
+                    if ($vlan>0) {
+                        $command="echo \"lxc.net.".$i.".script.up = ".$instance_path."/set_vlan".$i."\" >> ".$file.";";
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Add line to script up:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Error when add line script_up ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        $command="";
+                        $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+
+                       // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
+
+                        $this->logger->debug("Copying set_vlan".$i." script to instance path for vlan.".$networkinterfaceinstance[$i]["networkInterface"]["vlan"], InstanceLogMessage::SCOPE_PRIVATE, [
+                            "command" => $command
+                        ]);
+
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Set VLAN ".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]." for the interface :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Set VLAN error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        chmod($instance_path."/set_vlan".$i,"755");
+                    }
+
+                for ($i=1; $i<$size; $i++){
+                    $command=$command."echo \"lxc.net.".$i.".type = veth\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".name = eth".$i."\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".link = ".$BRIDGE_NAME."\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".flags = up\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".hwaddr = ".$networkinterfaceinstance[$i]["macAddress"]."\" >> ".$file.";";
+                    $process = Process::fromShellCommandline($command);
+                    $this->logger->debug("Add interface in template file: ".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Error to add interface in template file ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    }
+                    $command="";
+                    $vlan=$networkinterfaceinstance[$i]["networkInterface"]["vlan"];
+                    if ($vlan>0) {
+                        $command="echo \"lxc.net.".$i.".script.up = ".$instance_path."/set_vlan".$i."\" >> ".$file.";";
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Add line to script up:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Error when add line script_up ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        $command="";
+                        $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+
+                       // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
+
+                        $this->logger->debug("Copying set_vlan".$i." script to instance path for vlan.".$networkinterfaceinstance[$i]["networkInterface"]["vlan"], InstanceLogMessage::SCOPE_PRIVATE, [
+                            "command" => $command
+                        ]);
+
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Set VLAN ".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]." for the interface :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Set VLAN error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        chmod($instance_path."/set_vlan".$i,"755");
+                }
+            
+            
+            }
+                $process = Process::fromShellCommandline($command);
+                $this->logger->debug("Add more network interfaces to the template :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("echo exec to add more network interfaces to the template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                }
+
+
+                            #Add in the templace for each interface 
+
+            
             }
 
     }
