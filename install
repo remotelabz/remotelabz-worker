@@ -183,6 +183,10 @@ echo "Copy .env to .env.local"
 cp .env .env.local
 echo "OK ✔️"
 
+echo "Create certs directory"
+mkdir "${SCRIPTPATH}"/certs/
+echo "OK ✔️"
+
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
 echo "Thank you for using our software. ❤️"
 exit 0
