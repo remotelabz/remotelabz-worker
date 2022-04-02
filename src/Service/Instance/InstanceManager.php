@@ -132,10 +132,12 @@ class InstanceManager extends AbstractController
      *
      * @param string $descriptor JSON representation of a lab instance.
      * @param string $uuid UUID of the device instance to start.
+     * @param boolean if the DeviceInstance is called from a Sandbox
      * @throws ProcessFailedException When a process failed to run.
      * @return array("state","uuid", "options") options is an array
      */
-    public function startDeviceInstance(string $descriptor, string $uuid) {
+    public function startDeviceInstance(string $descriptor, string $uuid,$sandbox=false) {
+
         /** @var array $labInstance */
         $result=null;
         //$this->logger->setUuid($uuid);
@@ -262,7 +264,7 @@ class InstanceManager extends AbstractController
             $filesystem->mkdir($this->kernel->getProjectDir() . "/images");
         }
 
-        if ($deviceInstance['device']['hypervisor'] === 'qemu') {
+        if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
             $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $deviceInstance['device']['operatingSystem']['name'],
                 'instance' => $deviceInstance['uuid']
@@ -443,7 +445,7 @@ class InstanceManager extends AbstractController
                 }
             }
         }
-        elseif ($deviceInstance['device']['hypervisor'] === 'lxc' ){//&& $deviceInstance['device']['name'] == 'Service') {
+        elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' ){//&& $deviceInstance['device']['name'] == 'Service') {
             $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $deviceInstance['device']['operatingSystem']['name'],
                 'instance' => $deviceInstance['uuid']
@@ -481,18 +483,17 @@ class InstanceManager extends AbstractController
                 /*$mask="24";
                 $this->lxc_create_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
                 */
-                if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
+                $first_ip=$labNetwork->getFirstAddress();
+                $last_ip=long2ip(ip2long($ip_addr)-1);
+                if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
                     $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
-                    $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway);
-                    $first_ip=$labNetwork->getFirstAddress();
-                    $last_ip=long2ip(ip2long($ip_addr)-1);
                     $netmask=$labNetwork->getNetmask();
                     $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask);
                 }
                 else {
-                    $ip_addr="0.0.0.0";
-                    $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway);
+                    $ip_addr=$first_ip;
                 }
+                $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway);
 
                 foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                     //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
@@ -597,8 +598,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
 
  /**
  * @return true if no error, false if error
+ * @param $sandbox : boolean true if from a sandbox
  */
-public function ttyd_start($uuid,$interface,$port){
+public function ttyd_start($uuid,$interface,$port,$sandbox){
     $result=true;
     $command = ['screen','-S',$uuid,'-dm','ttyd'];
     if ($this->getParameter('app.services.proxy.wss')) {
@@ -610,9 +612,14 @@ public function ttyd_start($uuid,$interface,$port){
         $this->logger->debug("Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
-
-//    array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
-array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+        if ($sandbox) {
+            $this->logger->debug("Start device from Sandbox detected");  
+            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+        }
+        else {
+            $this->logger->debug("Start device from Sandbox detected");
+            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+        }
     $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid,
         'command' => $command
@@ -703,9 +710,10 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
      * @param string $gateway_IP the gateway the container uses
      */
     public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP) {
-        $this->logger->debug("Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "networkinterfaceinstance" => $networkinterfaceinstance[0]
-        ]);    
+        if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
+            $this->logger->debug("Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "networkinterfaceinstance" => $networkinterfaceinstance[0]
+            ]);    
         $path=$instance_path."/".$filename;
             $command = [
                 'cp',
@@ -736,24 +744,27 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
                 $INTERFACE="eth0";
                 $BRIDGE_NAME=$bridgeName;
                 //random mac
-                
+            if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
+            {
                 $MAC_ADDR=$networkinterfaceinstance[0]["macAddress"];
-                $command="sed \
-                -e \"s/NAME-CONT/".$uuid."/g\" \
-                -e \"s/INTERFACE/".$INTERFACE."/g\" \
-                -e \"s/BRIDGE_NAME/".$BRIDGE_NAME."/g\" \
-                -e \"s/IP_GW/".$IP_GW."/g\" \
-                -e \"s/IP/".$IP."\/".$MASK."/g\" \
-                -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
-                -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
+            } else
+                $MAC_ADDR=$this->macgen();
+            $command="sed \
+            -e \"s/NAME-CONT/".$uuid."/g\" \
+            -e \"s/INTERFACE/".$INTERFACE."/g\" \
+            -e \"s/BRIDGE_NAME/".$BRIDGE_NAME."/g\" \
+            -e \"s/IP_GW/".$IP_GW."/g\" \
+            -e \"s/IP/".$IP."\/".$MASK."/g\" \
+            -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
+            -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
 
-                $process = Process::fromShellCommandline($command);
-                $this->logger->debug("Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
-                try {
-                    $process->mustRun();
-                }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("sed exec to build template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
-                }
+            $process = Process::fromShellCommandline($command);
+            $this->logger->debug("Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+            try {
+                $process->mustRun();
+            }   catch (ProcessFailedException $exception) {
+                $this->logger->error("sed exec to build template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            }
 
 
             $size=count($networkinterfaceinstance);
@@ -1150,7 +1161,7 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
             $deviceInstance = $deviceInstance[$deviceIndex];
         }
 
-        if ($deviceInstance['device']['hypervisor'] === 'qemu') {
+        if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
             try {
                 $labUser = $labInstance['owner']['uuid'];
                 $ownedBy = $labInstance['ownedBy'];
@@ -1242,7 +1253,7 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
             // OVS::bridgeDelete($bridgeName, true);
         }
 
-        if ($deviceInstance['device']['hypervisor'] === 'lxc') {
+        if ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
             $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance
             ]);
@@ -1906,5 +1917,14 @@ array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
                 'error' => $exception->getMessage(),
                 'instance' => $source]);
         }
+    }
+
+    public function macgen(){
+        $adress = '00';
+        for ($i=0;$i<5;$i++) {
+            $oct = strtoupper(dechex(mt_rand(0,255)));
+            strlen($oct)<2 ? $adress .= ":0$oct" : $adress .= ":$oct"; 
+        }
+        return $adress;
     }
 }

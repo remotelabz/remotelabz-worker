@@ -189,6 +189,14 @@ chown :remotelabz-worker "${REMOTELABZ_WORKER_PATH}"/config/certs/
 chmod g+w "${REMOTELABZ_WORKER_PATH}"/config/certs/
 echo "OK ✔️"
 
+echo "Creation of the container to prepare the DHCP service"
+lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64 --keyserver hkp://keyserver.ubuntu.com
+echo "OK ✔️"
+
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
+echo "On your worker, you have now to execute the following task:"
+echo "Start the container Migration from the Sandbox menu"
+echo "Configure if with the following command :"
+
 echo "Thank you for using our software. ❤️"
 exit 0
