@@ -484,16 +484,16 @@ class InstanceManager extends AbstractController
                 $this->lxc_create_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
                 */
                 $first_ip=$labNetwork->getFirstAddress();
-                $last_ip=long2ip(ip2long($ip_addr)-1);
+                $last_ip=long2ip(ip2long($labNetwork->getLastAddress())-1);
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
                     $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
                     $netmask=$labNetwork->getNetmask();
-                    $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask);
+                    $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask,$labNetwork->getLastAddress());
                 }
                 else {
                     $ip_addr=$first_ip;
                 }
-                $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway);
+                $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox);
 
                 foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                     //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
@@ -519,7 +519,7 @@ class InstanceManager extends AbstractController
                             ]);
                         $vncInterface=$this->getParameter('app.network.data.interface');
                         $vncPort = $deviceInstance['remotePort'];
-                        if ($this->ttyd_start($deviceInstance['uuid'],$vncInterface,$vncPort))
+                        if ($this->ttyd_start($deviceInstance['uuid'],$vncInterface,$vncPort,$sandbox))
                             $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
                                     'instance' => $deviceInstance['uuid']
                                     ]);
@@ -603,6 +603,14 @@ public function websockify_start($uuid,$IpAddress,$Port){
 public function ttyd_start($uuid,$interface,$port,$sandbox){
     $result=true;
     $command = ['screen','-S',$uuid,'-dm','ttyd'];
+    if ($sandbox)
+        $this->logger->debug("Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+        ]);
+    else
+        $this->logger->debug("Ttyd called from lab", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+        ]);
     if ($this->getParameter('app.services.proxy.wss')) {
         $this->logger->debug("Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
@@ -683,12 +691,13 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
      * @param string $last_ip the last IP of the range
      * @param string $netmask the netmaks of the network
      */
-    public function lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask){
+    public function lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask,$gateway){
         $line_to_add=$first_ip.",".$last_ip.",".$netmask.",1h";     
         $file_path="/var/lib/lxc/".$uuid."/rootfs/etc/dnsmasq.conf";
         $source_file_path="/var/lib/lxc/Service/rootfs/etc/dnsmasq.conf";
         $command="sed \
             -e \"s/RANGE_TO_DEFINED/".$line_to_add."/g\" \
+            -e \"s/GW_TO_DEFINED/".$gateway."/g\" \
             ".$source_file_path." > ".$file_path;
 
         $process = Process::fromShellCommandline($command);
@@ -708,18 +717,24 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
      * @param string $bridgeName the bridge name on with we have to connect this container
      * @param string $network_addr the IP of the container
      * @param string $gateway_IP the gateway the container uses
+     * @param boolean $from_sandbox true if this function is called from a sandbox
      */
-    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP) {
+    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox) {
         if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
             $this->logger->debug("Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "networkinterfaceinstance" => $networkinterfaceinstance[0]
             ]);    
         $path=$instance_path."/".$filename;
-            $command = [
+        if ($from_sandbox)
+            $org_file='/scripts/template-noip.txt';
+        else
+            $org_file='/scripts/template.txt';
+
+        $command = [
                 'cp',
-                $this->kernel->getProjectDir().'/scripts/template.txt',
+                $this->kernel->getProjectDir().$org_file,
                 $path
-            ];
+        ];
             
             $this->logger->debug("Copying LXC template to instance path.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "command" => implode(' ',$command)
@@ -749,6 +764,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 $MAC_ADDR=$networkinterfaceinstance[0]["macAddress"];
             } else
                 $MAC_ADDR=$this->macgen();
+
             $command="sed \
             -e \"s/NAME-CONT/".$uuid."/g\" \
             -e \"s/INTERFACE/".$INTERFACE."/g\" \
