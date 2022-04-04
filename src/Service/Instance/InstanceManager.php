@@ -116,7 +116,7 @@ class InstanceManager extends AbstractController
 
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
             $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
-            if ($deviceInstance["device"]["hypervisor"]=="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
+            if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
                 $this->logger->debug("Device instance to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
                 $result=$this->lxc_delete($deviceInstance["uuid"]);
             }
@@ -424,8 +424,8 @@ class InstanceManager extends AbstractController
                     $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    $this->logger->info("Virtual Machine can be configured on network:".$labNetwork, InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
+                    $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
                         ]);
                     $result=array(
                         "state" => InstanceStateMessage::STATE_STARTED,
@@ -485,6 +485,9 @@ class InstanceManager extends AbstractController
                 */
                 $first_ip=$labNetwork->getFirstAddress();
                 $last_ip=long2ip(ip2long($labNetwork->getLastAddress())-1);
+                $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
                     $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
                     $netmask=$labNetwork->getNetmask();
@@ -1691,7 +1694,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 );
             }
         }        
-        elseif ($hypervisor=== "lxc") {
+        elseif ($hypervisor === "lxc") {
             $this->logger->debug("LXC device for export",InstanceLogMessage::SCOPE_PRIVATE,[
                 'instance' => $deviceInstance['uuid']
                 ]);

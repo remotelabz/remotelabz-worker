@@ -191,25 +191,27 @@ echo "OK ✔️"
 
 echo "Creation of the container to prepare the DHCP service"
 lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64 --keyserver hkp://keyserver.ubuntu.com
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Migration/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
 echo "Creation of the container to prepare the DHCP service"
 lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64 --keyserver hkp://keyserver.ubuntu.com
-echo "Default login : toto password : 1toto;2" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
-echo "Default login : root password : 1toor;2" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
+echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Debian/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
 echo "Creation of a container Ubuntu 20 LTS"
 lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64 --keyserver hkp://keyserver.ubuntu.com
-echo "Default login : toto password : 1toto;2" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
-echo "Default login : root password : 1toor;2" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
+echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
 echo "Creation of a container Alpine 3.15"
 lxc-create -t download -n Alpine3.15 -- -d alpine -r 3.15 -a amd64 --keyserver hkp://keyserver.ubuntu.com
-echo "Default login : toto password : 1toto;2" >> "/var/lib/lxc/Alpine3.15/rootfs/etc/issue"
-echo "Default login : root password : 1toor;2" >> "/var/lib/lxc/Alpine3.15/rootfs/etc/issue"
+echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine3.15/rootfs/etc/issue"
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.15/rootfs/etc/resolv.conf"
 echo "OK ✔️"
+
 
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
 echo "On your worker, you have now to execute the following task:"
