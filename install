@@ -77,7 +77,7 @@ debug "Running apt-get to grab required packages"
 apt-get install -y software-properties-common
 #add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen
+apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev
 echo "OK ✔️"
 
 # Create user remotelabz and remotelabz group
@@ -187,6 +187,14 @@ echo "Create certs directory"
 mkdir "${REMOTELABZ_WORKER_PATH}"/config/certs/
 chown :remotelabz-worker "${REMOTELABZ_WORKER_PATH}"/config/certs/
 chmod g+w "${REMOTELABZ_WORKER_PATH}"/config/certs/
+echo "OK ✔️"
+
+echo "Installation of ttyd from its github project"
+cd ~
+git clone https://github.com/tsl0922/ttyd.git
+cd ttyd && mkdir build && cd build
+cmake ..
+make && sudo make install
 echo "OK ✔️"
 
 echo "Creation of the container to prepare the DHCP service"
