@@ -1559,7 +1559,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 "newOS_id" => $labInstance["newOS_id"],
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
-                "new_os_imagename" => $labInstance["new_os_imagename"])
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT,
+                    )
             );
         } else {
             $deviceIndex = array_key_first($deviceInstance);
@@ -1690,7 +1692,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                     "newOS_id" => $labInstance["newOS_id"],
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
-                    "new_os_imagename" => $labInstance["new_os_imagename"])
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    )
                 );
             }
         }        
@@ -1711,7 +1715,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                     "newOS_id" => $labInstance["newOS_id"],
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
-                    "new_os_imagename" => $labInstance["new_os_imagename"])
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    )
                 );
             }
             else {
@@ -1727,7 +1733,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                         "newOS_id" => $labInstance["newOS_id"],
                         "newDevice_id" => $labInstance["newDevice_id"],
                         "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"])
+                        "new_os_imagename" => $labInstance["new_os_imagename"],
+                        "state" => InstanceActionMessage::ACTION_EXPORT
+                        )
                     );
                 } else {
                     $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
@@ -1740,7 +1748,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                         "newOS_id" => $labInstance["newOS_id"],
                         "newDevice_id" => $labInstance["newDevice_id"],
                         "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"])
+                        "new_os_imagename" => $labInstance["new_os_imagename"],
+                        "state" => InstanceActionMessage::ACTION_EXPORT)
                     );
                 }
             }
@@ -1758,7 +1767,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 "newOS_id" => $labInstance["newOS_id"],
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
-                "new_os_imagename" => $labInstance["new_os_imagename"])
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT)
             );
         }
         return $result;
