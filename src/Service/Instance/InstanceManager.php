@@ -491,7 +491,7 @@ class InstanceManager extends AbstractController
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
                     $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
                     $netmask=$labNetwork->getNetmask();
-                    $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask,$labNetwork->getLastAddress());
+                    $this->lxc_add_dhcp_dnsmasq(basename($deviceInstance["device"]["operatingSystem"]["image"]),$uuid,$first_ip,$last_ip,$netmask,$labNetwork->getLastAddress());
                 }
                 else {
                     $ip_addr=$first_ip;
@@ -694,10 +694,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
      * @param string $last_ip the last IP of the range
      * @param string $netmask the netmaks of the network
      */
-    public function lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask,$gateway){
+    public function lxc_add_dhcp_dnsmasq($image,$uuid,$first_ip,$last_ip,$netmask,$gateway){
         $line_to_add=$first_ip.",".$last_ip.",".$netmask.",1h";     
         $file_path="/var/lib/lxc/".$uuid."/rootfs/etc/dnsmasq.conf";
-        $source_file_path="/var/lib/lxc/Service/rootfs/etc/dnsmasq.conf";
+        $source_file_path="/var/lib/lxc/".$image."/rootfs/etc/dnsmasq.conf";
         $command="sed \
             -e \"s/RANGE_TO_DEFINED/".$line_to_add."/g\" \
             -e \"s/GW_TO_DEFINED/".$gateway."/g\" \
