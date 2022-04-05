@@ -485,13 +485,14 @@ class InstanceManager extends AbstractController
                 */
                 $first_ip=$labNetwork->getFirstAddress();
                 $last_ip=long2ip(ip2long($labNetwork->getLastAddress())-1);
+                $end_range=long2ip(ip2long($labNetwork->getLastAddress())-2);
                 $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
                     $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
                     $netmask=$labNetwork->getNetmask();
-                    $this->lxc_add_dhcp_dnsmasq(basename($deviceInstance["device"]["operatingSystem"]["image"]),$uuid,$first_ip,$last_ip,$netmask,$labNetwork->getLastAddress());
+                    $this->lxc_add_dhcp_dnsmasq(basename($deviceInstance["device"]["operatingSystem"]["image"]),$uuid,$first_ip,$end_range,$netmask,$labNetwork->getLastAddress());
                 }
                 else {
                     $ip_addr=$first_ip;
