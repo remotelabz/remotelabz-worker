@@ -211,7 +211,7 @@ echo "OK ✔️"
 echo "Creation of a container Ubuntu 20 LTS"
 lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64 --keyserver hkp://keyserver.ubuntu.com
 echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/resolv.conf"
+#echo "nameserver 1.1.1.3" > "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
 echo "Creation of a container Alpine 3.15"
