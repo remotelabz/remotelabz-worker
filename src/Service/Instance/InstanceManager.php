@@ -489,21 +489,29 @@ class InstanceManager extends AbstractController
                 $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
+                $org_file='template.txt';
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
                     $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
+                    $org_file='template.txt';
                     $netmask=$labNetwork->getNetmask();
                     $this->lxc_add_dhcp_dnsmasq(basename($deviceInstance["device"]["operatingSystem"]["image"]),$uuid,$first_ip,$end_range,$netmask,$labNetwork->getLastAddress());
                 }
                 else {
                     $ip_addr=$first_ip;
+                    $org_file='template-noip.txt';
                 }
-                $this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox);
+
+                if ($sandbox)
+                    $org_file='template.txt';
+
+                $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox);
+
 
                 foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                     //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
                 }
 
-                $result=$this->lxc_start($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway);
+                $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                     $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
@@ -729,14 +737,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 "networkinterfaceinstance" => $networkinterfaceinstance[0]
             ]);    
         $path=$instance_path."/".$filename;
-        if ($from_sandbox)
-            $org_file='/scripts/template-noip.txt';
-        else
-            $org_file='/scripts/template.txt';
-
         $command = [
                 'cp',
-                $this->kernel->getProjectDir().$org_file,
+                $this->kernel->getProjectDir().'/scripts/'.$filename,
                 $path
         ];
             
