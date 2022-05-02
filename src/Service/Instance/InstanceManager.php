@@ -466,7 +466,7 @@ class InstanceManager extends AbstractController
                 }
             }
             else {
-                $this->logger->error("Download QEMU image in error !", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->error("Download QEMU image in error ! Perhaps, image file is too large", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 $result=array(
