@@ -265,6 +265,7 @@ class InstanceManager extends AbstractController
         }
 
         if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
+            $error_download=false;
             $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $deviceInstance['device']['operatingSystem']['name'],
                 'instance' => $deviceInstance['uuid']
@@ -310,139 +311,169 @@ class InstanceManager extends AbstractController
                             $lastNotification = $downloadedPercent;
                         }
                     }
-
-                    $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    fclose($fd);
-                }
-            }
-
-            $img['destination'] = $instancePath . '/' . basename($img['source']);
-            $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
-
-            if (!$filesystem->exists($img['destination'])) {
-                $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
-                    'source' => $img['source'],
-                    'destination' => $img['destination'],
-                    'instance' => $deviceInstance['uuid']
-                ]);
-
-                if ($this->qemu_create_relative_img($img['source'], $img['destination'],$deviceInstance['uuid']))
-                    $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'path' => $img['destination'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                else {
-                    $this->logger->error('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'path' => $img['destination'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid"=>$uuid,
-                        "options" => null);
-                }
-            }
-            // If no error in the previous process, when can continue
-            if ($result === null) {
-
-                $parameters = [
-                    'system' => [
-                        '-m',
-                        $deviceInstance['device']['flavor']['memory'],
-                        '-hda',
-                        $img['destination']
-                    ],
-                    'network' => [],
-                    'access' => [],
-                    'local' => []
-                ];
-
-                foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
-                    $nicTemplate = $nic['networkInterface'];
-                    $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
-                    $nicVlan = null;
-                    if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
-                        $nicVlan = $nicTemplate['vlan'];
-                    }
-
-                    if (!IPTools::networkInterfaceExists($nicName)) {
-                        IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
-                        $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'NIC' => $nicName
+                    if ($downloaded === $fileSize)
+                        $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
+                                "image" => $img['source'],
+                                'instance' => $deviceInstance['uuid'],
+                                'size_downloaded' => $downloaded,
+                                'size_origin' => $fileSize
+                                
                         ]);
-                    }
 
-                    if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                        OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
-                        $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'NIC' => $nicName,
-                            'bridge' => $bridgeName
-                        ]);
-                    }
-                    IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
-                    $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'NIC' => $nicName
-                    ]);
-
-                    array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
-                        '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
-                }
-
-                if ($deviceInstance['device']['vnc'] === true) {
-                    $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $deviceInstance['uuid']
-                    ]);
-                    $vncAddress = "0.0.0.0";
-                    $vncPort = $deviceInstance['remotePort'];
-
-                    $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                    if ($this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort))
-                        $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
                     else {
-                        $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                        $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            "image" => $img['source'],
+                            'instance' => $deviceInstance['uuid'],
+                            'size_downloaded' => $downloaded,
+                            'size_origin' => $fileSize
+                            
+                        ]);
+                        $error_download=true;
+                    }
+
+                        fclose($fd);
+                }
+            }
+
+            if (!$error_download) {
+            
+
+
+                $img['destination'] = $instancePath . '/' . basename($img['source']);
+                $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
+
+                if (!$filesystem->exists($img['destination'])) {
+                    $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'source' => $img['source'],
+                        'destination' => $img['destination'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+
+                    if ($this->qemu_create_relative_img($img['source'], $img['destination'],$deviceInstance['uuid']))
+                        $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img['destination'],
                             'instance' => $deviceInstance['uuid']
+                        ]);
+                    else {
+                        $this->logger->error('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img['destination'],
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid"=>$uuid,
+                            "options" => null);
+                    }
+                }
+                // If no error in the previous process, when can continue
+                if ($result === null) {
+
+                    $parameters = [
+                        'system' => [
+                            '-m',
+                            $deviceInstance['device']['flavor']['memory'],
+                            '-hda',
+                            $img['destination']
+                        ],
+                        'network' => [],
+                        'access' => [],
+                        'local' => []
+                    ];
+
+                    foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+                        $nicTemplate = $nic['networkInterface'];
+                        $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
+                        $nicVlan = null;
+                        if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
+                            $nicVlan = $nicTemplate['vlan'];
+                        }
+
+                        if (!IPTools::networkInterfaceExists($nicName)) {
+                            IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
+                            $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'NIC' => $nicName
                             ]);
                         }
 
-                    array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
-                    array_push($parameters['local'], '-k', 'fr');
-                }
+                        if (!OVS::ovsPortExists($bridgeName, $nicName)) {
+                            OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                            $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'NIC' => $nicName,
+                                'bridge' => $bridgeName
+                            ]);
+                        }
+                        IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
+                        $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'NIC' => $nicName
+                        ]);
 
-                array_push($parameters['local'],
-                    '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
-                    '-smp', '4',
-                    '-vga', 'qxl'
-                );
-            
-                if (!$this->qemu_start($parameters,$uuid)){
-                    $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                        array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
+                            '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
+                    }
+
+                    if ($deviceInstance['device']['vnc'] === true) {
+                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                        $vncAddress = "0.0.0.0";
+                        $vncPort = $deviceInstance['remotePort'];
+
+                        $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
                             'instance' => $deviceInstance['uuid']
-                        ]);
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_STARTED,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                        );
-                }
-                else {
-                    $this->logger->error("Virtual Machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
+                            ]);
+                        if ($this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort))
+                            $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                                    'instance' => $deviceInstance['uuid']
+                                    ]);
+                        else {
+                            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid']
+                                ]);
+                            }
+
+                        array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
+                        array_push($parameters['local'], '-k', 'fr');
+                    }
+
+                    array_push($parameters['local'],
+                        '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
+                        '-smp', '4',
+                        '-vga', 'qxl'
                     );
+                
+                    if (!$this->qemu_start($parameters,$uuid)){
+                        $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                                'instance' => $deviceInstance['uuid']
+                            ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_STARTED,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                            );
+                    }
+                    else {
+                        $this->logger->error("Virtual Machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
                 }
+            }
+            else {
+                $this->logger->error("Download QEMU image in error !", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
             }
         }
         elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' ){//&& $deviceInstance['device']['name'] == 'Service') {
