@@ -50,6 +50,8 @@ class StateController extends AbstractController
             $service,
         ]);
 
+        $this->logger->debug("Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+
         try {
             $messageServiceStateProcess->mustRun();
         } catch (ProcessFailedException $e) {
