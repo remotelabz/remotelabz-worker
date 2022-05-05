@@ -296,7 +296,8 @@ class InstanceManager extends AbstractController
 
                     while (!feof($fd)) {
                         $buffer = fread($fd, $chunkSize);
-                        file_put_contents($this->kernel->getProjectDir() . "/images/" . basename($img["source"]), $buffer, FILE_APPEND);
+                        $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
+                        file_put_contents($image_dst, $buffer, FILE_APPEND);
                         if (ob_get_level() > 0)
                             ob_flush();
                         flush();
@@ -336,9 +337,6 @@ class InstanceManager extends AbstractController
             }
 
             if (!$error_download) {
-            
-
-
                 $img['destination'] = $instancePath . '/' . basename($img['source']);
                 $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
 
@@ -469,6 +467,7 @@ class InstanceManager extends AbstractController
                 $this->logger->error("Download QEMU image in error ! Perhaps, image file is too large", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
+                $this->qemu_delete($image_dst);
                 $result=array(
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
