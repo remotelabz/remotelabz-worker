@@ -1,8 +1,6 @@
 [Unit]
 Description=Remotelabz Worker Service
 After=network.target
-StartLimitIntervalSec=5
-StartLimitBurst=5
 
 [Service]
 Type=simple
