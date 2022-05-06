@@ -221,6 +221,10 @@ echo "No default login, please use Sandbox to configure a new OS from this" >> "
 echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.15/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
+echo "Increase route cache for ipv6"
+echo "net.ipv6.route.max_size = 20000" >> "/etc/sysctl.conf"
+sysctl -f /etc/sysctl.conf
+echo "OK ✔️"
 
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
 echo "On your worker, you have now to execute the following task:"
