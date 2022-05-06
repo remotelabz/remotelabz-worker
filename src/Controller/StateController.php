@@ -50,6 +50,7 @@ class StateController extends AbstractController
             $service,
         ]);
 
+
         try {
             $messageServiceStateProcess->mustRun();
         } catch (ProcessFailedException $e) {

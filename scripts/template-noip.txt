@@ -19,8 +19,6 @@ lxc.net.0.type = veth
 lxc.net.0.name = INTERFACE
 lxc.net.0.link = BRIDGE_NAME
 lxc.net.0.flags = up
-lxc.net.0.ipv4.address = IP
-lxc.net.0.ipv4.gateway = IP_GW
 lxc.net.0.hwaddr = MAC_ADDR
 
 lxc.hook.version = 1

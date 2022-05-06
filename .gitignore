@@ -18,5 +18,4 @@
 /instances/
 composer.lock
 symfony.lock
-remotelabz-worker
-config/certs/
+config/certs/*

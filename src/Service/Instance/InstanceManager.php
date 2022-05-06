@@ -116,7 +116,7 @@ class InstanceManager extends AbstractController
 
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
             $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
-            if ($deviceInstance["device"]["hypervisor"]=="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
+            if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
                 $this->logger->debug("Device instance to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
                 $result=$this->lxc_delete($deviceInstance["uuid"]);
             }
@@ -132,10 +132,12 @@ class InstanceManager extends AbstractController
      *
      * @param string $descriptor JSON representation of a lab instance.
      * @param string $uuid UUID of the device instance to start.
+     * @param boolean if the DeviceInstance is called from a Sandbox
      * @throws ProcessFailedException When a process failed to run.
      * @return array("state","uuid", "options") options is an array
      */
-    public function startDeviceInstance(string $descriptor, string $uuid) {
+    public function startDeviceInstance(string $descriptor, string $uuid,$sandbox=false) {
+
         /** @var array $labInstance */
         $result=null;
         //$this->logger->setUuid($uuid);
@@ -262,7 +264,8 @@ class InstanceManager extends AbstractController
             $filesystem->mkdir($this->kernel->getProjectDir() . "/images");
         }
 
-        if ($deviceInstance['device']['hypervisor'] === 'qemu') {
+        if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
+            $error_download=false;
             $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $deviceInstance['device']['operatingSystem']['name'],
                 'instance' => $deviceInstance['uuid']
@@ -293,7 +296,8 @@ class InstanceManager extends AbstractController
 
                     while (!feof($fd)) {
                         $buffer = fread($fd, $chunkSize);
-                        file_put_contents($this->kernel->getProjectDir() . "/images/" . basename($img["source"]), $buffer, FILE_APPEND);
+                        $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
+                        file_put_contents($image_dst, $buffer, FILE_APPEND);
                         if (ob_get_level() > 0)
                             ob_flush();
                         flush();
@@ -308,142 +312,170 @@ class InstanceManager extends AbstractController
                             $lastNotification = $downloadedPercent;
                         }
                     }
-
-                    $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    fclose($fd);
-                }
-            }
-
-            $img['destination'] = $instancePath . '/' . basename($img['source']);
-            $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
-
-            if (!$filesystem->exists($img['destination'])) {
-                $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
-                    'source' => $img['source'],
-                    'destination' => $img['destination'],
-                    'instance' => $deviceInstance['uuid']
-                ]);
-
-                if ($this->qemu_create_relative_img($img['source'], $img['destination'],$deviceInstance['uuid']))
-                    $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'path' => $img['destination'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                else {
-                    $this->logger->error('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'path' => $img['destination'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid"=>$uuid,
-                        "options" => null);
-                }
-            }
-            // If no error in the previous process, when can continue
-            if ($result === null) {
-
-                $parameters = [
-                    'system' => [
-                        '-m',
-                        $deviceInstance['device']['flavor']['memory'],
-                        '-hda',
-                        $img['destination']
-                    ],
-                    'network' => [],
-                    'access' => [],
-                    'local' => []
-                ];
-
-                foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
-                    $nicTemplate = $nic['networkInterface'];
-                    $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
-                    $nicVlan = null;
-                    if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
-                        $nicVlan = $nicTemplate['vlan'];
-                    }
-
-                    if (!IPTools::networkInterfaceExists($nicName)) {
-                        IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
-                        $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'NIC' => $nicName
+                    if ($downloaded === $fileSize)
+                        $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
+                                "image" => $img['source'],
+                                'instance' => $deviceInstance['uuid'],
+                                'size_downloaded' => $downloaded,
+                                'size_origin' => $fileSize
+                                
                         ]);
-                    }
 
-                    if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                        OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
-                        $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'NIC' => $nicName,
-                            'bridge' => $bridgeName
-                        ]);
-                    }
-                    IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
-                    $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'NIC' => $nicName
-                    ]);
-
-                    array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
-                        '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
-                }
-
-                if ($deviceInstance['device']['vnc'] === true) {
-                    $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $deviceInstance['uuid']
-                    ]);
-                    $vncAddress = "0.0.0.0";
-                    $vncPort = $deviceInstance['remotePort'];
-
-                    $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                    if ($this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort))
-                        $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
                     else {
-                        $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                        $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            "image" => $img['source'],
+                            'instance' => $deviceInstance['uuid'],
+                            'size_downloaded' => $downloaded,
+                            'size_origin' => $fileSize
+                            
+                        ]);
+                        $error_download=true;
+                    }
+
+                        fclose($fd);
+                }
+            }
+
+            if (!$error_download) {
+                $img['destination'] = $instancePath . '/' . basename($img['source']);
+                $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
+
+                if (!$filesystem->exists($img['destination'])) {
+                    $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'source' => $img['source'],
+                        'destination' => $img['destination'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+
+                    if ($this->qemu_create_relative_img($img['source'], $img['destination'],$deviceInstance['uuid']))
+                        $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img['destination'],
                             'instance' => $deviceInstance['uuid']
+                        ]);
+                    else {
+                        $this->logger->error('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img['destination'],
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid"=>$uuid,
+                            "options" => null);
+                    }
+                }
+                // If no error in the previous process, when can continue
+                if ($result === null) {
+
+                    $parameters = [
+                        'system' => [
+                            '-m',
+                            $deviceInstance['device']['flavor']['memory'],
+                            '-hda',
+                            $img['destination']
+                        ],
+                        'network' => [],
+                        'access' => [],
+                        'local' => []
+                    ];
+
+                    foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+                        $nicTemplate = $nic['networkInterface'];
+                        $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
+                        $nicVlan = null;
+                        if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
+                            $nicVlan = $nicTemplate['vlan'];
+                        }
+
+                        if (!IPTools::networkInterfaceExists($nicName)) {
+                            IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
+                            $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'NIC' => $nicName
                             ]);
                         }
 
-                    array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
-                    array_push($parameters['local'], '-k', 'fr');
-                }
+                        if (!OVS::ovsPortExists($bridgeName, $nicName)) {
+                            OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                            $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'NIC' => $nicName,
+                                'bridge' => $bridgeName
+                            ]);
+                        }
+                        IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
+                        $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'NIC' => $nicName
+                        ]);
 
-                array_push($parameters['local'],
-                    '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
-                    '-smp', '4',
-                    '-vga', 'qxl'
-                );
-            
-                if (!$this->qemu_start($parameters,$uuid)){
-                    $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                        array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
+                            '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
+                    }
+
+                    if ($deviceInstance['device']['vnc'] === true) {
+                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    $this->logger->info("Virtual Machine can be configured on network:".$labNetwork, InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_STARTED,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                        );
-                }
-                else {
-                    $this->logger->error("Virtual Machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
+                        $vncAddress = "0.0.0.0";
+                        $vncPort = $deviceInstance['remotePort'];
+
+                        $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        if ($this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort))
+                            $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                                    'instance' => $deviceInstance['uuid']
+                                    ]);
+                        else {
+                            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid']
+                                ]);
+                            }
+
+                        array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
+                        array_push($parameters['local'], '-k', 'fr');
+                    }
+
+                    array_push($parameters['local'],
+                        '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
+                        '-smp', '4',
+                        '-vga', 'qxl'
                     );
+                
+                    if (!$this->qemu_start($parameters,$uuid)){
+                        $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                                'instance' => $deviceInstance['uuid']
+                            ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_STARTED,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                            );
+                    }
+                    else {
+                        $this->logger->error("Virtual Machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
                 }
             }
+            else {
+                $this->logger->error("Download QEMU image in error ! Perhaps, image file is too large", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                $this->qemu_delete($image_dst);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+            }
         }
-        elseif ($deviceInstance['device']['hypervisor'] === 'lxc' ){//&& $deviceInstance['device']['name'] == 'Service') {
+        elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' ){//&& $deviceInstance['device']['name'] == 'Service') {
             $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $deviceInstance['device']['operatingSystem']['name'],
                 'instance' => $deviceInstance['uuid']
@@ -476,26 +508,70 @@ class InstanceManager extends AbstractController
             if (!$error) {
                 //Return the last IP - 1 to address the LXC service container
                 //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
-                $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
-                $this->build_template($uuid,$instancePath.'/template.txt',$bridgeName,$ip_addr,$gateway);
+                
+                //$this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$gateway);
                 /*$mask="24";
                 $this->lxc_create_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
                 */
-                if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
                 $first_ip=$labNetwork->getFirstAddress();
-                $last_ip=long2ip(ip2long($ip_addr)-1);
-                $netmask=$labNetwork->getNetmask();
-                $this->lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask);
+                $last_ip=long2ip(ip2long($labNetwork->getLastAddress())-1);
+                $end_range=long2ip(ip2long($labNetwork->getLastAddress())-2);
+                $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                $org_file='template.txt';
+                if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
+                    $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
+                    $org_file='template.txt';
+                    $netmask=$labNetwork->getNetmask();
+                    $this->lxc_add_dhcp_dnsmasq(basename($deviceInstance["device"]["operatingSystem"]["image"]),$uuid,$first_ip,$end_range,$netmask,$labNetwork->getLastAddress());
                 }
-                $result=$this->lxc_start($uuid,$instancePath.'/template.txt-new',$bridgeName,$gateway);
+                else {
+                    $ip_addr=$first_ip;
+                    $org_file='template-noip.txt';
+                }
+
+                if ($sandbox)
+                    $org_file='template.txt';
+
+                $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox);
+
+
+                foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+                    //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
+                }
+
+                $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                     $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
+                    if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
+                        $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                    }
+                    if ($deviceInstance['device']['vnc'] === true) {
+                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    
+                        
+                        $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $vncInterface=$this->getParameter('app.network.data.interface');
+                        $vncPort = $deviceInstance['remotePort'];
+                        if ($this->ttyd_start($deviceInstance['uuid'],$vncInterface,$vncPort,$sandbox))
+                            $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                                    'instance' => $deviceInstance['uuid']
+                                    ]);
+                        else {
+                            $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid']
+                                ]);
+                            }
+                    }
+
                 } else {
                     $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
@@ -523,7 +599,7 @@ class InstanceManager extends AbstractController
 
     }
 
-    /**
+ /**
  * @return true if no error, false if error
  */
 public function websockify_start($uuid,$IpAddress,$Port){
@@ -562,6 +638,73 @@ public function websockify_start($uuid,$IpAddress,$Port){
     return $result;
 }
 
+ /**
+ * @return true if no error, false if error
+ * @param $sandbox : boolean true if from a sandbox
+ */
+public function ttyd_start($uuid,$interface,$port,$sandbox){
+    $result=true;
+    $command = ['screen','-S',$uuid,'-dm','ttyd'];
+    if ($sandbox)
+        $this->logger->debug("Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+        ]);
+    else
+        $this->logger->debug("Ttyd called from lab", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+        ]);
+    if ($this->getParameter('app.services.proxy.wss')) {
+        $this->logger->debug("Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+            ]);
+        //array_push($command,'-S','-C',$this->getParameter('app.services.proxy.cert'),'-K',$this->getParameter('app.services.proxy.key'));
+    } else
+        $this->logger->debug("Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+            ]);
+        if ($sandbox) {
+            $this->logger->debug("Start device from Sandbox detected");  
+            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+        }
+        else {
+            $this->logger->debug("Start device from Sandbox detected");
+            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+        }
+    $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
+        'instance' => $uuid,
+        'command' => $command
+            ]);
+
+    $process = new Process($command);
+    try {
+        $process->start();
+    }   catch (ProcessFailedException $exception) {
+        $result=false;
+        $this->logger->debug("Ttyd error command", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid,
+            'exception' => $exception
+                ]);
+    }
+    $command="ps aux | grep ". $port . " | grep ttyd | grep -v grep | awk '{print $2}'";
+    $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+        'instance' => $uuid
+        ]);
+
+    try {
+        $pidProcess = Process::fromShellCommandline($command);
+    }   catch (ProcessFailedException $exception) {
+        $this->logger->error("Listing process to find ttyd process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid
+            ]);
+            $result=false;
+        }
+    return $result;
+}
+
+
+
+
+
     /**
      * Create a qemu image file
      * @param string $img_base The base of the image
@@ -590,12 +733,13 @@ public function websockify_start($uuid,$IpAddress,$Port){
      * @param string $last_ip the last IP of the range
      * @param string $netmask the netmaks of the network
      */
-    public function lxc_add_dhcp_dnsmasq($uuid,$first_ip,$last_ip,$netmask){
+    public function lxc_add_dhcp_dnsmasq($image,$uuid,$first_ip,$last_ip,$netmask,$gateway){
         $line_to_add=$first_ip.",".$last_ip.",".$netmask.",1h";     
         $file_path="/var/lib/lxc/".$uuid."/rootfs/etc/dnsmasq.conf";
-        $source_file_path="/var/lib/lxc/Service/rootfs/etc/dnsmasq.conf";
+        $source_file_path="/var/lib/lxc/".$image."/rootfs/etc/dnsmasq.conf";
         $command="sed \
             -e \"s/RANGE_TO_DEFINED/".$line_to_add."/g\" \
+            -e \"s/GW_TO_DEFINED/".$gateway."/g\" \
             ".$source_file_path." > ".$file_path;
 
         $process = Process::fromShellCommandline($command);
@@ -615,18 +759,24 @@ public function websockify_start($uuid,$IpAddress,$Port){
      * @param string $bridgeName the bridge name on with we have to connect this container
      * @param string $network_addr the IP of the container
      * @param string $gateway_IP the gateway the container uses
+     * @param boolean $from_sandbox true if this function is called from a sandbox
      */
-    public function build_template($uuid,$path,string $bridgeName,string $network_addr,string $gateway_IP) {
-            $command = [
+    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox) {
+        if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
+            $this->logger->debug("Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "networkinterfaceinstance" => $networkinterfaceinstance[0]
+            ]);    
+        $path=$instance_path."/".$filename;
+        $command = [
                 'cp',
-                $this->kernel->getProjectDir().'/scripts/template.txt',
+                $this->kernel->getProjectDir().'/scripts/'.$filename,
                 $path
-            ];
-
+        ];
+            
             $this->logger->debug("Copying LXC template to instance path.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "command" => implode(' ',$command)
             ]);
-
+            
             $process = new Process($command);
             try {
                 $process->mustRun();
@@ -635,19 +785,30 @@ public function websockify_start($uuid,$IpAddress,$Port){
             }
 
             //sed  -e "s/XVLANY/$VLAN/g" -e "s/NAME-CONT/$NAME/g" -e "s/IP-ADM/$ADMIN_IP\/$ADMIN_MASK/g" -e "s/IP-DATA/$DATA_IP\/$DATA_MASK/g" ${SOURCE} > $FILE
+            $this->logger->debug("networkinterfaceinstance in template", InstanceLogMessage::SCOPE_PRIVATE, [
+                "array" => $networkinterfaceinstance,
+                "size" => count($networkinterfaceinstance)
+            ]);
+        
+                $IP=$network_addr;
+                $IP_GW=$gateway_IP;
+                $MASK="24";
+                $INTERFACE="eth0";
+                $BRIDGE_NAME=$bridgeName;
+                //random mac
+            if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
+            {
+                $MAC_ADDR=$networkinterfaceinstance[0]["macAddress"];
+            } else
+                $MAC_ADDR=$this->macgen();
 
-            $IP=$network_addr;
-            $IP_GW=$gateway_IP;
-            $MASK="24";
-            $INTERFACE="veth0";
-            $BRIDGE_NAME=$bridgeName;
-            $MAC_ADDR="00:50:50:14:12:16";
             $command="sed \
             -e \"s/NAME-CONT/".$uuid."/g\" \
             -e \"s/INTERFACE/".$INTERFACE."/g\" \
             -e \"s/BRIDGE_NAME/".$BRIDGE_NAME."/g\" \
             -e \"s/IP_GW/".$IP_GW."/g\" \
             -e \"s/IP/".$IP."\/".$MASK."/g\" \
+            -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
             -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
 
             $process = Process::fromShellCommandline($command);
@@ -656,6 +817,105 @@ public function websockify_start($uuid,$IpAddress,$Port){
                 $process->mustRun();
             }   catch (ProcessFailedException $exception) {
                 $this->logger->error("sed exec to build template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            }
+
+
+            $size=count($networkinterfaceinstance);
+            if ($size>0) {
+                $this->logger->debug("More than one interface detected.", InstanceLogMessage::SCOPE_PRIVATE);
+                $command="";
+                $file=$path."-new";
+                $i=0;
+                $vlan=$networkinterfaceinstance[$i]["networkInterface"]["vlan"];
+                $this->logger->debug("Detect vlan ".$vlan, InstanceLogMessage::SCOPE_PRIVATE);
+
+                    if ($vlan>0) {
+                        $command="echo \"lxc.net.".$i.".script.up = ".$instance_path."/set_vlan".$i."\" >> ".$file.";";
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Add line to script up:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Error when add line script_up ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        $command="";
+                        $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+
+                       // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
+
+                        $this->logger->debug("Copying set_vlan".$i." script to instance path for vlan.".$networkinterfaceinstance[$i]["networkInterface"]["vlan"], InstanceLogMessage::SCOPE_PRIVATE, [
+                            "command" => $command
+                        ]);
+
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Set VLAN ".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]." for the interface :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Set VLAN error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        chmod($instance_path."/set_vlan".$i,"755");
+                    }
+
+                for ($i=1; $i<$size; $i++){
+                    $command=$command."echo \"lxc.net.".$i.".type = veth\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".name = eth".$i."\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".link = ".$BRIDGE_NAME."\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".flags = up\" >> ".$file.";";
+                    $command=$command."echo \"lxc.net.".$i.".hwaddr = ".$networkinterfaceinstance[$i]["macAddress"]."\" >> ".$file.";";
+                    $process = Process::fromShellCommandline($command);
+                    $this->logger->debug("Add interface in template file: ".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Error to add interface in template file ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    }
+                    $command="";
+                    $vlan=$networkinterfaceinstance[$i]["networkInterface"]["vlan"];
+                    if ($vlan>0) {
+                        $command="echo \"lxc.net.".$i.".script.up = ".$instance_path."/set_vlan".$i."\" >> ".$file.";";
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Add line to script up:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Error when add line script_up ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        $command="";
+                        $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+
+                       // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
+
+                        $this->logger->debug("Copying set_vlan".$i." script to instance path for vlan.".$networkinterfaceinstance[$i]["networkInterface"]["vlan"], InstanceLogMessage::SCOPE_PRIVATE, [
+                            "command" => $command
+                        ]);
+
+                        $process = Process::fromShellCommandline($command);
+                        $this->logger->debug("Set VLAN ".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]." for the interface :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                        try {
+                            $process->mustRun();
+                        }   catch (ProcessFailedException $exception) {
+                            $this->logger->error("Set VLAN error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                        }
+                        chmod($instance_path."/set_vlan".$i,"755");
+                }
+            
+            
+            }
+                $process = Process::fromShellCommandline($command);
+                $this->logger->debug("Add more network interfaces to the template :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("echo exec to add more network interfaces to the template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                }
+
+
+                            #Add in the templace for each interface 
+
+            
             }
 
     }
@@ -954,7 +1214,7 @@ public function websockify_start($uuid,$IpAddress,$Port){
             $deviceInstance = $deviceInstance[$deviceIndex];
         }
 
-        if ($deviceInstance['device']['hypervisor'] === 'qemu') {
+        if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
             try {
                 $labUser = $labInstance['owner']['uuid'];
                 $ownedBy = $labInstance['ownedBy'];
@@ -1046,7 +1306,7 @@ public function websockify_start($uuid,$IpAddress,$Port){
             // OVS::bridgeDelete($bridgeName, true);
         }
 
-        if ($deviceInstance['device']['hypervisor'] === 'lxc') {
+        if ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
             $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance
             ]);
@@ -1058,6 +1318,46 @@ public function websockify_start($uuid,$IpAddress,$Port){
                 $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']]);
             }
+
+            if ($deviceInstance['device']['vnc'] === true) {
+                $vncAddress = "0.0.0.0";
+                $vncPort = $deviceInstance['remotePort'];
+                $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
+                $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+                    'labInstance' => $labInstance
+                ]);
+                $process = Process::fromShellCommandline($cmd);
+                $error=false;
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $error=true;
+                }
+                if (!$error)
+                    $pidscreen = $process->getOutput();
+                $error=false;
+
+                if (!empty($pidscreen)) {
+                    $pidscreen = explode("\n", $pidscreen);
+
+                    foreach ($pidscreen as $pid) {
+                        if (!empty($pid)) {
+                            $pid = str_replace("\n", '', $pid);
+                            $process = new Process(['kill', '-9', $pid]);
+                            try {
+                                $process->mustRun();
+                            }   catch (ProcessFailedException $exception) {
+                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                            }
+                            $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                "PID" => $pid
+                            ]);
+                        }
+                    }
+                }
+            }
+
         }
         return $result;
 
@@ -1293,7 +1593,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
                 "newOS_id" => $labInstance["newOS_id"],
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
-                "new_os_imagename" => $labInstance["new_os_imagename"])
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT,
+                    )
             );
         } else {
             $deviceIndex = array_key_first($deviceInstance);
@@ -1311,9 +1613,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
         } catch (ErrorException $e) {
             throw new BadDescriptorException($labInstance, "", 0, $e);
         }
-        $result=explode("://",$newImageName);
-        $hypervisor=$result[0];
-        $imagefilename=$result[1];
+        
+        $hypervisor=$deviceInstance['device']['operatingSystem']['hypervisor']['name'];
+        $imagefilename=$newImageName;
         
         // Test here if hypervisor is qemu
         if (($hypervisor === "qemu") || ($hypervisor === "file")) {
@@ -1424,11 +1726,13 @@ public function websockify_start($uuid,$IpAddress,$Port){
                     "newOS_id" => $labInstance["newOS_id"],
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
-                    "new_os_imagename" => $labInstance["new_os_imagename"])
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    )
                 );
             }
         }        
-        elseif ($hypervisor=== "lxc") {
+        elseif ($hypervisor === "lxc") {
             $this->logger->debug("LXC device for export",InstanceLogMessage::SCOPE_PRIVATE,[
                 'instance' => $deviceInstance['uuid']
                 ]);
@@ -1445,7 +1749,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
                     "newOS_id" => $labInstance["newOS_id"],
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
-                    "new_os_imagename" => $labInstance["new_os_imagename"])
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    )
                 );
             }
             else {
@@ -1461,7 +1767,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
                         "newOS_id" => $labInstance["newOS_id"],
                         "newDevice_id" => $labInstance["newDevice_id"],
                         "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"])
+                        "new_os_imagename" => $labInstance["new_os_imagename"],
+                        "state" => InstanceActionMessage::ACTION_EXPORT
+                        )
                     );
                 } else {
                     $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
@@ -1474,7 +1782,8 @@ public function websockify_start($uuid,$IpAddress,$Port){
                         "newOS_id" => $labInstance["newOS_id"],
                         "newDevice_id" => $labInstance["newDevice_id"],
                         "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"])
+                        "new_os_imagename" => $labInstance["new_os_imagename"],
+                        "state" => InstanceActionMessage::ACTION_EXPORT)
                     );
                 }
             }
@@ -1492,7 +1801,8 @@ public function websockify_start($uuid,$IpAddress,$Port){
                 "newOS_id" => $labInstance["newOS_id"],
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
-                "new_os_imagename" => $labInstance["new_os_imagename"])
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT)
             );
         }
         return $result;
@@ -1554,20 +1864,13 @@ public function websockify_start($uuid,$IpAddress,$Port){
     public function deleteOS(string $descriptor, int $id){
         $operatingSystem = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
-        $result=explode("://",$operatingSystem["imageFilename"]);
-        $this->logger->debug("result", InstanceLogMessage::SCOPE_PRIVATE, ["result" => $result]);
-
-        if ($result[0]==="lxc")
-            $hypervisor="lxc";
-        elseif ( ($result[0] === "qemu") || ($result[1] === "file") )
-            $hypervisor="qemu";
-
-        switch($hypervisor){
+        
+        switch($operatingSystem["hypervisor"]["name"]){
             case "qemu":
-                $this->qemu_delete($this->kernel->getProjectDir()."/images/".$result[1]);
+                $this->qemu_delete($this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
                 break;
             case "lxc":
-                $this->lxc_delete($result[1]);
+                $this->lxc_delete($operatingSystem["imageFilename"]);
                 break;
         }
         //No uuid because we have no instance in this function
@@ -1583,23 +1886,18 @@ public function websockify_start($uuid,$IpAddress,$Port){
         $error=false;
         $name_received = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("JSON received in renameOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $name_received]);
-        $result=explode("://",$name_received['old_name']);
         
-        $source=$result[1];
-        $result=explode("://",$name_received['new_name']);
-        $destination=$result[1];
+        $source=$name_received['old_name'];
+        $destination=$name_received['new_name'];
+        $hypervisor=$name_received['hypervisor'];
 
-        $this->logger->debug("new name", InstanceLogMessage::SCOPE_PRIVATE, ["hypervisor" => $result[0] ,
+        $this->logger->debug("new name", InstanceLogMessage::SCOPE_PRIVATE, ["hypervisor" => $hypervisor ,
     "source" => $source, "new_name" => $destination]);
-
-        if ($result[0]==="lxc")
-            $hypervisor="lxc";
-        elseif ( ($result[0] === "qemu") || ($result[0] === "file") )
-            $hypervisor="qemu";
 
         switch($hypervisor){
             case "qemu":
-                $this->qemu_rename($this->kernel->getProjectDir()."/images/".$result[1]);
+                $this->logger->debug("Rename image qemu from ".$this->kernel->getProjectDir()."/images/".$source." to ".$this->kernel->getProjectDir()."/images/".$destination, InstanceLogMessage::SCOPE_PRIVATE, []);
+                $this->qemu_rename($this->kernel->getProjectDir()."/images/".$source,$this->kernel->getProjectDir()."/images/".$destination);
                 break;
             case "lxc":
                 if (!$this->lxc_clone($source,$destination))
@@ -1664,7 +1962,7 @@ public function websockify_start($uuid,$IpAddress,$Port){
      * @throws ProcessFailedException When a process failed to run.
      * @return void
      */
-    public function qemu_copy($source,$destination){
+    public function qemu_rename($source,$destination){
         $command = [
             'mv',
             $source,
@@ -1678,7 +1976,18 @@ public function websockify_start($uuid,$IpAddress,$Port){
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Export: QEMU rename image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+            $this->logger->error("Export: QEMU rename image file ! ", InstanceLogMessage::SCOPE_PRIVATE,[
+                'error' => $exception->getMessage(),
+                'instance' => $source]);
         }
+    }
+
+    public function macgen(){
+        $adress = '00';
+        for ($i=0;$i<5;$i++) {
+            $oct = strtoupper(dechex(mt_rand(0,255)));
+            strlen($oct)<2 ? $adress .= ":0$oct" : $adress .= ":$oct"; 
+        }
+        return $adress;
     }
 }

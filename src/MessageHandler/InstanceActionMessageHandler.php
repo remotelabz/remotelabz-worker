@@ -31,7 +31,8 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
     {
 
        // The following generate an error on json param
-       $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".", json_decode($message->getContent(), true));
+       $message_array=json_decode($message->getContent(), true);
+       $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
 
         $returnState = "";
         $instanceType = "";
@@ -53,7 +54,17 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
                 case InstanceActionMessage::ACTION_START:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid());
+                    if (strstr($message_array["lab"]["name"],"Sandbox_"))
+                        {
+                        $this->logger->debug("Start device from Sandbox detected");  
+                        $from_sandbox=true;
+                        }
+                    else
+                    {
+                        $this->logger->debug("Start device from a classical lab");  
+                        $from_sandbox=false;
+                    }
+                    $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid(),$from_sandbox);
                     $returnState = $ReturnArray["state"];
                     //ReturnArray has a state in $ReturnArray['state']
                     break;
@@ -125,6 +136,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         }
         
         $this->logger->debug("value of return array before InstanceStateMessage :".json_encode($ReturnArray));
+        $this->logger->debug("value of returnState before InstanceStateMessage:".$returnState);
         
         $this->bus->dispatch(
             new InstanceStateMessage($instanceType,

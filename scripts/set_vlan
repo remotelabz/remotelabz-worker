@@ -1,0 +1,3 @@
+#!/bin/sh
+
+/usr/bin/ovs-vsctl set port ${LXC_NET_PEER} tag=VLAN
