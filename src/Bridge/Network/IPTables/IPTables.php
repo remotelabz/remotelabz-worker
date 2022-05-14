@@ -45,9 +45,9 @@ class IPTables extends Bridge
      * @return Process The executed process.
      */
     public static function append(string $chain, Rule $rule, string $table = null) : Process {
-        if (!static::isValidChain($chain)) {
+        /*if (!static::isValidChain($chain)) {
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
-        }
+        }*/
 
         $command = [];
 
@@ -74,10 +74,12 @@ class IPTables extends Bridge
      * @return Process The executed process.
      */
     public static function delete(string $chain, Rule $rule, string $table = null) : Process {
-        if (!static::isValidChain($chain)) {
+        /* if (!static::isValidChain($chain)) {
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
         }
-
+        */
+        // In case of custom chain, we cannot check the valid change name !
+        
         $command = [];
 
         if (!empty($table)) {
@@ -103,9 +105,10 @@ class IPTables extends Bridge
      * @return bool
      */
     public static function exists(string $chain, Rule $rule, string $table = null) : bool {
-        if (!static::isValidChain($chain)) {
+        /* if (!static::isValidChain($chain)) {
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
-        }
+        } */
+        // Creation of custom chain for each lab so we cannot know if the chain is valid or not
 
         $command = [];
 
@@ -126,4 +129,75 @@ class IPTables extends Bridge
             return false;
         }
     }
+
+    /**
+     * Create one or more rules to the end of the selected chain.
+     *
+     * @param string $chain The chain to append the rule.
+     * @throws Exception If the device name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function create_chain(string $chain) {
+        if (!static::isChainExists($chain)) {
+            $command = [];
+            array_push($command, '-N', $chain);  
+            return static::exec($command);
+        }
+        return null;
+    }
+
+    /**
+     * Delete a chain.
+     *
+     * @param string $chain The chain to append the rule.
+     * @return Process The executed process.
+     */
+    public static function delete_chain(string $chain) {
+        if (static::isChainExists($chain)) {    
+            static::flush_chain($chain);
+            $command = [];
+            array_push($command, '-X', $chain);  
+            return static::exec($command);
+        } else return false;
+    }
+
+    /**
+     * Delete a chain.
+     *
+     * @param string $chain The chain to append the rule.
+     * @return Process The executed process.
+     */
+    public static function flush_chain(string $chain) {
+        if (static::isChainExists($chain)) {
+        $command = [];
+        array_push($command, '-F', $chain);  
+        return static::exec($command);
+        }
+        else return false; 
+}
+
+
+    /**
+     * Delete one or more rules to the end of the selected chain.
+     *
+     * @param string $chain The chain to append the rule.
+     * @throws Exception If the device name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function isChainExists(string $chain) : bool {
+        $command = [];
+
+        array_push($command, '-L', $chain);
+
+        $output = static::exec($command, false);
+
+        if ($output->getExitCode() == 0) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
 }
