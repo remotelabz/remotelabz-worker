@@ -180,7 +180,8 @@ sudo service remotelabz-worker start
 systemctl daemon-reload || true
 echo "OK ✔️"
 
-echo "Copy .env to .env.local"
+echo "Backup .env.local and copy .env to .env.local"
+cp .env.local .env.local.bak
 cp .env .env.local
 echo "OK ✔️"
 
