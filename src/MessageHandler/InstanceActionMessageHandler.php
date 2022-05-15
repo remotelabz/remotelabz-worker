@@ -113,6 +113,10 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     "instance" => $message->getUuid()
                 ]);
             $returnState = InstanceStateMessage::STATE_ERROR;
+            $ReturnArray=array("uuid"=>$message->getUuid(),"state"=>$returnState,
+            "options"=> [
+                "state" =>InstanceActionMessage::ACTION_START,
+                ]);
         } catch (Exception $e) {
             $this->logger->critical(
                 "Action \"" . $message->getAction() . "\" throwed an exception.", [
@@ -121,6 +125,10 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     "instance" => $message->getUuid()
                 ]);
             $returnState = InstanceStateMessage::STATE_ERROR;
+            $ReturnArray=array("uuid"=>$message->getUuid(),"state"=>$returnState ,
+            "options"=> [
+                "state" =>InstanceActionMessage::ACTION_START,
+                ]);
         }
 
         // send back state
@@ -130,9 +138,6 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         
         if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
             $this->logger->debug("export and error");
-        }
-        else {
-            $this->logger->debug("no export or no error");
         }
         
         $this->logger->debug("value of return array before InstanceStateMessage :".json_encode($ReturnArray));

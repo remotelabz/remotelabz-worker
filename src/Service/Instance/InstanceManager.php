@@ -96,6 +96,17 @@ class InstanceManager extends AbstractController
         // OVS
         OVS::bridgeDelete($bridgeName, true);
 
+        // Iptable
+        $rule=Rule::create()
+                ->setJump($labInstance['bridgeName']);
+        if (IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {
+            IPTables::delete(
+                    IPTables::CHAIN_FORWARD,
+                    $rule
+                );
+            }
+        IPTables::delete_chain($labInstance['bridgeName']);
+
         try {
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
@@ -171,6 +182,41 @@ class InstanceManager extends AbstractController
                 'bridgeName' => $bridgeName,
                 'instance' => $labInstance['uuid']
             ]);
+        }
+        // Secure OVS
+        $InternetInterface=$this->getParameter('app.network.lab.interface');
+        
+        IPTables::create_chain($bridgeName);
+        
+        $rule=Rule::create()
+        ->setInInterface($bridgeName)
+        ->setOutInterface($InternetInterface)
+        ->setJump('ACCEPT');
+        if (!IPTables::exists($bridgeName,$rule)) {
+            IPTables::append(
+                $bridgeName,
+                $rule
+            );
+        }
+
+        $rule=Rule::create()
+        ->setOutInterface($bridgeName)
+        ->setInInterface($InternetInterface)
+        ->setJump('ACCEPT');
+        if (!IPTables::exists($bridgeName,$rule)) {
+            IPTables::append(
+                $bridgeName,
+                $rule
+            );
+        }
+
+        $rule=Rule::create()
+                ->setJump($bridgeName);
+        if (!IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {
+            IPTables::append(
+                IPTables::CHAIN_FORWARD,
+                $rule
+            );
         }
 
         $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  

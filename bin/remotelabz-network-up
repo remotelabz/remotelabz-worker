@@ -105,7 +105,7 @@ $process->run(function ($type, $buffer) {
 $cmd = ['iptables','-t','nat','-A','POSTROUTING','-o'];
 
 if ( array_key_exists('ADM_INTERFACE', $_ENV) && array_key_exists('LAB_NETWORK', $_ENV) ) {
-    $cmd[]=$_ENV['ADM_INTERFACE'];;
+    $cmd[]=$_ENV['ADM_INTERFACE'];
     $cmd[]='-s';
     $cmd[]=$_ENV['LAB_NETWORK'];
     $cmd[]='-j';
@@ -118,3 +118,14 @@ $process->setTimeout(null);
 $process->run(function ($type, $buffer) {
     echo $buffer;
 });
+
+
+# Configure iptables to DROP all packet in forward to avoid communication between lab
+$cmd = ['iptables','-P','FORWARD','DROP'];
+$process = new Process($cmd);
+$process->setTimeout(null);
+
+$process->run(function ($type, $buffer) {
+    echo $buffer;
+});
+
