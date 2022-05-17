@@ -185,6 +185,7 @@ class InstanceManager extends AbstractController
         }
         // Secure OVS
         $InternetInterface=$this->getParameter('app.network.lab.internet_interface');
+        $VPNInterface=$this->getParameter('app.vpn.interface');
         
         IPTables::create_chain($bridgeName);
         
@@ -210,6 +211,30 @@ class InstanceManager extends AbstractController
             );
         }
 
+        if ($VPNInterface != "localhost") {
+        $rule=Rule::create()
+        ->setInInterface($bridgeName)
+        ->setOutInterface($VPNInterface)
+        ->setJump('ACCEPT');
+        if (!IPTables::exists($bridgeName,$rule)) {
+            IPTables::append(
+                $bridgeName,
+                $rule
+            );
+        }
+
+        $rule=Rule::create()
+        ->setOutInterface($bridgeName)
+        ->setInInterface($VPNInterface)
+        ->setJump('ACCEPT');
+        if (!IPTables::exists($bridgeName,$rule)) {
+            IPTables::append(
+                $bridgeName,
+                $rule
+            );
+        }
+        }
+        
         $rule=Rule::create()
                 ->setJump($bridgeName);
         if (!IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {

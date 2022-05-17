@@ -14,7 +14,7 @@ parameters:
     app.services.proxy.wss: '%env(bool:REMOTELABZ_PROXY_USE_WSS)%'
     app.services.proxy.cert: '%env(string:REMOTELABZ_PROXY_SSL_CERT)%'
     app.services.proxy.key: '%env(string:REMOTELABZ_PROXY_SSL_KEY)%'
-    
+    app.vpn.interface: '%env(string:VPN_CONCENTRATOR_INTERFACE)%'
 
 services:
     # default configuration for services in *this* file
