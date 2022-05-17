@@ -8,12 +8,13 @@ parameters:
     app.network.lab.cidr: '%env(resolve:LAB_NETWORK)%'
     app.network.data.interface: '%env(resolve:DATA_INTERFACE)%'
     app.network.data.cidr: '%env(resolve:DATA_NETWORK)%'
-    app.bridge.name: '%env(resolve:BRIDGE_INT)%'
-    app.bridge.ip: '%env(resolve:BRIDGE_INT_IP_ADDRESS)%'
-    app.bridge.gateway: '%env(resolve:BRIDGE_INT_GW)%'
+    app.network.lab.internet_interface: '%env(string:INTERNET_INTERFACE_ACCESS)%'
+    app.data.network.interface.ip: '%env(resolve:DATA_INT_IP_ADDRESS)%'
+    app.data.network.gateway: '%env(resolve:DATA_INT_GW)%'
     app.services.proxy.wss: '%env(bool:REMOTELABZ_PROXY_USE_WSS)%'
     app.services.proxy.cert: '%env(string:REMOTELABZ_PROXY_SSL_CERT)%'
     app.services.proxy.key: '%env(string:REMOTELABZ_PROXY_SSL_KEY)%'
+    app.vpn.interface: '%env(string:VPN_CONCENTRATOR_INTERFACE)%'
 
 services:
     # default configuration for services in *this* file
