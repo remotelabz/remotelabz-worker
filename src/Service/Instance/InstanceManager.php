@@ -184,7 +184,7 @@ class InstanceManager extends AbstractController
             ]);
         }
         // Secure OVS
-        $InternetInterface=$this->getParameter('app.network.lab.interface');
+        $InternetInterface=$this->getParameter('app.network.lab.internet_interface');
         
         IPTables::create_chain($bridgeName);
         
@@ -1491,8 +1491,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $labNetwork = $this->params->get('app.network.lab.cidr');
         $dataNetwork = $this->params->get('app.network.data.cidr');
-        $bridgeInt = $this->params->get('app.bridge.name');
-        $bridgeIntGateway = $this->params->get('app.bridge.gateway');
+        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
+        $bridgeIntGateway = $this->params->get('app.data.network.gateway');
 
         IPTools::linkSet($bridgeInt, IPTools::LINK_SET_UP);
 
@@ -1534,8 +1534,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $labNetwork = $this->params->get('app.network.lab.cidr');
         $dataNetwork = $this->params->get('app.network.data.cidr');
-        $bridgeInt = $this->params->get('app.bridge.name');
-        $bridgeIntGateway = $this->params->get('app.bridge.gateway');
+        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
+        $bridgeIntGateway = $this->params->get('app.data.network.gateway');
 
         if (!is_array($labInstance)) {
             // invalid json
@@ -1574,7 +1574,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
     {
         /** @var array $labInstance */
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $bridgeInt = $this->params->get('app.bridge.name');
+        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
 
         if (!is_array($labInstance)) {
             // invalid json
@@ -1596,7 +1596,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
     {
         /** @var array $labInstance */
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $bridgeInt = $this->params->get('app.bridge.name');
+        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
 
         if (!is_array($labInstance)) {
             // invalid json
