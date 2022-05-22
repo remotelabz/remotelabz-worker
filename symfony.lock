@@ -1,4 +1,7 @@
 {
+    "composer/package-versions-deprecated": {
+        "version": "1.11.99.4"
+    },
     "crestic-urca/network-bundle": {
         "version": "v1.0.2"
     },
@@ -84,15 +87,6 @@
     },
     "nikic/php-parser": {
         "version": "v4.3.0"
-    },
-    "ocramius/package-versions": {
-        "version": "1.5.1"
-    },
-    "ocramius/proxy-manager": {
-        "version": "2.2.3"
-    },
-    "php": {
-        "version": "7.4"
     },
     "phpstan/phpdoc-parser": {
         "version": "0.5.7"
@@ -281,6 +275,9 @@
     "symfony/polyfill-php80": {
         "version": "v1.20.0"
     },
+    "symfony/polyfill-php81": {
+        "version": "v1.25.0"
+    },
     "symfony/process": {
         "version": "v4.2.3"
     },
@@ -356,11 +353,5 @@
     },
     "twig/twig": {
         "version": "v2.6.2"
-    },
-    "zendframework/zend-code": {
-        "version": "3.4.1"
-    },
-    "zendframework/zend-eventmanager": {
-        "version": "3.2.1"
     }
 }
