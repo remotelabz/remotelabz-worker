@@ -1079,7 +1079,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+            $this->logger->error("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+            [ 'instance' => $uuid]);
             $error=true;
         }
         return $error;
@@ -1100,7 +1101,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
             'instance' => $dst_lxc_name]
         );
         $this->logger->debug("Cloning LXD container.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
+            "command" => implode(' ',$command),
+            'instance' => $dst_lxc_name
         ]);
 
         $process = new Process($command);
@@ -1108,7 +1110,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
             $this->logger->error("LXD container cloned error ! ", InstanceLogMessage::SCOPE_PRIVATE, [
-                'error' => $exception->getMessage()
+                'error' => $exception->getMessage(),
+                'instance' => $dst_lxc_name
             ]);
         }
 
@@ -1323,7 +1326,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $uuid
+                    ]);
                     $error=true;
                 }
                 if (!$error)
@@ -1340,7 +1345,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                             try {
                                 $process->mustRun();
                             }   catch (ProcessFailedException $exception) {
-                                $this->logger->error("Killing websockify error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                                $this->logger->error("Killing websockify error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                                ['instance' => $uuid
+                                ]);
                             }
                             $this->logger->debug("Killing websockify process", InstanceLogMessage::SCOPE_PRIVATE, [
                                 "PID" => $pid
@@ -1402,7 +1409,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                        ['instance' => $deviceInstance['uuid']
+                    ]);
                     $error=true;
                 }
                 if (!$error)
@@ -1419,7 +1428,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                             try {
                                 $process->mustRun();
                             }   catch (ProcessFailedException $exception) {
-                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid']]);
                             }
                             $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
                                 "PID" => $pid
