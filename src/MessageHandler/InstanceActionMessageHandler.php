@@ -115,7 +115,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
             $returnState = InstanceStateMessage::STATE_ERROR;
             $ReturnArray=array("uuid"=>$message->getUuid(),"state"=>$returnState,
             "options"=> [
-                "state" =>InstanceActionMessage::ACTION_START,
+                "state" =>$message->getAction(),
                 ]);
         } catch (Exception $e) {
             $this->logger->critical(
@@ -127,7 +127,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
             $returnState = InstanceStateMessage::STATE_ERROR;
             $ReturnArray=array("uuid"=>$message->getUuid(),"state"=>$returnState ,
             "options"=> [
-                "state" =>InstanceActionMessage::ACTION_START,
+                "state" =>$message->getAction(),
                 ]);
         }
 
