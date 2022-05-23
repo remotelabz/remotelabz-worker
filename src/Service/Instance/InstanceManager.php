@@ -424,6 +424,10 @@ class InstanceManager extends AbstractController
                             'instance' => $deviceInstance['uuid']
                         ]);
                     else {
+                        $this->logger->info('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img['destination'],
+                            'instance' => $deviceInstance['uuid']
+                        ]);
                         $this->logger->error('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
                             'path' => $img['destination'],
                             'instance' => $deviceInstance['uuid']
@@ -445,7 +449,8 @@ class InstanceManager extends AbstractController
                         ],
                         'network' => [],
                         'access' => [],
-                        'local' => []
+                        'local' => [],
+                        'usb' => []
                     ];
 
                     foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
@@ -494,6 +499,9 @@ class InstanceManager extends AbstractController
                                     'instance' => $deviceInstance['uuid']
                                     ]);
                         else {
+                            $this->logger->info("Websockify starting process in error !", InstanceLogMessage::SCOPE_PUBLIC, [
+                                'instance' => $deviceInstance['uuid']
+                                ]);
                             $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
                                 'instance' => $deviceInstance['uuid']
                                 ]);
