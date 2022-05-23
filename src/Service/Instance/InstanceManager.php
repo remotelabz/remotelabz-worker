@@ -508,6 +508,12 @@ class InstanceManager extends AbstractController
                         '-smp', '4',
                         '-vga', 'qxl'
                     );
+
+                    //Add usb support
+                    array_push($parameters['usb'],
+                        '-usb', '-device','usb-tablet,bus=usb-bus.0',
+                        '-device','usb-ehci,id=ehci'
+                    );
                 
                     if (!$this->qemu_start($parameters,$uuid)){
                         $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
