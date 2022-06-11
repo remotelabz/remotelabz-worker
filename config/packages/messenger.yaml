@@ -13,6 +13,17 @@ framework:
                         name: worker
                     queues:
                         messages_worker: ~
+                retry_strategy:
+                    max_retries: 3
+                    # milliseconds delay
+                    delay: 2000
+                    # causes the delay to be higher before each retry
+                    # e.g. 1 second delay, 2 seconds, 4 seconds
+                    multiplier: 1
+                    max_delay: 0
+                    # override all of this with a service that
+                    # implements Symfony\Component\Messenger\Retry\RetryStrategyInterface
+                    # service: null
             front: 
                 dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
                 options:
@@ -20,6 +31,17 @@ framework:
                         name: front
                     queues:
                         messages_front: ~
+                retry_strategy:
+                    max_retries: 3
+                    # milliseconds delay
+                    delay: 2000
+                    # causes the delay to be higher before each retry
+                    # e.g. 1 second delay, 2 seconds, 4 seconds
+                    multiplier: 1
+                    max_delay: 0
+                    # override all of this with a service that
+                    # implements Symfony\Component\Messenger\Retry\RetryStrategyInterface
+                    # service: null
             # failed: 'doctrine://default?queue_name=failed'
             # sync: 'sync://'
 
