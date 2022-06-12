@@ -96,17 +96,20 @@ usermod -aG remotelabz-worker remotelabz-worker
 chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
+
 echo "Configure data network"
-ovs-vsctl --may-exist add-br "${BRIDGE_INT}"
+#ovs-vsctl --may-exist add-br "${BRIDGE_INT}"
 # TODO: Test if ${DATA_INTERFACE} has an IP to avoid to shutdown the connexion
 # If ${DATA_INTERFACE} has an IP address, perhaps it's the actual network interface
 # and not a second interface reserved for data of the VMs
-ovs-vsctl --may-exist add-port "${BRIDGE_INT}" "${DATA_INTERFACE}"
-ip link set up dev "${BRIDGE_INT}"
-ip link set up dev "${DATA_INTERFACE}"
+#ovs-vsctl --may-exist add-port "${BRIDGE_INT}" "${DATA_INTERFACE}"
+#ip link set up dev "${BRIDGE_INT}"
+#ip link set up dev "${DATA_INTERFACE}"
 
-echo "IP configuration of the gateway to data network for the VMs"
-ip addr add "${BRIDGE_INT_IP_ADDRESS}" dev "${BRIDGE_INT}" || true
+echo "IP configuration of the gateway to data network for the VMs and forward between interfaces"
+#ip addr add "${BRIDGE_INT_IP_ADDRESS}" dev "${BRIDGE_INT}" || true
+ip addr add "${DATA_INT_IP_ADDRESS}" dev "${DATA_INTERFACE}" || true
+sed -i 's/[#| ]*net.ipv4.ip_forward[ ]*=[ |0|1]*/net.ipv4.ip_forward = 1/g' /etc/sysctl.conf
 echo "OK ✔️"
 
 echo "Adding sudo permissions for remotelabz-worker user"
@@ -181,43 +184,50 @@ systemctl daemon-reload || true
 echo "OK ✔️"
 
 echo "Backup .env.local and copy .env to .env.local"
-cp .env.local .env.local.bak
+if [ -f .env.local ]; then 
+	cp .env.local .env.local.bak
+fi
 cp .env .env.local
 echo "OK ✔️"
 
 echo "Create certs directory"
-mkdir "${REMOTELABZ_WORKER_PATH}"/config/certs/
+REP="${REMOTELABZ_WORKER_PATH}/config/certs/"
+if [ ! -d $REP ]; then
+	mkdir "${REMOTELABZ_WORKER_PATH}"/config/certs/
+fi;
 chown :remotelabz-worker "${REMOTELABZ_WORKER_PATH}"/config/certs/
 chmod g+w "${REMOTELABZ_WORKER_PATH}"/config/certs/
 echo "OK ✔️"
 
 echo "Installation of ttyd from its github project"
 cd ~
-git clone https://github.com/tsl0922/ttyd.git
-cd ttyd && mkdir build && cd build
-cmake ..
-make && sudo make install
+if [ ! -d ttyd ]; then
+	git clone https://github.com/tsl0922/ttyd.git
+	cd ttyd && mkdir build && cd build
+	cmake ..
+	make && sudo make install
+fi;
 echo "OK ✔️"
 
 echo "Creation of the container to prepare the DHCP service"
-lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64 --keyserver hkp://keyserver.ubuntu.com
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64
 echo "nameserver 1.1.1.3" > "/var/lib/lxc/Migration/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
 echo "Creation of the container to prepare the DHCP service"
-lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64 --keyserver hkp://keyserver.ubuntu.com
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64
 echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
 echo "nameserver 1.1.1.3" > "/var/lib/lxc/Debian/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
 echo "Creation of a container Ubuntu 20 LTS"
-lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64 --keyserver hkp://keyserver.ubuntu.com
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64
 echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
 #echo "nameserver 1.1.1.3" > "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 
 echo "Creation of a container Alpine 3.15"
-lxc-create -t download -n Alpine3.15 -- -d alpine -r 3.15 -a amd64 --keyserver hkp://keyserver.ubuntu.com
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine3.15 -- -d alpine -r 3.15 -a amd64
 echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine3.15/rootfs/etc/issue"
 echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.15/rootfs/etc/resolv.conf"
 echo "OK ✔️"
