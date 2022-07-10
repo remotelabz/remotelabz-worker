@@ -242,9 +242,8 @@ echo "On your worker, you have now to execute the following task:"
 echo "Start the container Migration from the Sandbox menu"
 echo "Configure if with the following command :"
 
-cd images
 echo "Download Alpine qemu image"
-wget -q http://194.57.105.124/~fnolot/alpinelab1.img
+wget -q -P "${REMOTELABZ_WORKER_PATH}"/images http://194.57.105.124/~fnolot/alpinelab1.img
 echo "OK ✔️"
 #echo "Download Debian 10 qemu image"
 #wget -q http://194.57.105.124/~fnolot/debian10-20190905.img
