@@ -97,7 +97,7 @@ chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
 
-echo "Configure data network"
+#echo "Configure data network"
 #ovs-vsctl --may-exist add-br "${BRIDGE_INT}"
 # TODO: Test if ${DATA_INTERFACE} has an IP to avoid to shutdown the connexion
 # If ${DATA_INTERFACE} has an IP address, perhaps it's the actual network interface
@@ -106,7 +106,7 @@ echo "Configure data network"
 #ip link set up dev "${BRIDGE_INT}"
 #ip link set up dev "${DATA_INTERFACE}"
 
-echo "IP configuration of the gateway to data network for the VMs and forward between interfaces"
+echo "IP configuration of the data network for the VMs and forward between interfaces"
 #ip addr add "${BRIDGE_INT_IP_ADDRESS}" dev "${BRIDGE_INT}" || true
 ip addr add "${DATA_INT_IP_ADDRESS}" dev "${DATA_INTERFACE}" || true
 sed -i 's/[#| ]*net.ipv4.ip_forward[ ]*=[ |0|1]*/net.ipv4.ip_forward = 1/g' /etc/sysctl.conf
