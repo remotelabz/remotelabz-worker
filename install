@@ -134,7 +134,8 @@ echo "OK ✔️"
 
 # Folders
 debug "Creating images folder if it does not exists already..."
-ln -fs "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
+#ln -fs "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
+cp -Rf "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/images"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/images"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
@@ -209,28 +210,39 @@ if [ ! -d ttyd ]; then
 fi;
 echo "OK ✔️"
 
-echo "Creation of the container to prepare the DHCP service"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/Migration/rootfs/etc/resolv.conf"
-echo "OK ✔️"
+LXC=`lxc-ls -name "Migration"`;
+if [ "${LXC}" == "" ] ; then
+  echo "Creation of the container to prepare the DHCP service"
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64
+  echo "nameserver 1.1.1.3" > "/var/lib/lxc/Migration/rootfs/etc/resolv.conf"
+  echo "OK ✔️"
+fi;
 
-echo "Creation of the container to prepare the DHCP service"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64
-echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/Debian/rootfs/etc/resolv.conf"
-echo "OK ✔️"
+LXC=`lxc-ls -name "Debian"`;
+if [ "${LXC}" == "" ] ; then
+  echo "Creation of the container to prepare the DHCP service"
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64
+  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
+  echo "nameserver 1.1.1.3" > "/var/lib/lxc/Debian/rootfs/etc/resolv.conf"
+  echo "OK ✔️"
+fi;
 
-echo "Creation of a container Ubuntu 20 LTS"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64
-echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
-#echo "nameserver 1.1.1.3" > "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/resolv.conf"
-echo "OK ✔️"
+LXC=`lxc-ls -name "Ubuntu20LTS"`;
+if [ "${LXC}" == "" ] ; then
+  echo "Creation of a container Ubuntu 20 LTS"
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64
+  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
+  echo "OK ✔️"
+fi;
 
+LXC=`lxc-ls -name "Alpine3.15"`;
+if [ "${LXC}" == "" ] ; then
 echo "Creation of a container Alpine 3.15"
 DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine3.15 -- -d alpine -r 3.15 -a amd64
 echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine3.15/rootfs/etc/issue"
 echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.15/rootfs/etc/resolv.conf"
 echo "OK ✔️"
+fi;
 
 echo "Increase route cache for ipv6"
 echo "net.ipv6.route.max_size = 20000" >> "/etc/sysctl.conf"
@@ -238,13 +250,14 @@ sysctl -f /etc/sysctl.conf
 echo "OK ✔️"
 
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
-echo "On your worker, you have now to execute the following task:"
-echo "Start the container Migration from the Sandbox menu"
-echo "Configure if with the following command :"
+echo "On your worker, you have now to follow the instruction https://docs.remotelabz.com/administrators/getting-started/ubuntu-standalone/#configure-the-dhcp-service-container"
 
-echo "Download Alpine qemu image"
-wget -q -P "${REMOTELABZ_WORKER_PATH}"/images http://194.57.105.124/~fnolot/alpinelab1.img
-echo "OK ✔️"
+if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
+  echo "Download Alpine qemu image"
+  wget -q -P "${REMOTELABZ_WORKER_PATH}"/images http://194.57.105.124/~fnolot/alpinelab1.img
+  echo "OK ✔️"
+fi;
+
 #echo "Download Debian 10 qemu image"
 #wget -q http://194.57.105.124/~fnolot/debian10-20190905.img
 #echo "OK ✔️"
