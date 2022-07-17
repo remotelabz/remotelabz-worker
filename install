@@ -185,10 +185,10 @@ systemctl daemon-reload || true
 echo "OK ✔️"
 
 echo "Backup .env.local and copy .env to .env.local"
-if [ -f .env.local ]; then 
-	cp .env.local .env.local.bak
+if [ -f "${REMOTELABZ_WORKER_PATH}"/.env.local ]; then 
+	cp "${REMOTELABZ_WORKER_PATH}"/.env.local "${REMOTELABZ_WORKER_PATH}"/.env.local.bak
 fi
-cp .env .env.local
+cp "${REMOTELABZ_WORKER_PATH}"/.env "${REMOTELABZ_WORKER_PATH}"/.env.local
 echo "OK ✔️"
 
 echo "Create certs directory"
@@ -245,8 +245,11 @@ echo "OK ✔️"
 fi;
 
 echo "Increase route cache for ipv6"
-echo "net.ipv6.route.max_size = 20000" >> "/etc/sysctl.conf"
-sysctl -f /etc/sysctl.conf
+PATTERN=`awk '/net.ipv6.route.max_size = 20000/' "/etc/sysctl.conf"`;
+if [ "${PATTERN}" == "" ]; then
+  echo "net.ipv6.route.max_size = 20000" >> "/etc/sysctl.conf"
+  sysctl -f /etc/sysctl.conf
+fi;
 echo "OK ✔️"
 
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
