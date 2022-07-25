@@ -513,7 +513,7 @@ class InstanceManager extends AbstractController
 
                     array_push($parameters['local'],
                         '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
-                        '-smp', '4',
+                        '-smp', '2',
                         '-vga', 'qxl'
                     );
 
