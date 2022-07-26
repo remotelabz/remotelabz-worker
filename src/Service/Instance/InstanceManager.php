@@ -27,15 +27,18 @@ class InstanceManager extends AbstractController
     protected $kernel;
     protected $logger;
     protected $params;
+    protected $front_ip;
 
     public function __construct(
         LogDispatcher $logger,
         KernelInterface $kernel,
-        ParameterBagInterface $params
+        ParameterBagInterface $params,
+        string $front_ip
     ) {
         $this->kernel = $kernel;
         $this->logger = $logger;
         $this->params = $params;
+        $this->front_ip = $front_ip;
     }
 
     public function createLabInstance(string $descriptor, string $uuid) {
@@ -336,83 +339,61 @@ class InstanceManager extends AbstractController
         }
 
         if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
-            $error_download=false;
+            $download_ok=true;
             $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $deviceInstance['device']['operatingSystem']['name'],
                 'instance' => $deviceInstance['uuid']
             ]);
             // Start qemu
-            if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
-                if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
-                    $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+
+            if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
+                $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+                    "image" => $img['source'],
+                    'instance' => $deviceInstance['uuid']
+                ]);
+
+                if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
+                    $this->logger->debug('download image from url : ', InstanceLogMessage::SCOPE_PUBLIC, [
                         "image" => $img['source'],
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    // check image size
-                    $headers = get_headers($img["source"], 1);
-                    $headers = array_change_key_case($headers);
-                    $fileSize = 0.0;
-                    if(isset($headers['content-length'])){
-                        $fileSize = (float) $headers['content-length'];
-                    }
-
-                    $this->logger->info('Image size is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    $chunkSize = 1024 * 1024;
-                    $fd = fopen($img["source"], 'rb');
-                    $downloaded = 0.0;
-                    $lastNotification = 0.0;
-
-                    while (!feof($fd)) {
-                        $buffer = fread($fd, $chunkSize);
-                        $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
-                        file_put_contents($image_dst, $buffer, FILE_APPEND);
-                        if (ob_get_level() > 0)
-                            ob_flush();
-                        flush();
-                        clearstatcache();
-                        $downloaded = (float) filesize($this->kernel->getProjectDir() . "/images/" . basename($img["source"]));
-                        $downloadedPercent = floor(($downloaded/$fileSize) * 100.0);
-                        if ($downloadedPercent - $lastNotification >= 5.0) {
-                            $this->logger->info('Downloading image... '.$downloadedPercent.'%', InstanceLogMessage::SCOPE_PUBLIC, [
-                                "image" => $img['source'],
-                                'instance' => $deviceInstance['uuid']
-                            ]);
-                            $lastNotification = $downloadedPercent;
-                        }
-                    }
-                    if ($downloaded === $fileSize)
-                        $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
-                                "image" => $img['source'],
-                                'instance' => $deviceInstance['uuid'],
-                                'size_downloaded' => $downloaded,
-                                'size_origin' => $fileSize
-                                
-                        ]);
-
-                    else {
-                        $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                            "image" => $img['source'],
-                            'instance' => $deviceInstance['uuid'],
-                            'size_downloaded' => $downloaded,
-                            'size_origin' => $fileSize
-                            
-                        ]);
-                        $error_download=true;
-                    }
-
-                        fclose($fd);
+                    $url=$img["source"];
+                    $context=null;
                 }
+                else {
+                    $this->logger->debug('download image from url : ', InstanceLogMessage::SCOPE_PUBLIC, [
+                        "image" => $img['source'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    
+                    $url="http://".$this->front_ip."/uploads/images/".basename($img["source"]);
+                    // Only to download from the front when self-signed certificate
+                    $context = stream_context_create( [
+                        'ssl' => [
+                            'verify_peer' => false,
+                            'verify_peer_name' => false,
+                            'allow_self_signed' => true,
+                        ],
+                    ]);
+                }
+                $download_ok=$this->download_http_image($url,$deviceInstance['uuid'],$context);
             }
 
-            if (!$error_download) {
+            if ($download_ok) {
                 $img['destination'] = $instancePath . '/' . basename($img['source']);
                 $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
 
+                if (!$filesystem->exists($img['source'])) {
+                    $this->logger->info('VM image doesn\'t exist. Download image source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'source' => $img['source'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    //TODO :download_http_image////
+
+                }
+
                 if (!$filesystem->exists($img['destination'])) {
-                    $this->logger->info('VM image doesn\'t exist. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                    $this->logger->info('VM never started. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
                         'source' => $img['source'],
                         'destination' => $img['destination'],
                         'instance' => $deviceInstance['uuid']
@@ -2083,5 +2064,81 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
             strlen($oct)<2 ? $adress .= ":0$oct" : $adress .= ":$oct"; 
         }
         return $adress;
+    }
+
+    // $source : image source to download
+    // $uuid : $uuid of the device that need this image
+    private function download_http_image($source,$uuid,$context){
+    // check image size
+    $this->logger->debug('download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
+        "image" => $source,
+        'instance' => $uuid
+    ]);
+    $headers = get_headers($source, 1,$context);
+    $this->logger->debug('headers in download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
+        "headers" => $headers
+    ]);
+    $headers = array_change_key_case($headers);
+    $fileSize = 0.0;
+    if(isset($headers['content-length'])){
+        // On 302 request, with http to https, content-length is an array !!
+        // In that case, we take the second value
+        if (is_array($headers['content-length']))
+            $fileSize = (float) $headers['content-length'][1];
+        else 
+            $fileSize = (float) $headers['content-length'];
+    }
+    
+    $this->logger->info('Image size is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
+        "image" => $source,
+        'instance' => $uuid
+    ]);
+    
+    $chunkSize = 1024 * 1024;
+    $fd = fopen($source, 'rb',false, $context);
+    $downloaded = 0.0;
+    $lastNotification = 0.0;
+
+    while (!feof($fd)) {
+        $buffer = fread($fd, $chunkSize);
+        $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($source);
+        file_put_contents($image_dst, $buffer, FILE_APPEND);
+        if (ob_get_level() > 0)
+            ob_flush();
+        flush();
+        clearstatcache();
+        $downloaded = (float) filesize($this->kernel->getProjectDir() . "/images/" . basename($source));
+        $downloadedPercent = floor(($downloaded/$fileSize) * 100.0);
+        if ($downloadedPercent - $lastNotification >= 5.0) {
+            $this->logger->info('Downloading image... '.$downloadedPercent.'%', InstanceLogMessage::SCOPE_PUBLIC, [
+                "image" => $source,
+                'instance' => $uuid
+                ]);
+            $lastNotification = $downloadedPercent;
+        }
+    }
+    if ($downloaded === $fileSize) {
+        $this->logger->info('Image download complete.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "image" => $source,
+                'instance' => $uuid,
+                'size_downloaded' => $downloaded,
+                'size_origin' => $fileSize
+                
+        ]);
+    
+        $result=true;
+    }
+    else {
+        $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+            "image" => $source,
+            'instance' => $uuid,
+            'size_downloaded' => $downloaded,
+            'size_origin' => $fileSize
+            
+        ]);
+        $result=false;
+    }
+        fclose($fd);
+    return $result;
     }
 }
