@@ -345,27 +345,19 @@ class InstanceManager extends AbstractController
                 'instance' => $deviceInstance['uuid']
             ]);
             // Start qemu
-
-            if (!$filesystem->exists($this->kernel->getProjectDir() . "/images/" . basename($img["source"]))) {
+            $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
+            if (!$filesystem->exists($image_dst)) {
                 $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
                     "image" => $img['source'],
                     'instance' => $deviceInstance['uuid']
                 ]);
 
                 if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
-                    $this->logger->debug('download image from url : ', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
                     $url=$img["source"];
                     $context=null;
                 }
                 else {
-                    $this->logger->debug('download image from url : ', InstanceLogMessage::SCOPE_PUBLIC, [
-                        "image" => $img['source'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    
+                    //The source uploaded on the front. 
                     $url="http://".$this->front_ip."/uploads/images/".basename($img["source"]);
                     // Only to download from the front when self-signed certificate
                     $context = stream_context_create( [
@@ -376,6 +368,10 @@ class InstanceManager extends AbstractController
                         ],
                     ]);
                 }
+                $this->logger->debug('Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
+                    "image" => $img['source'],
+                    'instance' => $deviceInstance['uuid']
+                ]);
                 $download_ok=$this->download_http_image($url,$deviceInstance['uuid'],$context);
             }
 
@@ -388,8 +384,6 @@ class InstanceManager extends AbstractController
                         'source' => $img['source'],
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    //TODO :download_http_image////
-
                 }
 
                 if (!$filesystem->exists($img['destination'])) {
@@ -1789,7 +1783,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                         $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
                     }
 
-                     $this->qemu_delete($copyInstancePath);
+                    $this->qemu_delete($copyInstancePath);
                 
                 $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC,[
                     'instance' => $deviceInstance['uuid']
