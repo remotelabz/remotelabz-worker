@@ -728,7 +728,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
         }
         else {
             $this->logger->debug("Start device from Sandbox detected");
-            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+            //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
         }
     $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid,
