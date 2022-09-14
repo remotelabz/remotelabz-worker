@@ -425,7 +425,8 @@ class InstanceManager extends AbstractController
                         'network' => [],
                         'access' => [],
                         'local' => [],
-                        'usb' => []
+                        'usb' => [],
+                        'serial' => []
                     ];
 
                     foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
@@ -497,6 +498,13 @@ class InstanceManager extends AbstractController
                         '-usb', '-device','usb-tablet,bus=usb-bus.0',
                         '-device','usb-ehci,id=ehci'
                     );
+                    
+                    //Add serial support
+                    array_push($parameters['serial'],
+                        '-chardev', 'socket,id=serial0,server,telnet,port='.($deviceInstance['serialPort']).',host=127.0.0.1,nowait',
+                        '-serial','chardev:serial0'
+                    );
+                    
                 
                     if (!$this->qemu_start($parameters,$uuid)){
                         $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
