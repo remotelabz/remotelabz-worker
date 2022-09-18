@@ -460,7 +460,7 @@ class InstanceManager extends AbstractController
                             '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
                     }
 
-                    if ($deviceInstance['device']['vnc'] === true) {
+                    if ($this->isVNC($deviceInstance)) {
                         $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid']
                         ]);
@@ -619,7 +619,8 @@ class InstanceManager extends AbstractController
                             'instance' => $deviceInstance['uuid']
                             ]);
                     }
-                    if ($deviceInstance['device']['vnc'] === true) {
+                    
+                    if ($this->isVNC($deviceInstance)) {
                         $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid']
                         ]);
@@ -1315,8 +1316,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 }
 
 
-            if ($deviceInstance['device']['vnc'] === true) {
-                $vncAddress = "0.0.0.0";
+                if ($this->isVNC($deviceInstance)) {
+                    $vncAddress = "0.0.0.0";
                 $vncPort = $deviceInstance['remotePort'];
 
                 $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
@@ -1395,7 +1396,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                     'instance' => $deviceInstance['uuid']]);
             }
 
-            if ($deviceInstance['device']['vnc'] === true) {
+            if ($this->isVNC($deviceInstance)) {
                 $vncAddress = "0.0.0.0";
                 $vncPort = $deviceInstance['remotePort'];
                 $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
@@ -2143,5 +2144,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
     }
         fclose($fd);
     return $result;
+    }
+
+    //$device : array
+    private function isVNC($device) {
+        $result=false;
+        foreach ($device['device']['controlProtocols'] as $control_protocol) {
+            if (strtolower($control_protocol['name'])==="vnc")
+                $result=($result || true);
+        }
+        return $result;
     }
 }
