@@ -460,33 +460,10 @@ class InstanceManager extends AbstractController
                             '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
                     }
 
-                    if ($this->isVNC($deviceInstance)) {
-                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                        $vncAddress = "0.0.0.0";
-                        $vncPort = $deviceInstance['remotePort'];
-
-                        $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        if ($this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort))
-                            $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                                    'instance' => $deviceInstance['uuid']
-                                    ]);
-                        else {
-                            $this->logger->info("Websockify starting process in error !", InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            }
-
-                        array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
-                        array_push($parameters['local'], '-k', 'fr');
-                    }
-
+                    
+                    $parameters['access']=$this->remote_access_start($deviceInstance,$sandbox);
+                    
+                    array_push($parameters['local'], '-k', 'fr');
                     array_push($parameters['local'],
                         '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
                         '-smp', '2',
@@ -500,11 +477,12 @@ class InstanceManager extends AbstractController
                     );
                     
                     //Add serial support
+                    if ($serial_port=$this->isSerial($deviceInstance)) {
                     array_push($parameters['serial'],
-                        '-chardev', 'socket,id=serial0,server,telnet,port='.($deviceInstance['serialPort']).',host=127.0.0.1,nowait',
+                        '-chardev', 'socket,id=serial0,server,telnet,port='.($serial_port).',host=127.0.0.1,nowait',
                         '-serial','chardev:serial0'
                     );
-                    
+                }
                 
                     if (!$this->qemu_start($parameters,$uuid)){
                         $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -619,27 +597,8 @@ class InstanceManager extends AbstractController
                             'instance' => $deviceInstance['uuid']
                             ]);
                     }
-                    
-                    if ($this->isVNC($deviceInstance)) {
-                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                        
-                        $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        $vncInterface=$this->getParameter('app.network.data.interface');
-                        $vncPort = $deviceInstance['remotePort'];
-                        if ($this->ttyd_start($deviceInstance['uuid'],$vncInterface,$vncPort,$sandbox))
-                            $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                                    'instance' => $deviceInstance['uuid']
-                                    ]);
-                        else {
-                            $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            }
-                    }
+                    $parameters=null;
+                    $this->remote_access_start($deviceInstance,$sandbox,$parameters);
 
                 } else {
                     $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -668,6 +627,47 @@ class InstanceManager extends AbstractController
 
     }
 
+    private function remote_access_start($deviceInstance,$sandbox) {
+        $result=null;
+        if ($remote_port=$this->isLogin($deviceInstance)) {
+            $this->logger->info("Login access requested. Adding server to Login access.", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance['uuid']
+            //'controlProtocolTypeInstances' => $deviceInstance['controlProtocolTypeInstances']
+            ]);
+            
+            $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid']
+                ]);
+            $remote_interface=$this->getParameter('app.network.data.interface');
+            if ($this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox)) {
+                $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+                $this->websockify_start($deviceInstance['uuid'],$remote_interface,$remote_port);
+            }
+            else {
+                $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                }
+        }
+
+        if ($vncPort=$this->isVNC($deviceInstance)) {
+            $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance['uuid']
+            //'deviceInstance' => $deviceInstance
+            ]);
+            $vncAddress = "0.0.0.0";
+
+            $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid']
+                ]);
+            $this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort);
+            $result=['-vnc', $vncAddress.':'.($vncPort - 5900)];
+        }
+        return $result;
+    }
+
  /**
  * @return true if no error, false if error
  */
@@ -687,10 +687,14 @@ public function websockify_start($uuid,$IpAddress,$Port){
     
     $process = new Process($command);
     try {
+        $this->logger->debug("command :",$command);
         $process->mustRun();
     }   catch (ProcessFailedException $exception) {
-        $result=false;
-    }
+            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid
+                ]);
+            $result=false;
+        }
     $command="ps aux | grep " . $IpAddress . ":" . $Port . " | grep websockify | grep -v grep | awk '{print $2}'";
     $this->logger->debug("List websockify:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid
@@ -702,6 +706,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
         $this->logger->error("Listing process to find websockify process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
+            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid
+                ]);
             $result=false;
         }
     return $result;
@@ -1315,10 +1322,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 
                 }
 
-
-                if ($this->isVNC($deviceInstance)) {
+                if ($vncPort=$this->isVNC($deviceInstance)) {
                     $vncAddress = "0.0.0.0";
-                $vncPort = $deviceInstance['remotePort'];
 
                 $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
                 $error=false;
@@ -1396,9 +1401,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                     'instance' => $deviceInstance['uuid']]);
             }
 
-            if ($this->isVNC($deviceInstance)) {
+            if ($vncPort=$this->isVNC($deviceInstance)) {
                 $vncAddress = "0.0.0.0";
-                $vncPort = $deviceInstance['remotePort'];
                 $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
                 $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
                     'labInstance' => $labInstance
@@ -2146,13 +2150,40 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
     return $result;
     }
 
-    //$device : array
-    private function isVNC($device) {
+    //$deviceInstance : array
+    // $result : port number is vnc is true otherwise return false
+    private function isVNC($deviceInstance) {
         $result=false;
-        foreach ($device['device']['controlProtocols'] as $control_protocol) {
-            if (strtolower($control_protocol['name'])==="vnc")
-                $result=($result || true);
+        foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
+            if (strtolower($control_protocol['controlProtocolType']['name'])==="vnc") {
+                $result=$control_protocol['port'];
+            }
         }
         return $result;
     }
+
+    //$deviceInstance : array
+    // $result : port number is vnc is true otherwise return false
+    private function isSerial($deviceInstance) {
+        $result=false;
+        foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
+            if (strtolower($control_protocol['controlProtocolType']['name'])==="serial") {
+                $result=$control_protocol['port'];
+            }
+        }
+        return $result;
+    }
+    
+        //$deviceInstance : array
+    // $result : port number is vnc is true otherwise return false
+    private function isLogin($deviceInstance) {
+        $result=false;
+        foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
+            if (strtolower($control_protocol['controlProtocolType']['name'])==="login") {
+                $result=$control_protocol['port'];
+            }
+        }
+        return $result;
+    }
+    
 }
