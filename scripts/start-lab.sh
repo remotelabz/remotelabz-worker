@@ -218,6 +218,7 @@ qemu_start_vm() {
     # TODO: Pass image formatting as a parameter?
     qemu-img create \
         -f qcow2 \
+        -F qcow2 \
         -b "${IMG_SRC}" \
         "${IMG_DEST}"
     echo "Done !"
