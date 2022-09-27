@@ -826,7 +826,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function qemu_create_relative_img($img_base,$dst,$uuid){
         $result=null;
-        $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img_base,$dst]);
+        $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', $img_base,$dst]);
         try {
             $process->mustRun();
             $result=true;
