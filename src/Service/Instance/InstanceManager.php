@@ -420,7 +420,8 @@ class InstanceManager extends AbstractController
                             '-m',
                             $deviceInstance['device']['flavor']['memory'],
                             '-drive',
-                            'file='.$img['destination']
+                            'file='.$img['destination'],
+                            '-smp',$deviceInstance['device']['nbCpu']
                         ],
                         'network' => [],
                         'local' => [],
@@ -464,7 +465,6 @@ class InstanceManager extends AbstractController
                     array_push($parameters['local'], '-k', 'fr');
                     array_push($parameters['local'],
                         '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
-                        '-smp', '2',
                         '-vga', 'qxl'
                     );
                     
@@ -1804,8 +1804,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     $command = [
                         'qemu-img',
                         'rebase',
-                        '-f','qcow2','-F','qcow2'
-                        '-f','qcow2','-F','qcow2'
+                        '-f','qcow2','-F','qcow2',
                         '-b',
                         $newImagePath,
                         $copyInstancePath
