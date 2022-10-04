@@ -421,13 +421,26 @@ class InstanceManager extends AbstractController
                             $deviceInstance['device']['flavor']['memory'],
                             '-drive',
                             'file='.$img['destination'],
-                            '-smp',$deviceInstance['device']['nbCpu']
                         ],
+                        'smp' => ['-smp'],
                         'network' => [],
                         'local' => [],
                         'usb' => [],
                         'access' => [],
                     ];
+
+                    $smp_parameters=$deviceInstance['device']['nbCpu'];
+                    
+                    if ( array_key_exists('nbCore',$deviceInstance['device']) )
+                        $smp_parameters=$smp_parameters.',cores='.$deviceInstance['device']['nbCore'];
+
+                    if ( array_key_exists('nbThread',$deviceInstance['device']) )
+                        $smp_parameters=$smp_parameters.',threads='.$deviceInstance['device']['nbThread'];
+                    
+                    if ( array_key_exists('nbSocket',$deviceInstance['device']) )
+                        $smp_parameters=$smp_parameters.',sockets='.$deviceInstance['device']['nbSocket'];
+                    
+                    array_push($parameters['smp'],$smp_parameters);
 
                     foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                         $nicTemplate = $nic['networkInterface'];
@@ -477,7 +490,7 @@ class InstanceManager extends AbstractController
                     $access_param=$this->remote_access_start($deviceInstance,$sandbox);
                     foreach ($access_param as $param) {
                         array_push($parameters['access'],$param);
-                        $this->logger->debug("param access:".$param);
+                        //$this->logger->debug("param access:".$param);
                     }
 
                     if (!$this->qemu_start($parameters,$uuid)){
