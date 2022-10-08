@@ -1140,8 +1140,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+            $message=explode("in /",explode("Error Output:",$exception)[1]);
+            $this->logger->error("Starting QEMU virtual machine error! ".$message[0], InstanceLogMessage::SCOPE_PUBLIC,
             [ 'instance' => $uuid]);
+            $this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
             $error=true;
         }
         return $error;
@@ -1509,7 +1511,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     */
     public function qemu_stop($uuid) {
         $result=true;
-        $process = Process::fromShellCommandline("ps aux | grep -e " . $uuid . " | grep -v grep | awk '{print $2}'");
+        $process = Process::fromShellCommandline("ps aux | grep -e " . $uuid . " | grep -e qemu | grep -v grep | awk '{print $2}'");
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
