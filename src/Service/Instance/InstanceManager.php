@@ -127,17 +127,25 @@ class InstanceManager extends AbstractController
             $filesystem = new Filesystem();
             $filesystem->remove($instancePath);
         }
-
+        $error=false;
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
             $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
             if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
                 $this->logger->debug("Device instance to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
                 $result=$this->lxc_delete($deviceInstance["uuid"]);
+                if ($result["state"]===InstanceStateMessage::STATE_ERROR) {
+                    $this->logger->error("Error after lxc_delete in deleteLabInstance with device ".$deviceInstance["uuid"]);
+                    $error=($error || true);
+                }
             }
         }
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
         //TODO: The result of each result of each device instance stop is not used. 
-        $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
+        if (!$error) {
+            $this->logger->debug("No error in deleteLabInstance");
+            $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
+        } else
+            $this->logger->error("Error in deleteLabInstance");
         return $result;
     }
 
@@ -1247,6 +1255,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "uuid" => $uuid,
                 "options" => null
                 );
+            $error=false;
         }   catch (ProcessFailedException $exception) {
             $this->logger->error("LXC container deleted error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
             $result=array(
@@ -1254,10 +1263,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "uuid" => $uuid,
                 "options" => null
                 );
+            $error=true;
         }
-        
-        $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
-            'instance' => $uuid]);
+        if (!$error)
+            $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $uuid]);
         
         return $result;
     }
