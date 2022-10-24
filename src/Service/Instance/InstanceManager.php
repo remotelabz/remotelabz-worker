@@ -127,17 +127,25 @@ class InstanceManager extends AbstractController
             $filesystem = new Filesystem();
             $filesystem->remove($instancePath);
         }
-
+        $error=false;
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
             $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
             if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
                 $this->logger->debug("Device instance to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
                 $result=$this->lxc_delete($deviceInstance["uuid"]);
+                if ($result["state"]===InstanceStateMessage::STATE_ERROR) {
+                    $this->logger->error("Error after lxc_delete in deleteLabInstance with device ".$deviceInstance["uuid"]);
+                    $error=($error || true);
+                }
             }
         }
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
         //TODO: The result of each result of each device instance stop is not used. 
-        $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
+        if (!$error) {
+            $this->logger->debug("No error in deleteLabInstance");
+            $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
+        } else
+            $this->logger->error("Error in deleteLabInstance");
         return $result;
     }
 
@@ -419,14 +427,28 @@ class InstanceManager extends AbstractController
                         'system' => [
                             '-m',
                             $deviceInstance['device']['flavor']['memory'],
-                            '-hda',
-                            $img['destination']
+                            '-drive',
+                            'file='.$img['destination'],
                         ],
+                        'smp' => ['-smp'],
                         'network' => [],
-                        'access' => [],
                         'local' => [],
-                        'usb' => []
+                        'usb' => [],
+                        'access' => [],
                     ];
+
+                    $smp_parameters=$deviceInstance['device']['nbCpu'];
+                    
+                    if ( array_key_exists('nbCore',$deviceInstance['device']) )
+                        $smp_parameters=$smp_parameters.',cores='.$deviceInstance['device']['nbCore'];
+
+                    if ( array_key_exists('nbThread',$deviceInstance['device']) )
+                        $smp_parameters=$smp_parameters.',threads='.$deviceInstance['device']['nbThread'];
+                    
+                    if ( array_key_exists('nbSocket',$deviceInstance['device']) )
+                        $smp_parameters=$smp_parameters.',sockets='.$deviceInstance['device']['nbSocket'];
+                    
+                    array_push($parameters['smp'],$smp_parameters);
 
                     foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                         $nicTemplate = $nic['networkInterface'];
@@ -459,45 +481,26 @@ class InstanceManager extends AbstractController
                             '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
                     }
 
-                    if ($deviceInstance['device']['vnc'] === true) {
-                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                        $vncAddress = "0.0.0.0";
-                        $vncPort = $deviceInstance['remotePort'];
-
-                        $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        if ($this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort))
-                            $this->logger->debug("Websockify process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                                    'instance' => $deviceInstance['uuid']
-                                    ]);
-                        else {
-                            $this->logger->info("Websockify starting process in error !", InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            }
-
-                        array_push($parameters['access'], '-vnc', $vncAddress.':'.($vncPort - 5900));
-                        array_push($parameters['local'], '-k', 'fr');
-                    }
-
+                    
+                    
+                    array_push($parameters['local'], '-k', 'fr');
                     array_push($parameters['local'],
                         '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
-                        '-smp', '2',
                         '-vga', 'qxl'
                     );
+                    
 
                     //Add usb support
                     array_push($parameters['usb'],
                         '-usb', '-device','usb-tablet,bus=usb-bus.0',
                         '-device','usb-ehci,id=ehci'
                     );
-                
+                    $access_param=$this->remote_access_start($deviceInstance,$sandbox);
+                    foreach ($access_param as $param) {
+                        array_push($parameters['access'],$param);
+                        //$this->logger->debug("param access:".$param);
+                    }
+
                     if (!$this->qemu_start($parameters,$uuid)){
                         $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
@@ -611,26 +614,7 @@ class InstanceManager extends AbstractController
                             'instance' => $deviceInstance['uuid']
                             ]);
                     }
-                    if ($deviceInstance['device']['vnc'] === true) {
-                        $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                        
-                        $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        $vncInterface=$this->getParameter('app.network.data.interface');
-                        $vncPort = $deviceInstance['remotePort'];
-                        if ($this->ttyd_start($deviceInstance['uuid'],$vncInterface,$vncPort,$sandbox))
-                            $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                                    'instance' => $deviceInstance['uuid']
-                                    ]);
-                        else {
-                            $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            }
-                    }
+                    $this->remote_access_start($deviceInstance,$sandbox);
 
                 } else {
                     $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -659,6 +643,78 @@ class InstanceManager extends AbstractController
 
     }
 
+    private function remote_access_start($deviceInstance,$sandbox) {
+        $result=array();
+        if ($remote_port=$this->isLogin($deviceInstance)) {
+            $this->logger->info("Login access requested. Adding server to Login access.", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance['uuid']
+            //'controlProtocolTypeInstances' => $deviceInstance['controlProtocolTypeInstances']
+            ]);
+            
+            $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid']
+                ]);
+            $remote_interface=$this->getParameter('app.network.data.interface');
+            if ($this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"login")) {
+                $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+            }
+            else {
+                $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                }
+        }
+
+        if ($remote_port=$this->isSerial($deviceInstance)) {
+            $this->logger->info("Serial access requested. Adding server to Serial access.", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance['uuid']
+            //'controlProtocolTypeInstances' => $deviceInstance['controlProtocolTypeInstances']
+            ]);
+            $new_free_port=$this->getFreePort();
+            array_push($result,'-chardev','socket,id=serial0,server,telnet,port='.($new_free_port).',host=127.0.0.1,nowait');
+            array_push($result,'-serial','chardev:serial0');
+
+            $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid']
+                ]);
+            $remote_interface=$this->getParameter('app.network.data.interface');
+            
+            if ($this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"serial",$new_free_port)) {
+                $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+            }
+            else {
+                $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                }
+        }
+
+        if ($vncPort=$this->isVNC($deviceInstance)) {
+            $this->logger->info("VNC access requested. Adding VNC server.", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance['uuid']
+            //'deviceInstance' => $deviceInstance
+            ]);
+            $vncAddress = "0.0.0.0";
+
+            $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid']
+                ]);
+            $this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort);
+            array_push($result,'-vnc',$vncAddress.":".($vncPort - 5900));
+        }
+
+        
+        
+
+        //$this->logger->debug("From remote_access_start :",$result);
+        
+        return $result;
+    }
+
  /**
  * @return true if no error, false if error
  */
@@ -678,10 +734,14 @@ public function websockify_start($uuid,$IpAddress,$Port){
     
     $process = new Process($command);
     try {
+        $this->logger->debug("command :",$command);
         $process->mustRun();
     }   catch (ProcessFailedException $exception) {
-        $result=false;
-    }
+            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid
+                ]);
+            $result=false;
+        }
     $command="ps aux | grep " . $IpAddress . ":" . $Port . " | grep websockify | grep -v grep | awk '{print $2}'";
     $this->logger->debug("List websockify:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid
@@ -693,6 +753,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
         $this->logger->error("Listing process to find websockify process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
+            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid
+                ]);
             $result=false;
         }
     return $result;
@@ -701,8 +764,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
  /**
  * @return true if no error, false if error
  * @param $sandbox : boolean true if from a sandbox
+ * @param string $remote_protocol : serial or login
  */
-public function ttyd_start($uuid,$interface,$port,$sandbox){
+public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$device_remote_port=null){
     $result=true;
     $command = ['screen','-S',$uuid,'-dm','ttyd'];
     if ($sandbox)
@@ -722,15 +786,24 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
         $this->logger->debug("Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
-        if ($sandbox) {
-            $this->logger->debug("Start device from Sandbox detected");  
-            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+        if ($remote_protocol === "login") {
+            if ($sandbox) {
+                $this->logger->debug("Start device from Sandbox detected");  
+                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+            }
+            else {
+                $this->logger->debug("Start device from Sandbox detected");
+                //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
+            }
         }
-        else {
-            $this->logger->debug("Start device from Sandbox detected");
-            //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
-            array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
+        elseif ($remote_protocol === "serial") {
+                $this->logger->debug("Start device from Sandbox detected");
+                array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
+                //array_push($command, '-p',$port,'telnet','localhost',$device_remote_port);
         }
+        
+
     $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid,
         'command' => $command
@@ -774,7 +847,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
      */
     public function qemu_create_relative_img($img_base,$dst,$uuid){
         $result=null;
-        $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-b', $img_base,$dst]);
+        $process = new Process([ 'qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', $img_base,$dst]);
         try {
             $process->mustRun();
             $result=true;
@@ -1058,19 +1131,27 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
 
         foreach ($parameters as $parametersType) {
             foreach ($parametersType as $parameter) {
-                array_push($command, $parameter);
+                if (!is_null($parameter) && $parameter != "") {
+/*                    if (gettype($parameter)==="string")
+                        $this->logger->debug('parameters string:'.$parameter);
+                    if (gettype($parameter)==="array")
+                        $this->logger->debug('parameters array:',$parameter);*/
+                    array_push($command, $parameter);
+                }
             }
         }
 
         $this->logger->debug("Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
+            "command" => implode(' ',preg_replace('/\s+/', ' ', $command))
         ]);
         $process = new Process($command);
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+            $message=explode("in /",explode("Error Output:",$exception)[1]);
+            $this->logger->error("Starting QEMU virtual machine error! ".$message[0], InstanceLogMessage::SCOPE_PUBLIC,
             [ 'instance' => $uuid]);
+            $this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
             $error=true;
         }
         return $error;
@@ -1174,6 +1255,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 "uuid" => $uuid,
                 "options" => null
                 );
+            $error=false;
         }   catch (ProcessFailedException $exception) {
             $this->logger->error("LXC container deleted error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
             $result=array(
@@ -1181,10 +1263,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 "uuid" => $uuid,
                 "options" => null
                 );
+            $error=true;
         }
-        
-        $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
-            'instance' => $uuid]);
+        if (!$error)
+            $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $uuid]);
         
         return $result;
     }
@@ -1306,10 +1389,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                 
                 }
 
-
-            if ($deviceInstance['device']['vnc'] === true) {
-                $vncAddress = "0.0.0.0";
-                $vncPort = $deviceInstance['remotePort'];
+                if ($vncPort=$this->isVNC($deviceInstance)) {
+                    $vncAddress = "0.0.0.0";
 
                 $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
                 $error=false;
@@ -1387,9 +1468,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                     'instance' => $deviceInstance['uuid']]);
             }
 
-            if ($deviceInstance['device']['vnc'] === true) {
+            if ($vncPort=$this->isVNC($deviceInstance)) {
                 $vncAddress = "0.0.0.0";
-                $vncPort = $deviceInstance['remotePort'];
                 $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
                 $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
                     'labInstance' => $labInstance
@@ -1441,7 +1521,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
     */
     public function qemu_stop($uuid) {
         $result=true;
-        $process = Process::fromShellCommandline("ps aux | grep -e " . $uuid . " | grep -v grep | awk '{print $2}'");
+        $process = Process::fromShellCommandline("ps aux | grep -e " . $uuid . " | grep -e qemu | grep -v grep | awk '{print $2}'");
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
@@ -1749,6 +1829,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
                     $command = [
                         'qemu-img',
                         'rebase',
+                        '-f','qcow2','-F','qcow2',
                         '-b',
                         $newImagePath,
                         $copyInstancePath
@@ -2135,5 +2216,53 @@ public function ttyd_start($uuid,$interface,$port,$sandbox){
     }
         fclose($fd);
     return $result;
+    }
+
+    //$deviceInstance : array
+    // $result : port number is vnc is true otherwise return false
+    private function isVNC($deviceInstance) {
+        $result=false;
+        foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
+            if (strtolower($control_protocol['controlProtocolType']['name'])==="vnc") {
+                $result=$control_protocol['port'];
+            }
+        }
+        return $result;
+    }
+
+    //$deviceInstance : array
+    // $result : port number is vnc is true otherwise return false
+    private function isSerial($deviceInstance) {
+        $result=false;
+        foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
+            if (strtolower($control_protocol['controlProtocolType']['name'])==="serial") {
+                $result=$control_protocol['port'];
+            }
+        }
+        return $result;
+    }
+    
+        //$deviceInstance : array
+    // $result : port number is vnc is true otherwise return false
+    private function isLogin($deviceInstance) {
+        $result=false;
+        foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
+            if (strtolower($control_protocol['controlProtocolType']['name'])==="login") {
+                $result=$control_protocol['port'];
+            }
+        }
+        return $result;
+    }
+    
+    private function getFreePort()
+    {
+        $process = new Process([ $this->kernel->getProjectDir().'/scripts/get-available-port.sh' ]);
+        try {
+            $process->mustRun();
+        } catch (ProcessFailedException $exception) {
+            return false;
+        }
+        
+        return (int) $process->getOutput();
     }
 }

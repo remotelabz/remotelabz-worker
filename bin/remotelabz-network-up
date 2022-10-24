@@ -5,6 +5,8 @@ use Symfony\Component\Process\Process;
 use Remotelabz\NetworkBundle\Entity\Network;
 use Remotelabz\NetworkBundle\Entity\IP;
 use App\Bridge\Network\IPTools;
+use App\Bridge\Network\IPTables\IPTables;
+use App\Bridge\Network\IPTables\Rule;
 
 
 require dirname(__DIR__).'/config/bootstrap.php';
@@ -80,8 +82,8 @@ $cmd = ['ip','route','add'];
 if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
     if ( array_key_exists('VPN_NETWORK', $_ENV) && ($_ENV['VPN_CONCENTRATOR_IP']!= "localhost") ) {
         $base_ip = new IP($_ENV['VPN_NETWORK']);
-        $network = new Network($base_ip, $_ENV['VPN_NETWORK_NETMASK']);
-        $cmd[]=$network->__toString();
+        $vpn_network = new Network($base_ip, $_ENV['VPN_NETWORK_NETMASK']);
+        $cmd[]=$vpn_network->__toString();
         $cmd[]='via';
         $cmd[]=$_ENV['VPN_CONCENTRATOR_IP'];
     }
@@ -130,4 +132,24 @@ $process->setTimeout(null);
 $process->run(function ($type, $buffer) {
     echo $buffer;
 });
+
+
+$rule=Rule::create()
+    ->setSource($vpn_network->__toString())
+    ->setJump('ACCEPT');
+        
+    if (!IPTables::exists(IPTABLES::CHAIN_FORWARD,$rule)) {
+        IPTables::append(
+            IPTABLES::CHAIN_FORWARD,
+            $rule
+        );
+    }
+
+/*$cmd = ['iptables','-A','FORWARD','-s', ,'-j','ACCEPT'];
+$process = new Process($cmd);
+$process->setTimeout(null);
+
+$process->run(function ($type, $buffer) {
+    echo $buffer;
+});*/
 
