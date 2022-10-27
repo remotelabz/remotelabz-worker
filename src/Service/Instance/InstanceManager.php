@@ -912,6 +912,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             ]);
             
             $process = new Process($command);
+            $process->setTimeout(600);
             try {
                 $process->mustRun();
             }   catch (ProcessFailedException $exception) {
@@ -1802,6 +1803,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1820,6 +1822,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1842,6 +1845,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1859,6 +1863,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1882,7 +1887,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     )
                 );
             }
-        }        
+            else {
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => array(
+                    "newOS_id" => $labInstance["newOS_id"],
+                    "newDevice_id" => $labInstance["newDevice_id"],
+                    "new_os_name" => $labInstance["new_os_name"],
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    )
+                );
+
+            }
+        }
         elseif ($hypervisor === "lxc") {
             $this->logger->debug("LXC device for export",InstanceLogMessage::SCOPE_PRIVATE,[
                 'instance' => $deviceInstance['uuid']
