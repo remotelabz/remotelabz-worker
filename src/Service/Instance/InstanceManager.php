@@ -1925,7 +1925,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             }
             else {
-                if (!$this->lxc_clone($deviceInstance['uuid'],$imagefilename)) {
+                
+                if (!$this->lxc_clone($deviceInstance['uuid'],basename($imagefilename,".img"))) {
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
                     ]);
