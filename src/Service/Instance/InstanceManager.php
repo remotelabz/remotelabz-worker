@@ -1214,6 +1214,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
 
         $process = new Process($command);
+        $process->setTimeout(600);
         try {
             $process->mustRun();
             $error=false;
@@ -1249,6 +1250,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
 
         $process = new Process($command);
+        $process->setTimeout(600);
         try {
             $process->mustRun();
             $result=array(
@@ -1296,6 +1298,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
 
         $process = new Process($command);
+        $process->setTimeout(600);
         try {
             $process->mustRun();
             $result=array(
