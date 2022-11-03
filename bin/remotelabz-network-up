@@ -78,11 +78,11 @@ $process->run(function ($type, $buffer) {
 # Configure route back to VPN
 
 $cmd = ['ip','route','add'];
+$vpn_network = new Network($base_ip, $_ENV['VPN_NETWORK_NETMASK']);
 
 if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
     if ( array_key_exists('VPN_NETWORK', $_ENV) && ($_ENV['VPN_CONCENTRATOR_IP']!= "localhost") ) {
         $base_ip = new IP($_ENV['VPN_NETWORK']);
-        $vpn_network = new Network($base_ip, $_ENV['VPN_NETWORK_NETMASK']);
         $cmd[]=$vpn_network->__toString();
         $cmd[]='via';
         $cmd[]=$_ENV['VPN_CONCENTRATOR_IP'];
