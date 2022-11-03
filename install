@@ -77,7 +77,7 @@ debug "Running apt-get to grab required packages"
 apt-get install -y software-properties-common
 #add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev
+apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl
 echo "OK ✔️"
 
 # Create user remotelabz and remotelabz group
@@ -255,11 +255,11 @@ echo "OK ✔️"
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
 echo "On your worker, you have now to follow the instruction https://docs.remotelabz.com/administrators/getting-started/ubuntu-standalone/#configure-the-dhcp-service-container"
 
-if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
-  echo "Download Alpine qemu image"
-  wget -q -P "${REMOTELABZ_WORKER_PATH}"/images http://194.57.105.124/~fnolot/alpinelab1.img
-  echo "OK ✔️"
-fi;
+#if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
+#  echo "Download Alpine qemu image"
+#  wget -q -P "${REMOTELABZ_WORKER_PATH}"/images http://194.57.105.124/~fnolot/alpinelab1.img
+#  echo "OK ✔️"
+#fi;
 
 #echo "Download Debian 10 qemu image"
 #wget -q http://194.57.105.124/~fnolot/debian10-20190905.img
