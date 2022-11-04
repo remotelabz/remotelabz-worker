@@ -96,6 +96,17 @@ if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
                 $rule
             );
         }
+
+        $rule=Rule::create()
+            ->setDestination($vpn_network->__toString())
+            ->setJump('ACCEPT');
+        
+        if (!IPTables::exists(IPTABLES::CHAIN_FORWARD,$rule)) {
+            IPTables::append(
+                IPTABLES::CHAIN_FORWARD,
+                $rule
+            );
+        }
     }
 }
 
