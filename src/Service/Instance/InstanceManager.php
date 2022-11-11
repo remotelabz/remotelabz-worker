@@ -354,7 +354,7 @@ class InstanceManager extends AbstractController
             ]);
             // Start qemu
             $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
-            if (!$filesystem->exists($image_dst)) {
+            if ( !$filesystem->exists($image_dst) ) {
                 $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
                     "image" => $img['source'],
                     'instance' => $deviceInstance['uuid']
@@ -362,25 +362,25 @@ class InstanceManager extends AbstractController
 
                 if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
                     $url=$img["source"];
-                    $context=null;
+                  //  $context=null;
                 }
                 else {
                     //The source uploaded on the front. 
                     $url="http://".$this->front_ip."/uploads/images/".basename($img["source"]);
                     // Only to download from the front when self-signed certificate
-                    $context = stream_context_create( [
+                    /*$context = stream_context_create( [
                         'ssl' => [
                             'verify_peer' => false,
                             'verify_peer_name' => false,
                             'allow_self_signed' => true,
                         ],
-                    ]);
+                    ]);*/
                 }
                 $this->logger->debug('Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
                     "image" => $img['source'],
                     'instance' => $deviceInstance['uuid']
                 ]);
-                $download_ok=$this->download_http_image($url,$deviceInstance['uuid'],$context);
+                $download_ok=$this->download_http_image($url,$deviceInstance['uuid']);
             }
 
             if ($download_ok) {
@@ -407,10 +407,6 @@ class InstanceManager extends AbstractController
                             'instance' => $deviceInstance['uuid']
                         ]);
                     else {
-                        $this->logger->info('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                            'path' => $img['destination'],
-                            'instance' => $deviceInstance['uuid']
-                        ]);
                         $this->logger->error('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
                             'path' => $img['destination'],
                             'instance' => $deviceInstance['uuid']
@@ -855,6 +851,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->error("QEMU commit error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $uuid
                 ]);
+            $this->logger->error("QEMU commit error !", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $uuid
+                    ]);
             $result=false;
         }
         return $result;
@@ -912,6 +911,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             ]);
             
             $process = new Process($command);
+            $process->setTimeout(600);
             try {
                 $process->mustRun();
             }   catch (ProcessFailedException $exception) {
@@ -1213,6 +1213,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
 
         $process = new Process($command);
+        $process->setTimeout(600);
         try {
             $process->mustRun();
             $error=false;
@@ -1248,6 +1249,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
 
         $process = new Process($command);
+        $process->setTimeout(600);
         try {
             $process->mustRun();
             $result=array(
@@ -1295,6 +1297,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
 
         $process = new Process($command);
+        $process->setTimeout(600);
         try {
             $process->mustRun();
             $result=array(
@@ -1802,6 +1805,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1820,6 +1824,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1842,6 +1847,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1859,6 +1865,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
 
                     $process = new Process($command);
+                    $process->setTimeout(600);
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
@@ -1882,7 +1889,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     )
                 );
             }
-        }        
+            else {
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => array(
+                    "newOS_id" => $labInstance["newOS_id"],
+                    "newDevice_id" => $labInstance["newDevice_id"],
+                    "new_os_name" => $labInstance["new_os_name"],
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    )
+                );
+
+            }
+        }
         elseif ($hypervisor === "lxc") {
             $this->logger->debug("LXC device for export",InstanceLogMessage::SCOPE_PRIVATE,[
                 'instance' => $deviceInstance['uuid']
@@ -1906,7 +1927,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             }
             else {
-                if (!$this->lxc_clone($deviceInstance['uuid'],$imagefilename)) {
+                
+                if (!$this->lxc_clone($deviceInstance['uuid'],basename($imagefilename,".img"))) {
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
                     ]);
@@ -2142,9 +2164,88 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         return $adress;
     }
 
+    private function get_filesize_download($source) {
+        if (filter_var($source, FILTER_VALIDATE_URL)) {
+            $url=$source;
+            $context=null;
+        }
+        else {
+            //The source uploaded on the front. 
+            $url="http://".$this->front_ip."/uploads/images/".basename($source);
+            // Only to download from the front when self-signed certificate
+            $context = stream_context_create( [
+                'ssl' => [
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                    'allow_self_signed' => true,
+                ],
+            ]);
+        }
+        $headers = get_headers($source, 1,$context);
+        $this->logger->debug('Headers of the web page to download the image : ', InstanceLogMessage::SCOPE_PRIVATE, [
+            "headers" => $headers
+        ]);
+        $headers = array_change_key_case($headers);
+        $fileSize = 0.0;
+        if(isset($headers['content-length'])){
+            // On 302 request, with http to https, content-length is an array !!
+            // In that case, we take the second value
+            if (is_array($headers['content-length']))
+                $fileSize = (float) $headers['content-length'][1];
+            else 
+                $fileSize = (float) $headers['content-length'];
+        }
+        return $fileSize;
+    }
+
+
     // $source : image source to download
     // $uuid : $uuid of the device that need this image
-    private function download_http_image($source,$uuid,$context){
+    private function download_http_image($source,$uuid){
+        $fileSize=$this->get_filesize_download($source);
+       
+        $this->logger->info('The image size to download is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
+            "image" => $source,
+            'instance' => $uuid
+        ]);
+        $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($source);
+
+        $command = [
+            'curl','-s',
+            $source,
+            '--output',
+            $image_dst
+        ];
+
+        $process = new Process($command);
+        $process->setTimeout(12000);
+        try {
+            $process->mustRun();
+            $fileSize_downloaded=filesize($image_dst);
+            $this->logger->info('Image download in progress: '.$process->getOutput(), InstanceLogMessage::SCOPE_PUBLIC, [
+                "image" => $source,
+                'instance' => $uuid,
+                'size_downloaded' => $fileSize_downloaded,
+                'size_origin' => $fileSize
+            ]);
+        }
+        catch (ProcessFailedException $exception) {
+            $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "image" => $source,
+                'instance' => $uuid,
+                'size_downloaded' => $exception->getMessage(),
+                'size_origin' => $fileSize
+            ]);
+            return false;
+        }
+      
+
+        return true;
+    }
+
+    // $source : image source to download
+    // $uuid : $uuid of the device that need this image
+    private function download_http_image_old_version($source,$uuid,$context){
     // check image size
     $this->logger->debug('download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
         "image" => $source,

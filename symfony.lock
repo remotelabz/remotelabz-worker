@@ -2,10 +2,10 @@
     "composer/package-versions-deprecated": {
         "version": "1.11.99.4"
     },
-    "crestic-urca/network-bundle": {
+    "remotelabz/network-bundle": {
         "version": "v1.0.2"
     },
-    "crestic-urca/remotelabz-message-bundle": {
+    "remotelabz/remotelabz-message-bundle": {
         "version": "dev-master"
     },
     "doctrine/annotations": {

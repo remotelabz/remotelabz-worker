@@ -2,12 +2,13 @@
 
 set -e
 
-ENV_FILE=".env"
+ENV_FILE=".env.local"
+SYMLINK="N"
 
 if [ -f ./${ENV_FILE} ]; then
      source ./${ENV_FILE}
 else
-     echo "Error: Environment file .env not found in ${ENV_FILE}. Please check this file exists and try again."
+     echo "Error: Environment file .env.local not found in ${ENV_FILE}. Please check this file exists and try again."
      exit 1
 fi
 
@@ -28,6 +29,15 @@ function quit_on_error() {
   exit 1
 }
 
+function usage() {
+  echo "Usage: $0 [ -p port ] [-s ]" 1>&2
+}
+
+function exit_abnormal() {
+  usage
+  exit 1
+}
+
 trap 'quit_on_error' ERR
 
 debug "Starting remoteLabz-worker installation"
@@ -43,18 +53,20 @@ if [ "$(whoami)" != "root" ]; then
     exit 1
 fi
 
-while getopts "p:" opt; do
-  case $opt in
+while getopts "p:s" opt; do
+  case ${opt} in
     p)
       export REMOTELABZ_WORKER_PORT="$OPTARG"
       ;;
-    \?)
-      echo "Invalid option: -$OPTARG" >&2
-      exit 1
+    s)
+      export SYMLINK="Y"
       ;;
     :)
       echo "Option -$OPTARG requires an argument." >&2
-      exit 1
+      exit_abnormal
+      ;;
+    *)
+      exit_abnormal
       ;;
   esac
 done
@@ -66,6 +78,12 @@ fi
 if [ -z "$REMOTELABZ_WORKER_PORT" ]; then
     export REMOTELABZ_WORKER_PORT=8080
 fi
+
+if [ ${ADM_INTERFACE} = "ensX" ]; then
+    echo "You have to configure your .env.local file before to start the install process"
+    exit 1
+fi
+
 # ----------------------------------
 export SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 export DEBIAN_FRONTEND=noninteractive
@@ -77,7 +95,7 @@ debug "Running apt-get to grab required packages"
 apt-get install -y software-properties-common
 #add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev
+apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl
 echo "OK ✔️"
 
 # Create user remotelabz and remotelabz group
@@ -121,21 +139,27 @@ echo "OK ✔️"
 echo "Installing Composer"
 if ! [ $(command -v composer) ]; then
     cp composer.phar /usr/local/bin/composer
+    composer self-update
     echo "OK ✔️"
 else
   echo "Composer is already installed! Skipping."
 fi
 
 echo "Downloading Composer packages"
-(cd "${SCRIPTPATH}" && composer install --no-progress --no-suggest)
+(cd "${SCRIPTPATH}" && composer install --no-progress)
 chown -R remotelabz-worker:remotelabz-worker "${SCRIPTPATH}"/vendor
 chmod -R 777 "${SCRIPTPATH}"/vendor
 echo "OK ✔️"
 
 # Folders
 debug "Creating images folder if it does not exists already..."
-#ln -fs "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
-cp -Rf "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
+if [ ${SYMLINK} = "Y" ]
+then
+  ln -fs "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
+else 
+  cp -Rf "${SCRIPTPATH}" "${REMOTELABZ_WORKER_PATH}"
+fi
+
 mkdir -p "${REMOTELABZ_WORKER_PATH}/images"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/images"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
@@ -252,8 +276,8 @@ if [ "${PATTERN}" == "" ]; then
 fi;
 echo "OK ✔️"
 
-echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs! Start by editing the \e[32m.env.local\e[39m file then start the worker with \e[32mservice remotelabz-worker start\e[39m."
-echo "On your worker, you have now to follow the instruction https://docs.remotelabz.com/administrators/getting-started/ubuntu-standalone/#configure-the-dhcp-service-container"
+echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs!"
+echo "On your worker, you have now to follow the instruction https://docs.remotelabz.com/administrators/getting-started/ubuntu-standalone/#add-a-dhcp-service-for-your-laboratory"
 
 if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
   echo "Download Alpine qemu image"
@@ -270,5 +294,8 @@ fi;
 #echo "Download Ubuntu Server 18 with LXDE qemu image"
 #wget -q http://194.57.105.124/~fnolot/ubuntu-18-SrvLxde.img
 #echo "OK ✔️"
+
+systemctl enable remotelabz-worker
+systemctl start remotelabz-worker
 echo "Thank you for using our software. ❤️"
 exit 0

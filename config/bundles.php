@@ -9,6 +9,6 @@ return [
     Symfony\Bundle\MakerBundle\MakerBundle::class => ['dev' => true],
     Symfony\Bundle\WebProfilerBundle\WebProfilerBundle::class => ['dev' => true, 'test' => true],
     Symfony\Bundle\DebugBundle\DebugBundle::class => ['dev' => true, 'test' => true],
-    Remotelabz\NetworkBundle\RemotelabzNetworkBundle::class => ['all' => true],
-    Remotelabz\Message\RemotelabzMessageBundle::class => ['all' => true],
+    Remotelabz\NetworkBundle\RemoteLabzNetworkBundle::class => ['all' => true],
+    Remotelabz\Message\RemoteLabzMessageBundle::class => ['all' => true]
 ];

@@ -32,8 +32,7 @@ $process->run(function ($type, $buffer) {
 */
 $cmd = ['ip','link','set', 'up', 'dev'];
 
-if ( array_key_exists('DATA_INTERFACE', $_ENV)
-    ) {
+if ( array_key_exists('DATA_INTERFACE', $_ENV) ) {
     $cmd[]=$_ENV['DATA_INTERFACE'];
 }
 
@@ -86,6 +85,28 @@ if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
         $cmd[]=$vpn_network->__toString();
         $cmd[]='via';
         $cmd[]=$_ENV['VPN_CONCENTRATOR_IP'];
+        
+        $rule=Rule::create()
+            ->setSource($vpn_network->__toString())
+            ->setJump('ACCEPT');
+        
+        if (!IPTables::exists(IPTABLES::CHAIN_FORWARD,$rule)) {
+            IPTables::append(
+                IPTABLES::CHAIN_FORWARD,
+                $rule
+            );
+        }
+
+        $rule=Rule::create()
+            ->setDestination($vpn_network->__toString())
+            ->setJump('ACCEPT');
+        
+        if (!IPTables::exists(IPTABLES::CHAIN_FORWARD,$rule)) {
+            IPTables::append(
+                IPTABLES::CHAIN_FORWARD,
+                $rule
+            );
+        }
     }
 }
 
@@ -134,22 +155,4 @@ $process->run(function ($type, $buffer) {
 });
 
 
-$rule=Rule::create()
-    ->setSource($vpn_network->__toString())
-    ->setJump('ACCEPT');
-        
-    if (!IPTables::exists(IPTABLES::CHAIN_FORWARD,$rule)) {
-        IPTables::append(
-            IPTABLES::CHAIN_FORWARD,
-            $rule
-        );
-    }
-
-/*$cmd = ['iptables','-A','FORWARD','-s', ,'-j','ACCEPT'];
-$process = new Process($cmd);
-$process->setTimeout(null);
-
-$process->run(function ($type, $buffer) {
-    echo $buffer;
-});*/
 
