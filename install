@@ -281,7 +281,7 @@ echo "On your worker, you have now to follow the instruction https://docs.remote
 
 if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
   echo "Download Alpine qemu image"
-  wget -q -P "${REMOTELABZ_WORKER_PATH}"/images http://194.57.105.124/~fnolot/alpinelab1.img
+  wget -q -P "${REMOTELABZ_WORKER_PATH}"/images https://www.remotelabz.com/wp-content/uploads/alpinelab1.img
   echo "OK ✔️"
 fi;
 
