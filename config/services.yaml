@@ -16,6 +16,7 @@ parameters:
     app.services.proxy.key: '%env(string:REMOTELABZ_PROXY_SSL_KEY)%'
     app.vpn.interface: '%env(string:VPN_CONCENTRATOR_INTERFACE)%'
     app.network.front.ip: '%env(string:FRONT_SERVER_IP)%'
+    app.general.contact_mail: '%env(resolve:CONTACT_MAIL)%'
 
 services:
     # default configuration for services in *this* file
