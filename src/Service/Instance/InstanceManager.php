@@ -133,9 +133,11 @@ class InstanceManager extends AbstractController
 
             if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
                 $result=$this->stop_device_qemu($deviceInstance["uuid"],$deviceInstance,$labInstance);
-            } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
+                //$this->qemu_delete($deviceInstance["operatingSystem"]["image"]);
+                $this->qemu_delete($deviceInstance["uuid"],$this->kernel->getProjectDir()."/instances/user/".$deviceInstance["owner"]["uuid"]."/".$deviceInstance["device"]["operatingSystem"]["image"]);
+            } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' && $this->lxc_exist($deviceInstance["uuid"])) {
                 $result=$this->stop_device_lxc($deviceInstance["uuid"],$deviceInstance,$labInstance);
-
+                $this->lxc_destroy($deviceInstance["uuid"]);
             }
 
             /*if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) 
@@ -519,7 +521,7 @@ class InstanceManager extends AbstractController
                     }
 
                     if (!$this->qemu_start($parameters,$uuid)){
-                        $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                        $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
                             ]);
                         $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
@@ -532,7 +534,7 @@ class InstanceManager extends AbstractController
                             );
                     }
                     else {
-                        $this->logger->error("Virtual Machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                        $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
                             ]);
                         $result=array(
@@ -547,7 +549,7 @@ class InstanceManager extends AbstractController
                 $this->logger->error("Download QEMU image in error ! Perhaps, image file is too large", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
-                $this->qemu_delete($image_dst);
+                $this->qemu_delete($deviceInstance['uuid'],$image_dst);
                 $result=array(
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
@@ -1169,14 +1171,17 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
+
             $message=explode("in /",explode("Error Output:",$exception)[1])[0];
-            if (str_contains($message,"\"write\" lock Is another process using the image")) {
+            $this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'message' => $message]);
+            if (str_contains($message,"lock\nIs another process using the image")) {
+                //$this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
                 $this->logger->debug("QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
                 $error=false;
             } else {
                 $this->logger->error("Starting QEMU virtual machine error! ".$message, InstanceLogMessage::SCOPE_PUBLIC,
                 [ 'instance' => $uuid]);
-                $this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                //$this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                 $error=true;
             }
         }
@@ -1724,7 +1729,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
                     }
 
                     $command = [
@@ -1747,7 +1752,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                        $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
                     }
 
                     $command = [
@@ -1765,7 +1770,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                        $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
                     }
 
                     $this->qemu_delete($copyInstancePath);
@@ -1884,7 +1889,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @throws ProcessFailedException When a process failed to run.
      * @return void
      */
-    public function qemu_delete($file){
+    public function qemu_delete($uuid,$file){
     $command = [
         'rm',
         $file
@@ -1897,7 +1902,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     try {
         $process->mustRun();
     }   catch (ProcessFailedException $exception) {
-        $this->logger->error("Export: QEMU delete image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+        if (str_contains($exception->getMessage(),"No such file or directory")) {
+            $this->logger->debug("QEMU image is already deleted", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
+        }
+        else {
+            $this->logger->error("QEMU delete image in error", InstanceLogMessage::SCOPE_PRIVATE,[
+                'instance' => $uuid,
+                'error' => $exception->getMessage()
+            ]);
+        }
     }
 }
 
@@ -1936,7 +1949,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         
         switch($operatingSystem["hypervisor"]["name"]){
             case "qemu":
-                $this->qemu_delete($this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
+                $this->qemu_delete($operatingSystem["uuid"],$this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
                 break;
             case "lxc":
                 $this->lxc_delete($operatingSystem["imageFilename"]);
@@ -2376,7 +2389,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     'deviceInstance' => $deviceInstance
                 ]);
                 $this->logger->info("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
-                    'deviceInstance' => $deviceInstance["uuid"]
+                    'instance' => $deviceInstance["uuid"]
                 ]);
                 $process = Process::fromShellCommandline($cmd);
                 $error=false;
