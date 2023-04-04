@@ -130,8 +130,16 @@ class InstanceManager extends AbstractController
         $error=false;
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
             $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
-            
-            if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
+
+            if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
+                $result=$this->stop_device_qemu($deviceInstance["uuid"],$deviceInstance,$labInstance);
+            } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
+                $result=$this->stop_device_lxc($deviceInstance["uuid"],$deviceInstance,$labInstance);
+
+            }
+
+            /*if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) 
+            {
                 $this->logger->debug("Device instance to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
                 
                 $result=$this->lxc_stop($deviceInstance["uuid"]);
@@ -150,7 +158,7 @@ class InstanceManager extends AbstractController
                     $this->logger->error("Error after lxc_delete in deleteLabInstance with device ".$deviceInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance["uuid"]]);
                     $error=($error || true);
                 }
-            }
+            }*/
         }
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
         //TODO: The result of each result of each device instance stop is not used. 
@@ -2231,7 +2239,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         return $result;
     }
     
-        //$deviceInstance : array
+    //$deviceInstance : array
     // $result : port number is vnc is true otherwise return false
     private function isLogin($deviceInstance) {
         $result=false;
@@ -2242,7 +2250,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         return $result;
     }
-    
+
     private function getFreePort()
     {
         $process = new Process([ $this->kernel->getProjectDir().'/scripts/get-available-port.sh' ]);
@@ -2361,18 +2369,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     'instance' => $deviceInstance['uuid']]);
             }
 
-            if ($vncPort=$this->isVNC($deviceInstance)) {
+            if ($vncPort=$this->isLogin($deviceInstance)) {
                 $vncAddress = "0.0.0.0";
                 $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
                 $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
-                    'labInstance' => $labInstance
+                    'deviceInstance' => $deviceInstance
+                ]);
+                $this->logger->info("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+                    'deviceInstance' => $deviceInstance["uuid"]
                 ]);
                 $process = Process::fromShellCommandline($cmd);
                 $error=false;
                 try {
                     $process->mustRun();
                 }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                    $this->logger->error("Process listing error to find Login connexion error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
                         ['instance' => $deviceInstance['uuid']
                     ]);
                     $error=true;

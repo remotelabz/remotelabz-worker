@@ -49,6 +49,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                 case InstanceActionMessage::ACTION_DELETE:
                     $instanceType = InstanceStateMessage::TYPE_LAB;
                     //Add here a foreach to stop all instance device in the lab
+                    $this->logger->debug("Delete action message received");  
                     $ReturnArray=$this->instanceManager->deleteLabInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_DELETED;
                     break;
