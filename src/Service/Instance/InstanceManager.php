@@ -129,15 +129,38 @@ class InstanceManager extends AbstractController
         }
         $error=false;
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
-            $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
-            if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) {
-                $this->logger->debug("Device instance to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance, "deviceinstance" => $deviceInstance]);
+            $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
+
+            if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
+                $result=$this->stop_device_qemu($deviceInstance["uuid"],$deviceInstance,$labInstance);
+                //$this->qemu_delete($deviceInstance["operatingSystem"]["image"]);
+                $this->qemu_delete($deviceInstance["uuid"],$this->kernel->getProjectDir()."/instances/user/".$deviceInstance["owner"]["uuid"]."/".$deviceInstance["device"]["operatingSystem"]["image"]);
+            } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' && $this->lxc_exist($deviceInstance["uuid"])) {
+                $result=$this->stop_device_lxc($deviceInstance["uuid"],$deviceInstance,$labInstance);
+                $this->lxc_destroy($deviceInstance["uuid"]);
+            }
+
+            /*if ($deviceInstance["device"]["hypervisor"]["name"]==="lxc" && $this->lxc_exist($deviceInstance["uuid"])) 
+            {
+                $this->logger->debug("Device instance to deleted is an LXC container : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+                
+                $result=$this->lxc_stop($deviceInstance["uuid"]);
+                
+
+                if ($result['state']===InstanceStateMessage::STATE_STOPPED)
+                    $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']]);
+                else {
+                    $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']]);
+                }
+
                 $result=$this->lxc_delete($deviceInstance["uuid"]);
                 if ($result["state"]===InstanceStateMessage::STATE_ERROR) {
-                    $this->logger->error("Error after lxc_delete in deleteLabInstance with device ".$deviceInstance["uuid"]);
+                    $this->logger->error("Error after lxc_delete in deleteLabInstance with device ".$deviceInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance["uuid"]]);
                     $error=($error || true);
                 }
-            }
+            }*/
         }
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
         //TODO: The result of each result of each device instance stop is not used. 
@@ -145,7 +168,7 @@ class InstanceManager extends AbstractController
             $this->logger->debug("No error in deleteLabInstance");
             $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
         } else
-            $this->logger->error("Error in deleteLabInstance");
+            $this->logger->error("Error in deleteLabInstance",InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
         return $result;
     }
 
@@ -498,7 +521,7 @@ class InstanceManager extends AbstractController
                     }
 
                     if (!$this->qemu_start($parameters,$uuid)){
-                        $this->logger->info("Virtual Machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                        $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
                             ]);
                         $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
@@ -511,7 +534,7 @@ class InstanceManager extends AbstractController
                             );
                     }
                     else {
-                        $this->logger->error("Virtual Machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                        $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
                             ]);
                         $result=array(
@@ -526,7 +549,7 @@ class InstanceManager extends AbstractController
                 $this->logger->error("Download QEMU image in error ! Perhaps, image file is too large", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
-                $this->qemu_delete($image_dst);
+                $this->qemu_delete($deviceInstance['uuid'],$image_dst);
                 $result=array(
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
@@ -1148,11 +1171,19 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
-            $message=explode("in /",explode("Error Output:",$exception)[1]);
-            $this->logger->error("Starting QEMU virtual machine error! ".$message[0], InstanceLogMessage::SCOPE_PUBLIC,
-            [ 'instance' => $uuid]);
-            $this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
-            $error=true;
+
+            $message=explode("in /",explode("Error Output:",$exception)[1])[0];
+            $this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'message' => $message]);
+            if (str_contains($message,"lock\nIs another process using the image")) {
+                //$this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
+                $this->logger->debug("QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
+                $error=false;
+            } else {
+                $this->logger->error("Starting QEMU virtual machine error! ".$message, InstanceLogMessage::SCOPE_PUBLIC,
+                [ 'instance' => $uuid]);
+                //$this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
+                $error=true;
+            }
         }
         return $error;
     }
@@ -1320,15 +1351,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
     /**
-     * Stop an instance described by JSON descriptor for device instance specified by UUID.
+     * Stop a device instance described by JSON descriptor for device instance specified by UUID.
      *
-     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $descriptor JSON representation of a device instance.
      * @param string $uuid UUID of the device instance to stop.
      * @throws ProcessFailedException When a process failed to run.
      * @return void
      */
 
-     //May be rename the function to stopLabInstance. To verify if all devices in the lab are analyzed.
     public function stopDeviceInstance(string $descriptor, string $uuid) {
         $this->logger->setUuid($uuid);
 
@@ -1339,16 +1369,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        $this->logger->debug("Lab instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
             'labInstance' => $labInstance
         ]);
-
-        try {
-            $bridgeName = $labInstance['bridgeName'];
-        } catch (ErrorException $e) {
-            $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
-            throw new BadDescriptorException($labInstance, "", 0, $e);
-        }
 
         // Network interfaces
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
@@ -1365,153 +1388,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
 
         if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
-            try {
-                $labUser = $labInstance['owner']['uuid'];
-                $ownedBy = $labInstance['ownedBy'];
-                $labInstanceUuid = $labInstance['uuid'];
-            } catch (ErrorException $e) {
-                throw new BadDescriptorException($labInstance, "", 0, $e);
-            }
-            if ($this->qemu_stop($uuid)) {
-                $this->logger->info("QEMU VM stopped successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                    'instance' => $uuid]);
-                $result=array(
-                        "state" => InstanceStateMessage::STATE_STOPPED,
-                        "uuid" => $uuid,
-                        "options" => null
-                    );
-                }
-            else {
-                $this->logger->info("QEMU VM doesn't stop - Error !", InstanceLogMessage::SCOPE_PUBLIC, [
-                    'instance' => $uuid]);
-                $result=array(
-                    "state" => InstanceStateMessage::STATE_ERROR,
-                    "uuid" => $uuid,
-                    "options" => null
-                );
-                
-                }
-
-                if ($vncPort=$this->isVNC($deviceInstance)) {
-                    $vncAddress = "0.0.0.0";
-
-                $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
-                $error=false;
-                try {
-                    $process->mustRun();
-                }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
-                    ['instance' => $uuid
-                    ]);
-                    $error=true;
-                }
-                if (!$error)
-                    $pidWebsockify = $process->getOutput();
-                $error=false;
-
-                if (!empty($pidWebsockify)) {
-                    $pidWebsockify = explode("\n", $pidWebsockify);
-
-                    foreach ($pidWebsockify as $pid) {
-                        if (!empty($pid)) {
-                            $pid = str_replace("\n", '', $pid);
-                            $process = new Process(['kill', '-9', $pid]);
-                            try {
-                                $process->mustRun();
-                            }   catch (ProcessFailedException $exception) {
-                                $this->logger->error("Killing websockify error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
-                                ['instance' => $uuid
-                                ]);
-                            }
-                            $this->logger->debug("Killing websockify process", InstanceLogMessage::SCOPE_PRIVATE, [
-                                "PID" => $pid
-                            ]);
-                        }
-                    }
-                }
-            }
-            // Network interfaces
-
-            foreach($deviceInstance['networkInterfaceInstances'] as $networkInterfaceInstance) {
-                $networkInterface = $networkInterfaceInstance['networkInterface'];
-                $networkInterfaceName = substr(str_replace(' ', '_', $networkInterface['name']), 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
-
-                if (OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
-                    OVS::portDelete($bridgeName, $networkInterfaceName, true);
-                }
-
-                if (IPTools::networkInterfaceExists($networkInterfaceName)) {
-                    IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_DOWN);
-                    $this->logger->debug("Interface ".$networkInterfaceName." set down");
-                    IPTools::linkDelete($networkInterfaceName);
-                    $this->logger->debug("Interface ".$networkInterfaceName." deleted");
-                }
-            }
+            $result=$this->stop_device_qemu($uuid,$deviceInstance,$labInstance);
+        } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
+            $result=$this->stop_device_lxc($uuid,$deviceInstance,$labInstance);
         }
 
         // OVS
+        /*
         $activeDeviceCount = count(array_filter($labInstance['deviceInstances'], function ($deviceInstance) {
             return $deviceInstance['state'] == InstanceStateMessage::STATE_STARTED;
         })) - 1;
 
         if ($activeDeviceCount <= 0) {
             // OVS::bridgeDelete($bridgeName, true);
-        }
+        }*/
 
-        if ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
-            $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
-                'labInstance' => $labInstance
-            ]);
-            $result=$this->lxc_stop($uuid);
-            if ($result['state']===InstanceStateMessage::STATE_STOPPED)
-                $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']]);
-            else {
-                $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
-                    'instance' => $deviceInstance['uuid']]);
-            }
-
-            if ($vncPort=$this->isVNC($deviceInstance)) {
-                $vncAddress = "0.0.0.0";
-                $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
-                $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
-                    'labInstance' => $labInstance
-                ]);
-                $process = Process::fromShellCommandline($cmd);
-                $error=false;
-                try {
-                    $process->mustRun();
-                }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
-                        ['instance' => $deviceInstance['uuid']
-                    ]);
-                    $error=true;
-                }
-                if (!$error)
-                    $pidscreen = $process->getOutput();
-                $error=false;
-
-                if (!empty($pidscreen)) {
-                    $pidscreen = explode("\n", $pidscreen);
-
-                    foreach ($pidscreen as $pid) {
-                        if (!empty($pid)) {
-                            $pid = str_replace("\n", '', $pid);
-                            $process = new Process(['kill', '-9', $pid]);
-                            try {
-                                $process->mustRun();
-                            }   catch (ProcessFailedException $exception) {
-                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid']]);
-                            }
-                            $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
-                                "PID" => $pid
-                            ]);
-                        }
-                    }
-                }
-            }
-
-        }
         return $result;
 
         // $filesystem = new Filesystem();
@@ -1579,16 +1470,26 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $process->mustRun();
             $result=array(
                 "state" => InstanceStateMessage::STATE_STOPPED,
-                "uuid" => $lxc_name,
-                "options" => null
+                "uuid" => $lxc_name
             );
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container stopping error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
-            $result=array(
-                "state" => InstanceStateMessage::STATE_ERROR,
-                "uuid" => $lxc_name,
-                "options" => null
-            );        }
+            if (!str_contains($exception,$lxc_name." is not running")) {
+                $this->logger->error("LXC container stopping error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $lxc_name,
+                    "options" => null
+                );
+            }
+            else {
+                $this->logger->debug("LXC container not running :".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_STOPPED,
+                    "uuid" => $lxc_name,
+                    "options" => null
+                );  
+            }
+        }
         return $result;
     }
 
@@ -1828,7 +1729,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
                     }
 
                     $command = [
@@ -1851,7 +1752,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                        $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
                     }
 
                     $command = [
@@ -1869,7 +1770,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     try {
                         $process->mustRun();
                     }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                        $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
                     }
 
                     $this->qemu_delete($copyInstancePath);
@@ -1988,7 +1889,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @throws ProcessFailedException When a process failed to run.
      * @return void
      */
-    public function qemu_delete($file){
+    public function qemu_delete($uuid,$file){
     $command = [
         'rm',
         $file
@@ -2001,7 +1902,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     try {
         $process->mustRun();
     }   catch (ProcessFailedException $exception) {
-        $this->logger->error("Export: QEMU delete image file ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+        if (str_contains($exception->getMessage(),"No such file or directory")) {
+            $this->logger->debug("QEMU image is already deleted", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
+        }
+        else {
+            $this->logger->error("QEMU delete image in error", InstanceLogMessage::SCOPE_PRIVATE,[
+                'instance' => $uuid,
+                'error' => $exception->getMessage()
+            ]);
+        }
     }
 }
 
@@ -2040,7 +1949,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         
         switch($operatingSystem["hypervisor"]["name"]){
             case "qemu":
-                $this->qemu_delete($this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
+                $this->qemu_delete($operatingSystem["uuid"],$this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
                 break;
             case "lxc":
                 $this->lxc_delete($operatingSystem["imageFilename"]);
@@ -2343,7 +2252,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         return $result;
     }
     
-        //$deviceInstance : array
+    //$deviceInstance : array
     // $result : port number is vnc is true otherwise return false
     private function isLogin($deviceInstance) {
         $result=false;
@@ -2354,7 +2263,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         return $result;
     }
-    
+
     private function getFreePort()
     {
         $process = new Process([ $this->kernel->getProjectDir().'/scripts/get-available-port.sh' ]);
@@ -2365,5 +2274,156 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         
         return (int) $process->getOutput();
+    }
+
+    private function stop_device_qemu($uuid,$deviceInstance,$labInstance) {
+        try {
+            $bridgeName = $labInstance['bridgeName'];
+        } catch (ErrorException $e) {
+            $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+        }
+
+            try {
+                $labUser = $labInstance['owner']['uuid'];
+                $ownedBy = $labInstance['ownedBy'];
+                $labInstanceUuid = $labInstance['uuid'];
+            } catch (ErrorException $e) {
+                throw new BadDescriptorException($labInstance, "", 0, $e);
+            }
+            if ($this->qemu_stop($uuid)) {
+                $this->logger->info("QEMU VM stopped successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $uuid]);
+                $result=array(
+                        "state" => InstanceStateMessage::STATE_STOPPED,
+                        "uuid" => $uuid,
+                        "options" => null
+                    );
+                }
+            else {
+                $this->logger->info("QEMU VM doesn't stop - Error !", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $uuid]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $uuid,
+                    "options" => null
+                );
+                
+                }
+
+                if ($vncPort=$this->isVNC($deviceInstance)) {
+                    $vncAddress = "0.0.0.0";
+
+                $process = Process::fromShellCommandline("ps aux | grep " . $vncAddress . ":" . $vncPort . " | grep websockify | grep -v grep | awk '{print $2}'");
+                $error=false;
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Process listing error to find vnc error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $uuid
+                    ]);
+                    $error=true;
+                }
+                if (!$error)
+                    $pidWebsockify = $process->getOutput();
+                $error=false;
+
+                if (!empty($pidWebsockify)) {
+                    $pidWebsockify = explode("\n", $pidWebsockify);
+
+                    foreach ($pidWebsockify as $pid) {
+                        if (!empty($pid)) {
+                            $pid = str_replace("\n", '', $pid);
+                            $process = new Process(['kill', '-9', $pid]);
+                            try {
+                                $process->mustRun();
+                            }   catch (ProcessFailedException $exception) {
+                                $this->logger->error("Killing websockify error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                                ['instance' => $uuid
+                                ]);
+                            }
+                            $this->logger->debug("Killing websockify process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                "PID" => $pid
+                            ]);
+                        }
+                    }
+                }
+            }
+            // Network interfaces
+
+            foreach($deviceInstance['networkInterfaceInstances'] as $networkInterfaceInstance) {
+                $networkInterface = $networkInterfaceInstance['networkInterface'];
+                $networkInterfaceName = substr(str_replace(' ', '_', $networkInterface['name']), 0, 6) . '-' . substr($networkInterfaceInstance['uuid'], 0, 8);
+
+                if (OVS::ovsPortExists($bridgeName, $networkInterfaceName)) {
+                    OVS::portDelete($bridgeName, $networkInterfaceName, true);
+                }
+
+                if (IPTools::networkInterfaceExists($networkInterfaceName)) {
+                    IPTools::linkSet($networkInterfaceName, IPTools::LINK_SET_DOWN);
+                    $this->logger->debug("Interface ".$networkInterfaceName." set down");
+                    IPTools::linkDelete($networkInterfaceName);
+                    $this->logger->debug("Interface ".$networkInterfaceName." deleted");
+                }
+            }
+        return $result;
+    }
+
+    private function stop_device_lxc($uuid,$deviceInstance,$labInstance) {
+            $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
+                'labInstance' => $labInstance
+            ]);
+            $result=$this->lxc_stop($uuid);
+            if ($result['state']===InstanceStateMessage::STATE_STOPPED)
+                $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']]);
+            else {
+                $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']]);
+            }
+
+            if ($vncPort=$this->isLogin($deviceInstance)) {
+                $vncAddress = "0.0.0.0";
+                $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
+                $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+                    'deviceInstance' => $deviceInstance
+                ]);
+                $this->logger->info("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance["uuid"]
+                ]);
+                $process = Process::fromShellCommandline($cmd);
+                $error=false;
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Process listing error to find Login connexion error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                        ['instance' => $deviceInstance['uuid']
+                    ]);
+                    $error=true;
+                }
+                if (!$error)
+                    $pidscreen = $process->getOutput();
+                $error=false;
+
+                if (!empty($pidscreen)) {
+                    $pidscreen = explode("\n", $pidscreen);
+
+                    foreach ($pidscreen as $pid) {
+                        if (!empty($pid)) {
+                            $pid = str_replace("\n", '', $pid);
+                            $process = new Process(['kill', '-9', $pid]);
+                            try {
+                                $process->mustRun();
+                            }   catch (ProcessFailedException $exception) {
+                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid']]);
+                            }
+                            $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                "PID" => $pid
+                            ]);
+                        }
+                    }
+                }
+            }
+        return $result;
     }
 }

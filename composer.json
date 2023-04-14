@@ -8,8 +8,8 @@
         "ext-ctype": "*",
         "ext-iconv": "*",
         "composer/package-versions-deprecated": "1.11.99.4",
-        "remotelabz/network-bundle": "^1.0.2.2",
-        "remotelabz/remotelabz-message-bundle": "1.0.4.2",
+        "remotelabz/network-bundle": "dev-master",
+        "remotelabz/remotelabz-message-bundle": "dev-master",
         "jms/serializer-bundle": "^3.1",
         "laminas/laminas-code": "^3.4",
         "laminas/laminas-eventmanager": "^3.2",
@@ -22,7 +22,8 @@
         "symfony/framework-bundle": "5.2.*",
         "symfony/http-kernel": "5.2.*",
         "symfony/messenger": "5.3.*",
-        "symfony/monolog-bundle": "^3.7",
+        "symfony/mailer": "5.4.*",
+        "symfony/monolog-bundle": "^3.8",
         "symfony/process": "5.2.*",
         "symfony/twig-bundle": "5.2.*",
         "symfony/yaml": "5.2.*"
@@ -72,7 +73,8 @@
     "extra": {
         "symfony": {
             "allow-contrib": false,
-            "require": "5.2.*"
+            "require": "5.2.*",
+            "docker": false
         }
     },
     "require-dev": {

@@ -95,7 +95,7 @@ debug "Running apt-get to grab required packages"
 apt-get install -y software-properties-common
 #add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl
+apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4
 echo "OK ✔️"
 
 # Create user remotelabz and remotelabz group
@@ -281,7 +281,7 @@ echo "On your worker, you have now to follow the instruction https://docs.remote
 
 if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
   echo "Download Alpine qemu image"
-  wget -q -P "${REMOTELABZ_WORKER_PATH}"/images http://194.57.105.124/~fnolot/alpinelab1.img
+  wget -q -P "${REMOTELABZ_WORKER_PATH}"/images https://www.remotelabz.com/wp-content/uploads/alpinelab1.img
   echo "OK ✔️"
 fi;
 
