@@ -129,12 +129,13 @@ class InstanceManager extends AbstractController
         }
         $error=false;
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
-            $this->logger->debug("Device instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
+            $this->logger->debug("Device instance to delete : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
 
             if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
                 $result=$this->stop_device_qemu($deviceInstance["uuid"],$deviceInstance,$labInstance);
                 //$this->qemu_delete($deviceInstance["operatingSystem"]["image"]);
-                $this->qemu_delete($deviceInstance["uuid"],$this->kernel->getProjectDir()."/instances/user/".$deviceInstance["owner"]["uuid"]."/".$deviceInstance["device"]["operatingSystem"]["image"]);
+                //Have to test if the imagename is an url or a filename
+                $this->qemu_delete($deviceInstance["uuid"],$this->kernel->getProjectDir()."/instances/user/".$deviceInstance["owner"]["uuid"]."/".basename($deviceInstance["device"]["operatingSystem"]["image"]));
             } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' && $this->lxc_exist($deviceInstance["uuid"])) {
                 $result=$this->stop_device_lxc($deviceInstance["uuid"],$deviceInstance,$labInstance);
                 $this->lxc_destroy($deviceInstance["uuid"]);
@@ -388,7 +389,7 @@ class InstanceManager extends AbstractController
                   //  $context=null;
                 }
                 else {
-                    //The source uploaded on the front. 
+                    //The source uploaded on the front.
                     $url="http://".$this->front_ip."/uploads/images/".basename($img["source"]);
                     // Only to download from the front when self-signed certificate
                     /*$context = stream_context_create( [
@@ -1773,7 +1774,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
                     }
 
-                    $this->qemu_delete($copyInstancePath);
+                    $this->qemu_delete($deviceInstance['uuid'],$copyInstancePath);
                 
                 $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC,[
                     'instance' => $deviceInstance['uuid']
@@ -1885,6 +1886,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     /**
      * Delete an image on the filesystem
      *
+     * @param string $uuid uuid of the instance
      * @param string $file file in absolute path to delete
      * @throws ProcessFailedException When a process failed to run.
      * @return void
