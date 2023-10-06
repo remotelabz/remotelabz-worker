@@ -726,13 +726,14 @@ class InstanceManager extends AbstractController
                 'instance' => $deviceInstance['uuid']
                 ]);
             $remote_interface=$this->getParameter('app.network.data.interface');
-            if ($this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"login")) {
-                $this->logger->debug("ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
+            $error=$this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"login");
+            if ($error==false) {
+                $this->logger->debug("ttyd process started for login", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
             }
             else {
-                $this->logger->error("ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->error("ttyd starting process in error for login!", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 $result["arg"]=array("state" => InstanceStateMessage::STATE_ERROR,
@@ -762,13 +763,14 @@ class InstanceManager extends AbstractController
                 ]);
             $remote_interface=$this->getParameter('app.network.data.interface');
             $error=$this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"serial",$new_free_port);
-            if ($error==false) {
-                $this->logger->debug("Ttyd process started", InstanceLogMessage::SCOPE_PUBLIC, [
+
+            if ($error===false) {
+                $this->logger->debug("Ttyd process started for serial", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
             }
             else {
-                $this->logger->error("Ttyd starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->error("Ttyd starting process in error for serial!", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid'],
                     'error' => $error
                     ]);
@@ -956,6 +958,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'instance' => $uuid
             ]);    
     }
+    $this->logger->debug("error state at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
+        'instance' => $uuid,
+        'error' => $error
+        ]);
+
     return $error;
 }
 
