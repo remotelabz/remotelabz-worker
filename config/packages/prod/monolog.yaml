@@ -21,7 +21,8 @@ monolog:
             handler:    grouped
         grouped:
             type: group
-            members: [syslog_handler,deduplicated]
+            #members: [syslog_handler,deduplicated]
+            members: [syslog_handler]
         deduplicated:
             type:    deduplication
             handler: symfony_mailer
@@ -31,7 +32,7 @@ monolog:
             to_email:   '%env(resolve:CONTACT_MAIL)%'
             # or list of recipients
             # to_email:   ['dev1@example.com', 'dev2@example.com', ...]
-            subject:    '[RemoteLabz] An Error Occurred! %%message%%'
+            subject:    '[RemoteLabz Worker] An Error Occurred! %%message%%'
             level:      error
             formatter:  monolog.formatter.html
             content_type: text/html
