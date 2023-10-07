@@ -164,7 +164,6 @@ class InstanceManager extends AbstractController
             }*/
         }
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
-        //TODO: The result of each result of each device instance stop is not used. 
         if (!$error) {
             $this->logger->debug("No error in deleteLabInstance");
             $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
@@ -1251,7 +1250,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $uuid UUID of the device instance to start.
      */
     public function qemu_start(array $parameters,string $uuid ){
-        // TODO return value to detect error
         $arch = posix_uname()['machine'];
         $error=false;
         $command = [
