@@ -726,7 +726,7 @@ class InstanceManager extends AbstractController
                 ]);
             $remote_interface=$this->getParameter('app.network.data.interface');
             $error=$this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"login");
-            if ($error==false) {
+            if ($error===false) {
                 $this->logger->debug("ttyd process started for login", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
@@ -931,7 +931,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'exception' => $exception
                 ]);
     }
-    $command="ps aux | grep ". $port . " | grep ttyd | grep -v grep | awk '{print $2}'";
+    $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
     $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid
         ]);
@@ -2363,15 +2363,23 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         return $result;
     }
     
-    //$deviceInstance : array
+    // $deviceInstance : array
     // $result : port number is vnc is true otherwise return false
     private function isLogin($deviceInstance) {
         $result=false;
         foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
             if (strtolower($control_protocol['controlProtocolType']['name'])==="login") {
-                $result=$control_protocol['port'];
+                $result=($result || true);
             }
         }
+        $this->logger->debug('login detected by isLogin function ?', InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance["uuid"],
+            'result' => $result
+            ]);
+    if ($result)
+        $result=$control_protocol['port'];
+    else
+        $result=false;
         return $result;
     }
 
@@ -2485,20 +2493,28 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 'labInstance' => $labInstance
             ]);
             $result=$this->lxc_stop($uuid);
-            if ($result['state']===InstanceStateMessage::STATE_STOPPED)
+            if ($result['state']===InstanceStateMessage::STATE_STOPPED) {
                 $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']]);
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                $result=array(
+                        "state" => InstanceStateMessage::STATE_STOPPED,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
             else {
                 $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']]);
+                $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid"=>$deviceInstance['uuid'],
+                        "options" => null);
             }
 
             if ($vncPort=$this->isLogin($deviceInstance)) {
                 $vncAddress = "0.0.0.0";
                 $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
-                $this->logger->debug("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
-                    'deviceInstance' => $deviceInstance
-                ]);
+
                 $this->logger->info("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance["uuid"]
                 ]);
@@ -2510,10 +2526,17 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     $this->logger->error("Process listing error to find Login connexion error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
                         ['instance' => $deviceInstance['uuid']
                     ]);
+                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                    "uuid"=>$deviceInstance['uuid'],
+                                    "options" => null);
                     $error=true;
                 }
-                if (!$error)
+                if (!$error) {
                     $pidscreen = $process->getOutput();
+                    $this->logger->debug("Process ttyd output :".$pidscreen, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance["uuid"]
+                    ]);
+                }
                 $error=false;
 
                 if (!empty($pidscreen)) {
