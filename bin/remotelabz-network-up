@@ -86,6 +86,17 @@ if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
         $cmd[]='via';
         $cmd[]=$_ENV['VPN_CONCENTRATOR_IP'];
         
+        $process = new Process($cmd);
+        $process->setTimeout(null);
+        $process->run(function ($type, $buffer) {
+        echo $buffer;
+
+        });
+    }
+
+    if ( array_key_exists('VPN_NETWORK', $_ENV)) {
+        $base_ip = new IP($_ENV['VPN_NETWORK']);
+        $vpn_network = new Network($base_ip, $_ENV['VPN_NETWORK_NETMASK']);
         $rule=Rule::create()
             ->setSource($vpn_network->__toString())
             ->setJump('ACCEPT');
@@ -110,12 +121,7 @@ if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
     }
 }
 
-$process = new Process($cmd);
-$process->setTimeout(null);
 
-$process->run(function ($type, $buffer) {
-    echo $buffer;
-});
 
 # Configure iptables to NAT all lab (temporary because Internet connexion, on the fly, is not yet implemented)
 ## Flush all nat rules

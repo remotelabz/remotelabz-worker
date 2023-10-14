@@ -226,9 +226,10 @@ echo "OK ✔️"
 
 echo "Installation of ttyd from its github project"
 cd ~
-if [ ! -d ttyd ]; then
-	git clone https://github.com/tsl0922/ttyd.git
-	cd ttyd && mkdir build && cd build
+if [ ! -d ttyd-1.7.3 ]; then
+	wget https://github.com/tsl0922/ttyd/archive/refs/tags/1.7.3.zip
+  unzip 1.7.3.zip
+	cd ttyd-1.7.3 && mkdir build && cd build
 	cmake ..
 	make && sudo make install
 fi;
