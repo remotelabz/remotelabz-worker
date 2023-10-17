@@ -1758,7 +1758,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
                 "new_os_imagename" => $labInstance["new_os_imagename"],
-                "state" => InstanceActionMessage::ACTION_EXPORT,
+                "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
                     )
             );
         } else {
@@ -1896,7 +1896,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
-                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV
                     )
                 );
             }
@@ -1909,7 +1909,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
-                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV
                     )
                 );
 
@@ -1933,7 +1933,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
-                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV
                     )
                 );
             }
@@ -1952,7 +1952,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "newDevice_id" => $labInstance["newDevice_id"],
                         "new_os_name" => $labInstance["new_os_name"],
                         "new_os_imagename" => $labInstance["new_os_imagename"],
-                        "state" => InstanceActionMessage::ACTION_EXPORT
+                        "state" => InstanceActionMessage::ACTION_EXPORT_DEV
                         )
                     );
                 } else {
@@ -1967,7 +1967,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "newDevice_id" => $labInstance["newDevice_id"],
                         "new_os_name" => $labInstance["new_os_name"],
                         "new_os_imagename" => $labInstance["new_os_imagename"],
-                        "state" => InstanceActionMessage::ACTION_EXPORT)
+                        "state" => InstanceActionMessage::ACTION_EXPORT_DEV)
                     );
                 }
             }
@@ -1986,12 +1986,63 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
                 "new_os_imagename" => $labInstance["new_os_imagename"],
-                "state" => InstanceActionMessage::ACTION_EXPORT)
+                "state" => InstanceActionMessage::ACTION_EXPORT_DEV)
             );
         }
         return $result;
     }
 
+    /**
+     * Export an instance described by JSON descriptor for device instance specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to export.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return array ["state", "uuid", "options"=array("newOs_id", "newDevice_id", "new_os_name", "new_os_imagename")]
+     */
+    public function exportLabInstance(string $descriptor, string $uuid) {
+        $this->logger->setUuid($uuid);
+        $result="";
+        $results = [];
+        $error = false;
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        foreach($labInstance['deviceInstances'] as $deviceInstance) {
+            array_push($results, $this->exportDeviceInstance($descriptor, $deviceInstance['uuid']));
+        }
+        
+        foreach($results as $result) {
+            if ($result['state'] === InstanceStateMessage::STATE_ERROR) {
+                $error = true;
+            }
+        }
+        if ($error == true) {
+            $result = $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => array(
+                "newOS_id" => $labInstance["newOS_id"],
+                "newDevice_id" => $labInstance["newDevice_id"],
+                "new_os_name" => $labInstance["new_os_name"],
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT_LAB)
+            );
+        }
+        else {
+            $result = $result=array(
+                "state" => InstanceStateMessage::STATE_EXPORTED,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => array(
+                "newOS_id" => $labInstance["newOS_id"],
+                "newDevice_id" => $labInstance["newDevice_id"],
+                "new_os_name" => $labInstance["new_os_name"],
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT_LAB)
+            );
+        }
+        
+        return $result;
+    }
+    
     /**
      * Delete an image on the filesystem
      *
