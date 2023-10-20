@@ -584,6 +584,9 @@ class InstanceManager extends AbstractController
             $error=false;
             if (!$this->lxc_exist($uuid)) {
                 //$this->lxc_clone("Service",$uuid);
+                if (!$this->lxc_exist($deviceInstance['device']['operatingSystem']['image'])) {
+                    $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['image']), $deviceInstance['device']['model']);
+                }
                 if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
@@ -1368,6 +1371,56 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if (!$error)
             $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $dst_lxc_name]);
+
+        return $error;
+        
+    }
+
+    /**
+     * Function to create a LXC container
+     * @param string $lxc_name Name of the LXC contianer to create.
+     * @param string $lxc_dist Distribution of the LXC contianer to create.
+     * @param string $lxc_release release/version of the LXC contianer to create.
+     * @return $error: true if error or false if no error
+     */
+    public function lxc_create(string $lxc_name, string $lxc_dist, string $lxc_release){
+        $error=null;
+        $command = [
+            'lxc-create',
+            '-t',
+            'download',
+            '-n',
+            "$lxc_name",
+            "--",
+            "-d",
+            "$lxc_dist",
+            "-r",
+            "$lxc_release",
+            "-a",
+            "amd64"
+        ];
+        $this->logger->info("Creating LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $lxc_name]
+        );
+        $this->logger->debug("Creating LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        $process->setTimeout(600);
+        try {
+            $process->mustRun();
+            $error=false;
+        }   catch (ProcessFailedException $exception) {
+            $error=true;
+            $this->logger->error("LXC container created is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                'error' => $exception->getMessage(),
+                'instance' => $lxc_name
+            ]);
+        }
+        if (!$error)
+            $this->logger->info("LXC container created successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $lxc_name]);
 
         return $error;
         
