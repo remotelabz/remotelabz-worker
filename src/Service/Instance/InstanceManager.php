@@ -585,7 +585,7 @@ class InstanceManager extends AbstractController
             if (!$this->lxc_exist($uuid)) {
                 //$this->lxc_clone("Service",$uuid);
                 if (!$this->lxc_exist($deviceInstance['device']['operatingSystem']['image'])) {
-                    $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['image']), $deviceInstance['device']['model']);
+                    $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['brand']), $deviceInstance['device']['model']);
                 }
                 if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
