@@ -82,9 +82,15 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     $returnState = InstanceStateMessage::STATE_STARTED;
                     break;
 
-                case InstanceActionMessage::ACTION_EXPORT:
+                case InstanceActionMessage::ACTION_EXPORT_DEV:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     $ReturnArray= $this->instanceManager->exportDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $ReturnArray["state"];
+                    break;
+
+                case InstanceActionMessage::ACTION_EXPORT_LAB:
+                    $instanceType = InstanceStateMessage::TYPE_LAB;
+                    $ReturnArray= $this->instanceManager->exportLabInstance($message->getContent(), $message->getUuid());
                     $returnState = $ReturnArray["state"];
                     break;
 
@@ -138,7 +144,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
             "uuid" => $message->getUuid()
         ]);
         
-        if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
+        if ((($message->getAction() === InstanceActionMessage::ACTION_EXPORT_DEV) || ($message->getAction() === InstanceActionMessage::ACTION_EXPORT_LAB))&& ($returnState === InstanceStateMessage::STATE_ERROR)) {
             $this->logger->debug("export and error");
         }
         
