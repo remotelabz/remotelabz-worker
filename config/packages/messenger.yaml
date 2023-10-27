@@ -11,8 +11,11 @@ framework:
                 options:
                     exchange:
                         name: worker
+                        type: direct
                     queues:
-                        messages_worker: ~
+                        #name of the queue linked to the worker
+                        messages_worker:
+                            binding_keys: ['%env(IP_ADDRESS)%']
                 retry_strategy:
                     max_retries: 3
                     # milliseconds delay
