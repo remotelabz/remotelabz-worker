@@ -14,8 +14,8 @@ framework:
                         type: direct
                     queues:
                         #name of the queue linked to the worker
-                        messages_worker:
-                            binding_keys: ['%env(IP_ADDRESS)%']
+                        messages_worker1:
+                            binding_keys: [10.22.9.80]
                 retry_strategy:
                     max_retries: 3
                     # milliseconds delay
