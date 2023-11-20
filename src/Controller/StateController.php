@@ -138,11 +138,9 @@ class StateController extends AbstractController
             $cached=$meminfo["Cached"];
             $avail=$meminfo["MemAvailable"];
             $response['memory']=round(100 - ($avail / $total * 100));
+            $response['memory_total']=$total/1000;
 
             //$response['cmd']=$output;
-            
-
-
 
             return new JsonResponse($response);
         }
