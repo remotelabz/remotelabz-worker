@@ -914,6 +914,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         elseif ($remote_protocol === "serial") {
                 $this->logger->debug("Start serial detected");
+                $this->logger->debug($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
                 array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
                 //array_push($command, '-p',$port,'telnet','localhost',$device_remote_port);
         }
