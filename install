@@ -260,12 +260,12 @@ if [ "${LXC}" == "" ] ; then
   echo "OK ✔️"
 fi;
 
-LXC=`lxc-ls -name "Alpine3.15"`;
+LXC=`lxc-ls -name "Alpine3.16"`;
 if [ "${LXC}" == "" ] ; then
-echo "Creation of a container Alpine 3.15"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine3.15 -- -d alpine -r 3.15 -a amd64
-echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine3.15/rootfs/etc/issue"
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.15/rootfs/etc/resolv.conf"
+echo "Creation of a container Alpine 3.16"
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine3.16 -- -d alpine -r 3.16 -a amd64
+echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine3.16/rootfs/etc/issue"
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.16/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 fi;
 
