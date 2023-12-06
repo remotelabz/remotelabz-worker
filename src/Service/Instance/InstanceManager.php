@@ -1782,6 +1782,79 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         OVS::UnlinkTwoOVS($bridge, $bridgeInt);
     }
 
+     /**
+     * reset a device specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a device instance.
+     * @param string $uuid UUID of the device instance to stop.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return void
+     */
+
+     public function resetDeviceInstance(string $descriptor, string $uuid) {
+
+        $deviceInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        $this->logger->info('LXC container is resetting', InstanceLogMessage::SCOPE_PUBLIC, [
+            "image" => $deviceInstance['device']['operatingSystem']['name'],
+            'instance' => $deviceInstance['uuid']
+        ]);
+
+        $uuid = $deviceInstance["uuid"];
+        $error=false;
+
+        if ($this->lxc_exist($uuid)) {
+            $delete = $this->lxc_delete($uuid);
+            if($delete['state'] == InstanceStateMessage::STATE_DELETED) {
+                if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
+                    $this->logger->info("Device reset successfully",InstanceLogMessage::SCOPE_PUBLIC,[
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_RESET,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
+                else {
+                    $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_DELETED,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                    $error=true;
+                }
+            }
+            else {
+                $this->logger->info("Container has not been deleted",InstanceLogMessage::SCOPE_PUBLIC,[
+                    'instance' => $deviceInstance['uuid']
+                ]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_STOPPED,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+                $error=true;
+            }
+        }
+        else {
+            $this->logger->info("Container does not exist",InstanceLogMessage::SCOPE_PUBLIC,[
+                'instance' => $deviceInstance['uuid']
+            ]);
+            $result=array(
+                "state" => InstanceStateMessage::STATE_STOPPED,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
+            $error=true;
+        }
+
+        return $result;
+     }
+
     /**
      * Export an instance described by JSON descriptor for device instance specified by UUID.
      *
