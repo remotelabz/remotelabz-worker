@@ -909,7 +909,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             else {
                 $this->logger->debug("Start device from lab detected");
                 //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+                $command2 = [...$command];
                 array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
+                array_push($command2, '-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);                
             }
         }
         elseif ($remote_protocol === "serial") {
@@ -934,6 +936,22 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'instance' => $uuid,
             'exception' => $exception
                 ]);
+    }
+    if (isset($command2)) {
+        $this->logger->debug("Ttyd command2", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid,
+            'command2' => $command2
+                ]);
+        $process2 = new Process($command2);
+    try {
+        $process2->start();
+    }   catch (ProcessFailedException $exception) {
+        $error=true;
+        $this->logger->debug("Ttyd error command2", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid,
+            'exception' => $exception
+                ]);
+    }
     }
     $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
     $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
