@@ -905,16 +905,26 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             if ($sandbox) {
                 $this->logger->debug("Start device from Sandbox detected");  
                 $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'"; 
+                $process = Process::fromShellCommandline($commandTmux);
                 //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
             }
             else {
                 $this->logger->debug("Start device from lab detected");
                 $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid." -- login'";  
+                $process = Process::fromShellCommandline($commandTmux);
                 //array_push($command, '-p',$port,'-b','/device/'.$uuid, 'lxc-attach', '-n ',$uuid,'--', 'login' );
             }
 
-            
-        $process = Process::fromShellCommandline($commandTmux);
+        }
+        elseif ($remote_protocol === "serial") {
+                $this->logger->debug("Start serial detected");
+                //$this->logger->debug($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
+                //array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
+                $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'telnet localhost ".$device_remote_port."'";  
+
+                $process = Process::fromShellCommandline($commandTmux);
+        }
+
         try {
             $process->start();
             $this->logger->debug("tmux command", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -930,13 +940,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         $command = ['ttyd'];
         array_push($command, '-p',$port,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', $uuid);
-        }
-        elseif ($remote_protocol === "serial") {
-                $this->logger->debug("Start serial detected");
-                $this->logger->debug($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
-                //array_push($command, '-p',$port,'telnet','localhost',$device_remote_port);
-        }
         
 
     $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -2684,19 +2687,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         }
                     }
                 }
-                $cmd = "tmux -S /tmp/tmux-remotelabz kill-session -t ".$deviceInstance['uuid'];
-                $process = Process::fromShellCommandline($cmd);
-                try {
-                    $process->mustRun();
-                }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Kill tmux session error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
-                        ['instance' => $deviceInstance['uuid']
-                    ]);
-                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                                    "uuid"=>$deviceInstance['uuid'],
-                                    "options" => null);
-                    $error=true;
-                }
+                
+            }
+
+            $cmd = "tmux -S /tmp/tmux-remotelabz kill-session -t ".$deviceInstance['uuid'];
+            $process = Process::fromShellCommandline($cmd);
+            try {
+                $process->mustRun();
+            }   catch (ProcessFailedException $exception) {
+                $this->logger->error("Kill tmux session error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $deviceInstance['uuid']
+                ]);
+                $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                "uuid"=>$deviceInstance['uuid'],
+                                "options" => null);
+                $error=true;
             }
         return $result;
     }
