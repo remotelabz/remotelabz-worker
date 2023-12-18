@@ -76,6 +76,12 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     $ReturnArray=$this->instanceManager->stopDeviceInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STOPPED;
                     break;
+
+                case InstanceActionMessage::ACTION_RESET:
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                    $ReturnArray=$this->instanceManager->resetDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $ReturnArray["state"];
+                    break;
                 
                 case InstanceActionMessage::ACTION_CONNECT:
                     $ReturnArray=$this->instanceManager->connectToInternet($message->getContent(), $message->getUuid());
