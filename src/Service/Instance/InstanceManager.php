@@ -883,7 +883,7 @@ public function websockify_start($uuid,$IpAddress,$Port){
  */
 public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$device_remote_port=null){
     $error=false;
-    $command = ['screen','-S',$uuid,'-dm','ttyd'];
+    //$command = ['screen','-S',$uuid,'-dm','ttyd'];
     if ($sandbox)
         $this->logger->debug("Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
@@ -904,21 +904,61 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if ($remote_protocol === "login") {
             if ($sandbox) {
                 $this->logger->debug("Start device from Sandbox detected");  
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+                $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'"; 
+                $process = Process::fromShellCommandline($commandTmux);
+                //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
             }
             else {
                 $this->logger->debug("Start device from lab detected");
-                //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
-                $command2 = [...$command];
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
-                array_push($command2, '-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);                
+                $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid." -- login'";  
+                $commandTmux2 = "tmux -S /tmp/tmux-remotelabz new -d -s admin-".$uuid. " 'lxc-attach -n ".$uuid."'";  
+                $process = Process::fromShellCommandline($commandTmux);
+                $process2 = Process::fromShellCommandline($commandTmux2);
+                //array_push($command, '-p',$port,'-b','/device/'.$uuid, 'lxc-attach', '-n ',$uuid,'--', 'login' );
             }
+
         }
         elseif ($remote_protocol === "serial") {
                 $this->logger->debug("Start serial detected");
-                $this->logger->debug($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
-                //array_push($command, '-p',$port,'telnet','localhost',$device_remote_port);
+                //$this->logger->debug($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
+                //array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
+                $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'telnet localhost ".$device_remote_port."'";  
+
+                $process = Process::fromShellCommandline($commandTmux);
+        }
+
+        try {
+            $process->start();
+            $this->logger->debug("tmux command", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'command' => $commandTmux
+                    ]);  
+        }   catch (ProcessFailedException $exception) {
+            $error=true;
+            $this->logger->debug("tmux error command", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'exception' => $exception
+                    ]);
+        }
+        $command = ['ttyd'];
+        array_push($command, '-p',$port,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', $uuid);
+
+        if (isset($process2)) {
+            try {
+                $process2->start();
+                $this->logger->debug("tmux command2", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'command' => $commandTmux2
+                        ]);  
+            }   catch (ProcessFailedException $exception) {
+                $error=true;
+                $this->logger->debug("tmux error command", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'exception' => $exception
+                        ]);
+            }
+            $command2 = ['ttyd'];
+            array_push($command2, '-p',$port+1,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', 'admin-'.$uuid);
         }
         
 
@@ -937,22 +977,24 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'exception' => $exception
                 ]);
     }
+  
     if (isset($command2)) {
         $this->logger->debug("Ttyd command2", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid,
             'command2' => $command2
                 ]);
         $process2 = new Process($command2);
-    try {
-        $process2->start();
-    }   catch (ProcessFailedException $exception) {
-        $error=true;
-        $this->logger->debug("Ttyd error command2", InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid,
-            'exception' => $exception
-                ]);
+        try {
+            $process2->start();
+        }   catch (ProcessFailedException $exception) {
+            $error=true;
+            $this->logger->debug("Ttyd error command2", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'exception' => $exception
+                    ]);
+        }
     }
-    }
+
     $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
     $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid
@@ -2756,6 +2798,40 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         }
                     }
                 }
+                
+            }
+
+            $cmd = "tmux -S /tmp/tmux-remotelabz has-session -t admin-".$deviceInstance['uuid'];
+            $process = Process::fromShellCommandline($cmd);
+            $process->run();
+            if ($process->getExitCode() == 0) {
+                $cmd = "tmux -S /tmp/tmux-remotelabz kill-session -t admin-".$deviceInstance['uuid'];
+                $process = Process::fromShellCommandline($cmd);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Kill admin tmux session error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                        ['instance' => $deviceInstance['uuid']
+                    ]);
+                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                    "uuid"=>$deviceInstance['uuid'],
+                                    "options" => null);
+                    $error=true;
+                }
+            }
+
+            $cmd = "tmux -S /tmp/tmux-remotelabz kill-session -t ".$deviceInstance['uuid'];
+            $process = Process::fromShellCommandline($cmd);
+            try {
+                $process->mustRun();
+            }   catch (ProcessFailedException $exception) {
+                $this->logger->error("Kill tmux session error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $deviceInstance['uuid']
+                ]);
+                $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                "uuid"=>$deviceInstance['uuid'],
+                                "options" => null);
+                $error=true;
             }
         return $result;
     }
