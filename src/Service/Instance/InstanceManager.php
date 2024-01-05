@@ -2751,7 +2751,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
             if ($vncPort=$this->isLogin($deviceInstance)) {
                 $vncAddress = "0.0.0.0";
-                $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
+                $cmd="ps aux | grep -i ttyd | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
 
                 $this->logger->info("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance["uuid"]
@@ -2787,12 +2787,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             try {
                                 $process->mustRun();
                             }   catch (ProcessFailedException $exception) {
-                                $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid']]);
+                                $this->logger->error("Killing ttyd error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid']]);
                                 $result=array("state" => InstanceStateMessage::STATE_ERROR,
                                     "uuid"=>$deviceInstance['uuid'],
                                     "options" => null);
                             }
-                            $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
+                            $this->logger->debug("Killing ttyd process", InstanceLogMessage::SCOPE_PRIVATE, [
                                 "PID" => $pid
                             ]);
                         }
