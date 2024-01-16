@@ -645,42 +645,41 @@ class InstanceManager extends AbstractController
                     //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
                 }
 
-                if ($this->remote_access_start($deviceInstance,$sandbox)["error"]===false) {
-                    $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
+                
+                if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
+                    $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-
-                    $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
-
-                    if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-                        $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
+                        $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
                             ]);
-                        if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
-                            $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                        }
-
-                        
-
-                    } else {
-                        $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                            "uuid"=>$deviceInstance['uuid'],
-                            "options" => null);
                     }
-                } else {
-                    $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
+
+                    if ($this->remote_access_start($deviceInstance,$sandbox)["error"]===false) {
+                        $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+
+                        } else {
+                        $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+
+                } else { //LXC doesn't start
+                    $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                    );
+                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid"=>$deviceInstance['uuid'],
+                        "options" => null);
                 }
             }
         }
@@ -884,6 +883,7 @@ public function websockify_start($uuid,$IpAddress,$Port){
 public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$device_remote_port=null){
     $error=false;
     //$command = ['screen','-S',$uuid,'-dm','ttyd'];
+    
     if ($sandbox)
         $this->logger->debug("Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
@@ -903,20 +903,19 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             ]);
         if ($remote_protocol === "login") {
             if ($sandbox) {
-                $this->logger->debug("Start device from Sandbox detected");  
-                $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'"; 
+                $this->logger->debug("Start device from Sandbox detected and login");  
+                $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'";  
                 $process = Process::fromShellCommandline($commandTmux);
                 //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
             }
             else {
-                $this->logger->debug("Start device from lab detected");
+                $this->logger->debug("Start device from lab detected and login");
                 $commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid." -- login'";  
                 $commandTmux2 = "tmux -S /tmp/tmux-remotelabz new -d -s admin-".$uuid. " 'lxc-attach -n ".$uuid."'";  
                 $process = Process::fromShellCommandline($commandTmux);
                 $process2 = Process::fromShellCommandline($commandTmux2);
                 //array_push($command, '-p',$port,'-b','/device/'.$uuid, 'lxc-attach', '-n ',$uuid,'--', 'login' );
             }
-
         }
         elseif ($remote_protocol === "serial") {
                 $this->logger->debug("Start serial detected");
@@ -1714,6 +1713,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );  
             }
         }
+        
         return $result;
     }
 
