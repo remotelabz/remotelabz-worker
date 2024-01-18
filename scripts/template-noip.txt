@@ -23,3 +23,5 @@ lxc.net.0.hwaddr = MAC_ADDR
 
 lxc.hook.version = 1
 
+lxc.apparmor.allow_nesting=1
+lxc.apparmor.profile=generated
