@@ -914,7 +914,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 #$commandTmux2 = "tmux -S /tmp/tmux-remotelabz new -d -s admin-".$uuid. " 'lxc-attach -n ".$uuid."'";  
                 #$process = Process::fromShellCommandline($commandTmux);
                 #$process2 = Process::fromShellCommandline($commandTmux2);
-                array_push($command, '-p',$port,'-b','/device/'.$uuid, 'lxc-attach', '-n ',$uuid,'--', 'login' );
+                $command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
+                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
+                array_push($command2, '-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
             }
         }
         elseif ($remote_protocol === "serial") {
@@ -989,7 +991,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 ]);
     }
   
-/*    if (isset($command2)) {
+    if (isset($command2)) {
         $this->logger->debug("Ttyd command2", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid,
             'command2' => $command2
@@ -1005,7 +1007,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     ]);
         }
     }
-*/
+
     $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
     $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid
@@ -2813,7 +2815,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 
             }
 
-            $cmd = "tmux -S /tmp/tmux-remotelabz has-session -t admin-".$deviceInstance['uuid'];
+           /* $cmd = "tmux -S /tmp/tmux-remotelabz has-session -t admin-".$deviceInstance['uuid'];
             $process = Process::fromShellCommandline($cmd);
             $process->run();
             if ($process->getExitCode() == 0) {
@@ -2844,7 +2846,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                 "uuid"=>$deviceInstance['uuid'],
                                 "options" => null);
                 $error=true;
-            }
+            }*/
         return $result;
     }
 }
