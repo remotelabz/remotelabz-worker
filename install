@@ -95,7 +95,7 @@ debug "Running apt-get to grab required packages"
 apt-get install -y software-properties-common
 #add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4
+apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3.9 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4
 echo "OK ✔️"
 
 # Create user remotelabz and remotelabz group
@@ -171,7 +171,7 @@ if ! [ $(command -v websockify) ]; then
     debug "Installing WebSockify..."
     pip3 install setuptools
     git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify"
-    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install)
+    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3.9 setup.py install)
     rm -rf "${REMOTELABZ_WORKER_PATH}/websockify"
     echo "OK ✔️"
 else
