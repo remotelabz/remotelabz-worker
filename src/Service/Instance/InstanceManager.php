@@ -896,7 +896,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->debug("Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
-        array_push($command,'-S','-C',$this->getParameter('app.services.proxy.cert'),'-K',$this->getParameter('app.services.proxy.key'));
+        //array_push($command,'-S','-C',$this->getParameter('app.services.proxy.cert'),'-K',$this->getParameter('app.services.proxy.key'));
     } else
         $this->logger->debug("Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
