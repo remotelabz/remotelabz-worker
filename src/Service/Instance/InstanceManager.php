@@ -447,7 +447,7 @@ class InstanceManager extends AbstractController
                             '-m',
                             $deviceInstance['device']['flavor']['memory'],
                             '-drive',
-                            'file='.$img['destination'],
+                            'file='.$img['destination'].',if=virtio',
                         ],
                         'smp' => ['-smp'],
                         'network' => [],
