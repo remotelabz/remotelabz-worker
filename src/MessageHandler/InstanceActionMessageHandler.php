@@ -56,17 +56,23 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
                 case InstanceActionMessage::ACTION_START:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    if (strstr($message_array["lab"]["name"],"Sandbox_"))
+                    if ($message_array["lab"]["virtuality"] == 1) {
+                        if (strstr($message_array["lab"]["name"],"Sandbox_"))
                         {
-                        $this->logger->debug("Start device from Sandbox detected");  
-                        $from_sandbox=true;
+                            $this->logger->debug("Start device from Sandbox detected");  
+                            $from_sandbox=true;
                         }
-                    else
-                    {
-                        $this->logger->debug("Start device from a classical lab");  
-                        $from_sandbox=false;
+                        else
+                        {
+                            $this->logger->debug("Start device from a classical lab");  
+                            $from_sandbox=false;
+                        }
+                        $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid(),$from_sandbox);
                     }
-                    $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid(),$from_sandbox);
+                    else {
+                        $ReturnArray=$this->instanceManager->startRealDeviceInstance($message->getContent(), $message->getUuid());
+                    }
+                    
                     $returnState = $ReturnArray["state"];
                     //ReturnArray has a state in $ReturnArray['state']
                     break;

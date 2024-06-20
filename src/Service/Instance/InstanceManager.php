@@ -28,17 +28,29 @@ class InstanceManager extends AbstractController
     protected $logger;
     protected $params;
     protected $front_ip;
+    protected $server_ssh;
+    protected $pass_server_ssh;
+    protected $pdu_api_login;
+    protected $pdu_api_password;
 
     public function __construct(
         LogDispatcher $logger,
         KernelInterface $kernel,
         ParameterBagInterface $params,
-        string $front_ip
+        string $front_ip,
+        string $server_ssh,
+        string $pass_server_ssh,
+        string $pdu_api_login,
+        string $pdu_api_password
     ) {
         $this->kernel = $kernel;
         $this->logger = $logger;
         $this->params = $params;
         $this->front_ip = $front_ip;
+        $this->server_ssh = $server_ssh;
+        $this->pass_server_ssh = $pass_server_ssh;
+        $this->pdu_api_login = $pdu_api_login;
+        $this->pdu_api_password = $pdu_api_password;
     }
 
     public function createLabInstance(string $descriptor, string $uuid) {
@@ -52,27 +64,29 @@ class InstanceManager extends AbstractController
             throw new BadDescriptorException($labInstance);
         }
 
-        try {
-            $bridgeName = $labInstance['bridgeName'];
-        } catch (ErrorException $e) {
-            $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
-            throw new BadDescriptorException($labInstance, "", 0, $e);
+        if ($labInstance["lab"]["virtuality"] == 1) {
+            try {
+                $bridgeName = $labInstance['bridgeName'];
+            } catch (ErrorException $e) {
+                $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+                throw new BadDescriptorException($labInstance, "", 0, $e);
+            }
+    
+            // OVS
+            if (!IPTools::networkInterfaceExists($bridgeName)) {
+                $this->logger->debug("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'bridgeName' => $bridgeName,
+                    'instance' => $labInstance['uuid']
+                ]);
+                OVS::bridgeAdd($bridgeName, true);
+            } else {
+                $this->logger->debug("Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'bridgeName' => $bridgeName,
+                    'instance' => $labInstance['uuid']
+                ]);
+            }
         }
-
-        // OVS
-        if (!IPTools::networkInterfaceExists($bridgeName)) {
-            $this->logger->debug("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
-                'bridgeName' => $bridgeName,
-                'instance' => $labInstance['uuid']
-            ]);
-            OVS::bridgeAdd($bridgeName, true);
-        } else {
-            $this->logger->debug("Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
-                'bridgeName' => $bridgeName,
-                'instance' => $labInstance['uuid']
-            ]);
-        }
-
+       
         $result=array("state"=> InstanceStateMessage::STATE_CREATED, "uuid"=> $uuid, "options" => null);
         return $result;
     }
@@ -169,6 +183,201 @@ class InstanceManager extends AbstractController
             $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
         } else
             $this->logger->error("Error in deleteLabInstance",InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
+        return $result;
+    }
+
+    /**
+     * Start an instance described by JSON descriptor for a real device instance specified by UUID
+     * 
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to start.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return array("state","uuid", "options") options is an array
+     */
+    public function startRealDeviceInstance(string $descriptor, string $uuid) {
+        /** @var array $labInstance */
+        $result=null;
+
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+
+            throw new BadDescriptorException($labInstance);
+        }
+        
+        $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
+            return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] != 'started');
+        });
+
+        if (!count($deviceInstance)) {
+            $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']
+            ]);
+            // instance is already started or whatever
+            return;
+        } else {
+            $deviceIndex = array_key_first($deviceInstance);
+            $deviceInstance = $deviceInstance[$deviceIndex];
+        }
+
+        try {
+            $this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
+                'labInstance' => $labInstance,
+                'instance' => $deviceInstance['uuid']
+            ]);
+            $labUser = $labInstance['owner']['uuid'];
+            $ownedBy = $labInstance['ownedBy'];
+            $labInstanceUuid = $labInstance['uuid'];
+        } catch (ErrorException $e) {
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+            $error=true;
+        }
+        //check if the device is connected to an outlet
+        if (isset($deviceInstance["device"]["outlet"])) {
+            $this->logger->debug("process output", InstanceLogMessage::SCOPE_PRIVATE, [
+                "in function" => "yes"
+            ]);
+            $model = $deviceInstance["device"]["outlet"]["pdu"]["model"];
+            $brand = $deviceInstance["device"]["outlet"]["pdu"]["brand"];
+            $ip = $deviceInstance["device"]["outlet"]["pdu"]["ip"];
+            $outlet = $deviceInstance["device"]["outlet"]["outlet"];
+            $uuid = $deviceInstance['uuid'];
+
+            $error = false;
+
+            $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, $labInstance, "start");
+            if ($response["state"] === InstanceStateMessage::STATE_STARTED) {
+                //get the port to connect to the device
+                if ($port=$this->isLogin($deviceInstance)) {
+                    $this->logger->info("Login access requested.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+
+                    ]);
+                    
+                    $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+
+
+                    $command = "screen -S ".$uuid." -dm ttyd -p ".$port." -b /device/".$uuid." sshpass -p'".$this->pass_server_ssh."' ssh -t ".$this->server_ssh." 'telnet ".$deviceInstance["device"]["ip"]." ".$deviceInstance["device"]["port"]."'";
+                    $process = Process::fromShellCommandline($command);
+                    try {
+                        $this->logger->debug("real device starting command: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);
+                        $process->start();
+                        
+                        $this->logger->debug("process output", InstanceLogMessage::SCOPE_PRIVATE, [
+                            "output" => $process->getOutput()
+                        ]);
+
+                        
+                    }
+                    catch (ProcessFailedException $exception) {
+                    $this->logger->error("process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid
+                        ]);
+                    }
+
+                    $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
+                    $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid
+                        ]);
+                        
+                    $process = Process::fromShellCommandline($command);
+                    try { 
+                        $process->mustRun();
+                        $pidInstance = $process->getOutput();
+                        $this->logger->debug("pid process list of ttyd started ", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid,
+                            'pid' => $pidInstance,
+                            'error' => $error
+                            ]);
+                    }   catch (ProcessFailedException $exception) {
+                        $error=true;
+                        $this->logger->error("Listing process to find ttyd process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);
+                    }
+                    if ($pidInstance==""){
+                        $error=true;
+                        $this->logger->error("ttyd not started !", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);    
+                    }
+                    $this->logger->debug("error state at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid,
+                        'error' => $error
+                        ]);
+
+                    if ($error == false) {
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_STARTED,
+                            "uuid" => $uuid,
+                            "options" => null
+                        );
+
+                        $this->logger->debug("ttyd process started for login", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                    }
+                    else {
+                        $error = true;
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $uuid,
+                            "options" => null
+                        );
+                        $this->logger->error("ttyd starting process in error for login!", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid']
+                         ]);
+                    }
+                }
+                else {
+                    $error = true;
+                    $this->logger->debug("new port not found", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid'],
+                    ]);
+    
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $uuid,
+                        "options" => null
+                    );
+                }
+                $response["error"]= $error;
+                
+                $this->logger->debug("Error state after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'result-error' => $response["error"]
+                ]);
+            }
+            else {
+                $this->logger->debug("Could not start device instance", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                ]);
+
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $uuid,
+                    "options" => null
+                );
+            }
+
+        }
+        else {
+            $this->logger->debug("The device is not connected to a pdu", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+            ]);
+
+            $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $uuid,
+                "options" => null
+            );
+        }
         return $result;
     }
 
@@ -1628,6 +1837,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
             $result=$this->stop_device_lxc($uuid,$deviceInstance,$labInstance);
         }
+        elseif ($deviceInstance['device']['hypervisor']['name'] === 'physical') {
+            $result=$this->stop_device_physical($uuid,$deviceInstance,$labInstance);
+        }
 
         // OVS
         /*
@@ -1728,6 +1940,259 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         
         return $result;
+    }
+
+    public function changePhysicalDeviceState($uuid, $deviceInstance, $labInstance, $action) {
+        $model = $deviceInstance["device"]["outlet"]["pdu"]["model"];
+        $brand = $deviceInstance["device"]["outlet"]["pdu"]["brand"];
+        $ip = $deviceInstance["device"]["outlet"]["pdu"]["ip"];
+        $outlet = $deviceInstance["device"]["outlet"]["outlet"];
+        $uuid = $deviceInstance['uuid'];
+
+         //get token
+         $curl = curl_init();
+         curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/user/login");
+         curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "POST");
+         curl_setopt($curl, CURLOPT_POSTFIELDS,json_encode(["username"=>$this->pdu_api_login,"password"=>$this->pdu_api_password]));
+         curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Content-Type: application/json"]);
+         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+         $loginResponse = json_decode(curl_exec($curl), true);
+         if (curl_errno($curl)) { 
+             $loginResponse = null; 
+             $this->logger->debug("curl Error connexion", InstanceLogMessage::SCOPE_PRIVATE, [
+                 'instance' => $deviceInstance['uuid'],
+                 'error' => "curl error: ".curl_error($curl)
+                 ]);
+         }
+         else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+            $loginResponse = null; 
+            $this->logger->debug("http Error connexion", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'error' => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                ]);
+         }
+         curl_close($curl);
+         if ($loginResponse != null) {
+            $this->logger->debug("Connexion", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'response' => $loginResponse
+                ]);
+            $authorization = "Bearer ".$loginResponse["access_token"];
+
+            //get pdu list
+            $curl = curl_init();
+            curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/pdu/");
+            curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "GET");
+            curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Authorization: ".$authorization]);
+            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+            $listPduResponse = json_decode(curl_exec($curl), true);
+            if (curl_errno($curl)) { 
+                $listPduResponse = null; 
+                $this->logger->debug("Curl Error Pdu list", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    "error" => curl_error($curl)
+                ]);
+            } 
+            else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+                $listPduResponse = null; 
+                $this->logger->debug("Http Error Pdu list", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    "error" => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                ]);
+            }
+            curl_close($curl);
+            if ($listPduResponse != null) {
+                $this->logger->debug("list pdu", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'response' => $listPduResponse
+                ]);
+                $pduID = null;
+                foreach ($listPduResponse as $pdu) {
+                    if ($pdu['ip'] == $ip && strtolower($pdu['model']) == strtolower($model) && strtolower($pdu['vendor']['name']) == strtolower($brand)) {
+                        $pduID = $pdu["id"];
+                        break;
+                    }
+                }
+                if ($pduID != null) {
+                    //get pdu outlet status
+                    $curl = curl_init();
+                    curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/pdu/".$pduID."/refresh/");
+                    curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "GET");
+                    curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Authorization: ".$authorization]);
+                    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+                    $statusResponse = json_decode(curl_exec($curl), true);
+                    if (curl_errno($curl)) { 
+                        $statusResponse = null; 
+                        $this->logger->debug("Curl Error outlet", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                            "error" => "Curl error: ".curl_error($curl)
+                            ]);
+                    }
+                    else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+                        $statusResponse = null; 
+                        $this->logger->debug("Http Error outlet", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                            "error" => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                            ]);
+                    }
+                    curl_close($curl);
+                    if ($statusResponse != null) {
+                        $this->logger->debug("refresh pdu", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                            'response' => $statusResponse
+                        ]);
+                        $foundPDU = null;
+
+                        foreach ($statusResponse['outlets'] as $pduOutlet) {
+                            if ($pduOutlet["numero"] == $outlet) {
+                                $foundPDU = ["id" => $statusResponse["id"], "ip" => $ip, "model" => $model, "brand" => $brand, "outletNumber" => $pduOutlet["numero"], "outletState" => $pduOutlet["state"]];
+                                break;
+                            }
+                        }
+
+                        if (($action == "start" && $foundPDU["outletState"] == false) || ($action == "stop" && $foundPDU["outletState"] == true)) {
+                            //change pdu outlet status
+                            if ($action == "start") {
+                                $setState = true;
+                            }
+                            else {
+                                $setState = false;
+                            }
+                            $curl = curl_init();
+                            curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/pdu/".$foundPDU['id']."/outlet/".$foundPDU['outletNumber']."/");
+                            curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "POST");
+                            curl_setopt($curl, CURLOPT_POSTFIELDS,json_encode(["state"=>$setState]));
+                            curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Content-Type: application/json", "Authorization: ".$authorization]);
+                            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+                            $statusChangedResponse = curl_exec($curl);
+                            if (curl_errno($curl)) { 
+                                $statusChangedResponse = null; 
+                                $this->logger->debug("Curl Error state", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $deviceInstance['uuid'],
+                                    "error" => "Curl error: ".curl_error($curl)
+                                    ]);
+                            }
+                            else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+                                $statusChangedResponse = null; 
+                                $this->logger->debug("Http Error state", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $deviceInstance['uuid'],
+                                    "error" => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                                    ]);
+                            }
+                            curl_close($curl);
+                            $this->logger->debug("set state", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid'],
+                                'response' => $statusChangedResponse
+                            ]);
+                            if ($statusChangedResponse != null) {
+                                if ($action == "start") {
+                                    $result=array(
+                                        "state" => InstanceStateMessage::STATE_STARTED,
+                                        "uuid" => $deviceInstance['uuid'],
+                                        "options" => null
+                                    );
+                                }
+                                else {
+                                    $result=array(
+                                        "state" => InstanceStateMessage::STATE_STOPPED,
+                                        "uuid" => $deviceInstance['uuid'],
+                                        "options" => null
+                                    );
+                                }
+                            }
+                            else {
+                                $changedStatus = ($action == "start") ? "started" : "stopped";
+                                $this->logger->debug("Device instance has not been ".$changedStatus."!", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $deviceInstance['uuid'],
+                                ]);
+
+                                $result=array(
+                                    "state" => InstanceStateMessage::STATE_ERROR,
+                                    "uuid" => $deviceInstance['uuid'],
+                                    "options" => null
+                                );
+                            }
+                        }
+                        else if (($action == "start" && $foundPDU["outletState"] == true) || ($action == "stop" && $foundPDU["outletState"] == false)){
+                            if ($action == "start") {
+                                $result=array(
+                                    "state" => InstanceStateMessage::STATE_STARTED,
+                                    "uuid" => $deviceInstance['uuid'],
+                                    "options" => null
+                                );
+                            }
+                            else {
+                                $result=array(
+                                    "state" => InstanceStateMessage::STATE_STOPPED,
+                                    "uuid" => $deviceInstance['uuid'],
+                                    "options" => null
+                                );
+                            }
+                            
+                        }
+                        else {
+                            $changedStatus = ($action == "start") ? "started" : "stopped";
+                            $this->logger->debug("Could not find if the device is already ".$changedStatus, InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid'],
+                            ]);
+
+                            $result=array(
+                                "state" => InstanceStateMessage::STATE_ERROR,
+                                "uuid" => $deviceInstance['uuid'],
+                                "options" => null
+                            );
+                        }
+                    }
+                    else {
+                        $this->logger->debug("Could not request the device status", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                        ]);
+
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+                    
+                }
+                else {
+                    $this->logger->debug("The pdu is not found on the list", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid'],
+                    ]);
+
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
+            }
+            else {
+                $this->logger->debug("Could not get the pdus list", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                ]);
+
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+            }
+        }
+        else {
+            $this->logger->debug("Authentication to the API failed", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+            ]);
+
+            $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
+        }
+
+         return $result;
     }
 
     public function connectToInternet(string $descriptor)
@@ -2940,6 +3405,83 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                 "options" => null);
                 $error=true;
             }*/
+        return $result;
+    }
+
+    private function stop_device_physical($uuid,$deviceInstance,$labInstance)
+    {
+        $this->logger->debug("Device instance stopping physical", InstanceLogMessage::SCOPE_PRIVATE, [
+            'labInstance' => $labInstance
+        ]);
+
+        $result = $this->changePhysicalDeviceState($uuid, $deviceInstance, $labInstance, "stop");
+        if ($result["state"] === InstanceStateMessage::STATE_STOPPED) {
+            $this->logger->error("Physical device stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']]);
+            $result=array(
+                "state" => InstanceStateMessage::STATE_STOPPED,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
+        }
+        else {
+            $this->logger->error("Physical device stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']]);
+            $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
+        }
+
+        $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
+
+        $this->logger->info("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance["uuid"]
+        ]);
+        $process = Process::fromShellCommandline($cmd);
+        $error=false;
+        try {
+            $process->mustRun();
+        }   catch (ProcessFailedException $exception) {
+            $this->logger->error("Process listing error to find Login connexion error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                ['instance' => $deviceInstance['uuid']
+            ]);
+            $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid"=>$deviceInstance['uuid'],
+                            "options" => null);
+            $error=true;
+        }
+        if (!$error) {
+            $pidscreen = $process->getOutput();
+            $this->logger->debug("Process ttyd output :".$pidscreen, InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance["uuid"]
+            ]);
+        }
+        $error=false;
+
+        if (!empty($pidscreen)) {
+            $pidscreen = explode("\n", $pidscreen);
+
+            foreach ($pidscreen as $pid) {
+                if (!empty($pid)) {
+                    $pid = str_replace("\n", '', $pid);
+                    $process = new Process(['kill', '-9', $pid]);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid']]);
+                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid"=>$deviceInstance['uuid'],
+                            "options" => null);
+                    }
+                    $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "PID" => $pid
+                    ]);
+                }
+            }
+        }
+
         return $result;
     }
 }
