@@ -260,8 +260,7 @@ class InstanceManager extends AbstractController
                         'instance' => $deviceInstance['uuid']
                         ]);
 
-
-                    $command = "screen -S ".$uuid." -dm ttyd -p ".$port." -b /device/".$uuid." sshpass -p'".$this->pass_server_ssh."' ssh -t ".$this->server_ssh." 'telnet ".$deviceInstance["device"]["ip"]." ".$deviceInstance["device"]["port"]."'";
+                    $command = "screen -S ".$uuid." -dm ttyd -p ".$port." -b /device/".$uuid." sshpass -f ".$this->kernel->getProjectDir()."/config/ssh/pass_server_ssh.txt ssh -t ".$this->server_ssh." 'telnet ".$deviceInstance["device"]["ip"]." ".$deviceInstance["device"]["port"]."'";                    
                     $process = Process::fromShellCommandline($command);
                     try {
                         $this->logger->debug("real device starting command: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
