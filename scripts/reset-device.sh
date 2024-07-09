@@ -18,6 +18,7 @@ set timeout 130
 expect "Press RETURN to get started!" {sleep 20; send \r; exp_continue}
 set timeout 20
 
+expect ")#" {send "\x1a\r"; exp_continue} 
 expect ">" {send "enable\r"; exp_continue} 
 expect "#" {send "erase startup-config\r"} 
 expect "Continue?" {send \r}
