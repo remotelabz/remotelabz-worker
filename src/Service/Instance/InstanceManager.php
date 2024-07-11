@@ -2336,100 +2336,106 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $deviceInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
 
         if ($deviceInstance['device']['virtuality'] == 0) {
-            $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, "start");
-
-            if ($response['state'] == InstanceStateMessage::STATE_STARTED) {
-                $this->logger->info("Reset device requested.", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $deviceInstance['uuid']
-
-                ]);
-                $this->logger->info('Device is resetting', InstanceLogMessage::SCOPE_PUBLIC, [
-                    'instance' => $deviceInstance['uuid']
-                ]);
-
-                $command = "expect ".$this->kernel->getProjectDir()."/scripts/reset-device.sh ".$this->kernel->getProjectDir()."/config/ssh/pass_server_ssh.txt ".$this->server_ssh. " " .$deviceInstance["device"]["ip"]. " ".$deviceInstance["device"]["port"];                    
-                $process = Process::fromShellCommandline($command);
-                $process->setTimeout(300);
-                try {
-                    $this->logger->debug("real device resetting command: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid
+            $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, "stop");
+            if ($response['state'] == InstanceStateMessage::STATE_STOPPED) {
+                sleep(10);
+                $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, "start");
+                if ($response['state'] == InstanceStateMessage::STATE_STARTED) {
+                    $this->logger->info("Reset device requested.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+    
+                    ]);
+                    $this->logger->info('Device is resetting', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+    
+                    $command = "expect ".$this->kernel->getProjectDir()."/scripts/reset-device.sh ".$this->kernel->getProjectDir()."/config/ssh/pass_server_ssh.txt ".$this->server_ssh. " " .$deviceInstance["device"]["ip"]. " ".$deviceInstance["device"]["port"];                    
+                    $process = Process::fromShellCommandline($command);
+                    $process->setTimeout(620);
+                    try {
+                        $this->logger->debug("real device resetting command: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);
+                            
+                        $process->start();
+    
+                        $this->logger->debug("real device is resetting", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);
+    
+                        $process->wait();
+                        $this->logger->debug("real device resetting output: ".$process->getOutput(), InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
                         ]);
+                        $this->logger->info("Device reset successfully",InstanceLogMessage::SCOPE_PUBLIC,[
+                            'instance' => $uuid
+                        ]);
+    
+                    }
+                    catch (ProcessTimedOutException $exception) {
+                        $this->logger->error("process timeout !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                        ]);
+                        $this->logger->debug("real device resetting output: ".$process->getOutput(), InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                        ]);
+                        $this->logger->error("Error while resetting device",InstanceLogMessage::SCOPE_PUBLIC,[
+                            'instance' => $uuid
+                        ]);
+                    }
+                    
+                    if (str_contains($process->getOutput(), "The reset is done")) {
+                        $this->changePhysicalDeviceState($uuid, $deviceInstance, "stop");
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_RESET,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
                         
-                    $process->start();
-
-                    $this->logger->debug("real device is resetting", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid
+                    }
+                    else {
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+                    $pidProcess = Process::fromShellCommandline("ps aux | grep expect | grep '" . $deviceInstance["device"]["ip"] . " " . $deviceInstance["device"]["port"] . "' | grep -v grep | awk '{print $2}'");
+    
+                    try {
+                        $pidProcess->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Process listing error to find expect error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                        ['instance' => $uuid
                         ]);
-
-                    $process->wait();
-                    $this->logger->debug("real device resetting output: ".$process->getOutput(), InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid
-                    ]);
-                    $this->logger->info("Device reset successfully",InstanceLogMessage::SCOPE_PUBLIC,[
-                        'instance' => $uuid
-                    ]);
-
-                }
-                catch (ProcessTimedOutException $exception) {
-                    $this->logger->error("process timeout !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid
-                    ]);
-                    $this->logger->debug("real device resetting output: ".$process->getOutput(), InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid
-                    ]);
-                    $this->logger->error("Error while resetting device",InstanceLogMessage::SCOPE_PUBLIC,[
-                        'instance' => $uuid
-                    ]);
-                }
-                
-                if (str_contains($process->getOutput(), "The reset is done")) {
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_RESET,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                    );
-                }
-                else {
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                    );
-                }
-                $pidProcess = Process::fromShellCommandline("ps aux | grep expect | grep '" . $deviceInstance["device"]["ip"] . " " . $deviceInstance["device"]["port"] . "' | grep -v grep | awk '{print $2}'");
-
-                try {
-                    $pidProcess->mustRun();
-                }   catch (ProcessFailedException $exception) {
-                    $this->logger->error("Process listing error to find expect error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
-                    ['instance' => $uuid
-                    ]);
-                    $error=true;
-                }
-
-                $pidExpect = $pidProcess->getOutput();
-                if (!empty($pidExpect)) {
-                    $pidExpect = explode("\n", $pidExpect);
-
-                    foreach ($pidExpect as $pid) {
-                        if (!empty($pid)) {
-                            $pid = str_replace("\n", '', $pid);
-                            $pidProcess = new Process(['kill', '-9', $pid]);
-                            try {
-                                $pidProcess->mustRun();
-                            }   catch (ProcessFailedException $exception) {
-                                $this->logger->error("Killing expect error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
-                                ['instance' => $uuid
+                        $error=true;
+                    }
+    
+                    $pidExpect = $pidProcess->getOutput();
+                    if (!empty($pidExpect)) {
+                        $pidExpect = explode("\n", $pidExpect);
+    
+                        foreach ($pidExpect as $pid) {
+                            if (!empty($pid)) {
+                                $pid = str_replace("\n", '', $pid);
+                                $pidProcess = new Process(['kill', '-9', $pid]);
+                                try {
+                                    $pidProcess->mustRun();
+                                }   catch (ProcessFailedException $exception) {
+                                    $this->logger->error("Killing expect error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                                    ['instance' => $uuid
+                                    ]);
+                                }
+                                $this->logger->debug("Killing expect process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    "PID" => $pid
                                 ]);
                             }
-                            $this->logger->debug("Killing expect process", InstanceLogMessage::SCOPE_PRIVATE, [
-                                "PID" => $pid
-                            ]);
                         }
                     }
+    
                 }
-
             }
+            
         }
         else {
             if ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
