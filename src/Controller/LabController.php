@@ -10,6 +10,8 @@ use App\Bridge\Network\IPTables\IPTables;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\HeaderUtils;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Annotation\Route;
 use Doctrine\Common\Collections\ArrayCollection;
 use Symfony\Component\HttpKernel\KernelInterface;
@@ -50,5 +52,61 @@ class LabController extends AbstractController
             );
         }
         return new Response($process->getOutput());
+    }
+
+    /**
+     * @Route("/images/{name}", name="get_image")
+     */
+    public function getImageAction(string $name)
+    {
+        $image = $name.".img";
+        $process = new Process([ 'ls', '-1', $this->kernel->getProjectDir().'/images' ]);
+        $exist = false;
+        try {
+            $process->mustRun();
+        } catch (ProcessFailedException $exception) {
+            return new Response(
+               [
+                "image" => null,
+                "code" => 404
+               ],
+                500
+            );
+        }
+        if ($process->getOutput() !== "") {
+            $imageOutput = explode("\n", $process->getOutput());
+            foreach($imageOutput as $output) {
+                if ($output == $image) {
+                    $exist = true;
+                    break;
+                }
+            }
+        }
+        if ($exist == true) {
+            $filePath = $this->kernel->getProjectDir().'/images/'.$image;
+            $response = new StreamedResponse(function() use ($filePath) {
+                $fileStream = fopen($filePath, 'r');
+                while (!feof($fileStream)) {
+                    echo fread($fileStream, 1024);
+                    flush();
+                }
+
+                fclose($fileStream);
+            });
+            
+            $disposition = HeaderUtils::makeDisposition(
+                HeaderUtils::DISPOSITION_ATTACHMENT,
+                $image
+            );
+
+            $response->headers->set('Content-Disposition', $disposition);
+        }
+        else {
+            $response = new Response([
+                'image' => null,
+                "code" => 404
+            ],404);
+        }
+        return $response;
     }
 }
