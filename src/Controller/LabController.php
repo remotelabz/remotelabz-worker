@@ -66,10 +66,7 @@ class LabController extends AbstractController
             $process->mustRun();
         } catch (ProcessFailedException $exception) {
             return new Response(
-               [
-                "image" => null,
-                "code" => 404
-               ],
+               null,
                 500
             );
         }
@@ -102,10 +99,7 @@ class LabController extends AbstractController
             $response->headers->set('Content-Disposition', $disposition);
         }
         else {
-            $response = new Response([
-                'image' => null,
-                "code" => 404
-            ],404);
+            $response = new Response(null,404);
         }
         return $response;
     }
