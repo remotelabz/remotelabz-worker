@@ -30,7 +30,6 @@ class InstanceManager extends AbstractController
     protected $params;
     protected $front_ip;
     protected $server_ssh;
-    protected $pass_server_ssh;
     protected $pdu_api_login;
     protected $pdu_api_password;
 
@@ -40,7 +39,6 @@ class InstanceManager extends AbstractController
         ParameterBagInterface $params,
         string $front_ip,
         string $server_ssh,
-        string $pass_server_ssh,
         string $pdu_api_login,
         string $pdu_api_password
     ) {
@@ -49,7 +47,6 @@ class InstanceManager extends AbstractController
         $this->params = $params;
         $this->front_ip = $front_ip;
         $this->server_ssh = $server_ssh;
-        $this->pass_server_ssh = $pass_server_ssh;
         $this->pdu_api_login = $pdu_api_login;
         $this->pdu_api_password = $pdu_api_password;
     }

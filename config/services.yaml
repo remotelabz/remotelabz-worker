@@ -9,7 +9,6 @@ parameters:
     app.network.data.interface: '%env(resolve:DATA_INTERFACE)%'
     app.network.data.cidr: '%env(resolve:DATA_NETWORK)%'
     app.serverssh: '%env(resolve:SERVER_SSH)%'
-    app.passserverssh: '%env(resolve:PASS_SERVER_SSH)%'
     app.pdu.api.login: '%env(resolve:PDU_API_LOGIN)%'
     app.pdu.api.password: '%env(resolve:PDU_API_PASSWORD)%'
     app.network.lab.internet_interface: '%env(string:INTERNET_INTERFACE_ACCESS)%'
@@ -44,7 +43,6 @@ services:
         arguments:
             $front_ip: '%app.network.front.ip%'
             $server_ssh: '%app.serverssh%'
-            $pass_server_ssh: '%app.passserverssh%'
             $pdu_api_login: '%app.pdu.api.login%'
             $pdu_api_password: '%app.pdu.api.password%'
     # add more service definitions when explicit configuration is needed
