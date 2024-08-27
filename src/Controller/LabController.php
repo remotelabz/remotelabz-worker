@@ -82,13 +82,7 @@ class LabController extends AbstractController
         if ($exist == true) {
             $filePath = $this->kernel->getProjectDir().'/images/'.$image;
             $response = new StreamedResponse(function() use ($filePath) {
-                $fileStream = fopen($filePath, 'r');
-                while (!feof($fileStream)) {
-                    echo fread($fileStream, 1024);
-                    flush();
-                }
-
-                fclose($fileStream);
+                readfile($filePath); exit;
             });
             
             $disposition = HeaderUtils::makeDisposition(
