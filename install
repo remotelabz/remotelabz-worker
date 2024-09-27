@@ -98,10 +98,10 @@ apt-get update
 apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3.9 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect
 echo "OK ✔️"
 
-# Create user remotelabz and remotelabz group
+# Create user remotelabz-worker and remotelabz-worker group
 if [ ! $(getent passwd remotelabz-worker) ]; then
   echo "Creating remotelabz-worker user"
-  useradd -N remotelabz-worker
+  useradd -N -m remotelabz-worker
 fi
 if [ ! $(getent group remotelabz-worker) ]; then
   echo "Creating remotelabz-worker group"
@@ -114,6 +114,15 @@ usermod -aG remotelabz-worker remotelabz-worker
 chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
+# ssh key
+mkdir /home/remotelabz-worker
+mkdir /home/remotelabz-worker/.ssh
+chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh
+chmod 700 /home/remotelabz-worker/.ssh
+ssh-keygen -t rsa -b 4096 -f /home/remotelabz-worker/.ssh/id_rsa
+chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh/id_rsa*
+chmod 600 /home/remotelabz-worker/.ssh/id_rsa
+cat /home/remotelabz-worker/.ssh/id_rsa.pub | sudo tee -a /home/remotelabz-worker/.ssh/authorized_keys
 
 #echo "Configure data network"
 #ovs-vsctl --may-exist add-br "${BRIDGE_INT}"
@@ -278,6 +287,9 @@ fi;
 echo "OK ✔️"
 
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs!"
+echo "you have to define the authentication key between all workers for ssh. On each worker, you have to execute the following commands :"
+echo "sudo -u remotelabz-worker ssh-copy-id -i /home/remotelabz-worker/.ssh/id_rsa.pub remotelabz-worker@Worker_X-IP"
+
 echo "On your worker, you have now to follow the instruction https://docs.remotelabz.com/administrators/getting-started/ubuntu-standalone/#add-a-dhcp-service-for-your-laboratory"
 
 if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
