@@ -123,6 +123,12 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                         $ReturnArray=$this->instanceManager->renameOS($message->getContent(),$message->getUuid());
                         $returnState = $ReturnArray['state'];
                         break;
+
+                case InstanceActionMessage::ACTION_COPY2WORKER_DEV:
+                        $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                        $ReturnArray=$this->instanceManager->copy2worker($message->getContent());
+                        $returnState = $ReturnArray['state'];
+                        break;
             }
             
         } catch (ProcessFailedException $e) {
@@ -156,7 +162,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
             "uuid" => $message->getUuid()
         ]);
         
-        if ((($message->getAction() === InstanceActionMessage::ACTION_EXPORT_DEV) || ($message->getAction() === InstanceActionMessage::ACTION_EXPORT_LAB))&& ($returnState === InstanceStateMessage::STATE_ERROR)) {
+        if ((($message->getAction() === InstanceActionMessage::ACTION_EXPORT_DEV) || ($message->getAction() === InstanceActionMessage::ACTION_EXPORT_LAB)) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
             $this->logger->debug("export and error");
         }
         
