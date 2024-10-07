@@ -3657,20 +3657,16 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 break;
             
             case "lxc":
-               
                 /* Sur le worker source qui vient de recevoir l'ordre de copy sur un autre
                 ssh remotelabz-worker@$deviceInstance["worker_dest"] "sudo lxc-create -n '$deviceInstance['os_imagename']' -t none"
                 scp -r "/var/lib/lxc/".$deviceInstance["os_imagename"] remotelabz-worker@$deviceInstance["worker_dest"]:"/var/lib/lxc/".$deviceInstance["os_imagename"]
                 */ 
-                
-                
-                
                 $result_lxc=$this->Destroy_Remote_LXC($ssh_user,$publicKeyFile,$privateKeyFile,$deviceInstance["Worker_Dest_IP"],$deviceInstance['os_imagename']);
                 
                 $result_lxc["error"]=false;
                 
                 if ($result_lxc["error"]) {
-                  /*  $this->logger->error("Error in remote LXC destroy ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
+                    /*  $this->logger->error("Error in remote LXC destroy ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
                         'instance' => $deviceInstance['os_imagename'],
                         "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                         "error" => $result_lxc["message"],
@@ -3685,8 +3681,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                         "worker_dest_ip" => $deviceInstance["Worker_Dest_IP"]
                                     ]
                             );
-                    
-
                 }
                 else {
                     $result_lxc=$this->Create_Remote_LXC($ssh_user,$publicKeyFile,$privateKeyFile,$deviceInstance["Worker_Dest_IP"],$deviceInstance['os_imagename']);
