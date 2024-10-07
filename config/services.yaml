@@ -20,7 +20,7 @@ parameters:
     app.vpn.interface: '%env(string:VPN_CONCENTRATOR_INTERFACE)%'
     app.network.front.ip: '%env(string:FRONT_SERVER_IP)%'
     app.general.contact_mail: '%env(resolve:CONTACT_MAIL)%'
-    app.ssh.worker.user : '%env(string:SSH_USER_WORKER)%''
+    app.ssh.worker.user : '%env(string:SSH_USER_WORKER)%'
     app.ssh.worker.passwd : '%env(string:SSH_USER_PASSWD)%'
     app.ssh.worker.privatekey : '%env(string:SSH_USER_PRIVATEKEY_FILE)%'
     app.ssh.worker.publickey : '%env(string:SSH_USER_PUBLICKEY_FILE)%'
