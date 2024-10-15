@@ -396,22 +396,6 @@ class InstanceManager extends AbstractController
         //$this->logger->setUuid($uuid);
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
 
-// TODO Remove after test this part
-// To test quickly the ssh process
-// Need to make ssh-keygen -m PEM -t rsa -f /home/remotelabz-worker/.ssh/mykey
-/*      
-        $publicKeyFile=$this->getParameter('app.ssh.worker.publickey');
-        $privateKeyFile=$this->getParameter('app.ssh.worker.privatekey');
-        $ssh_user=$this->getParameter('app.ssh.worker.user');
-        $Worker_Dest_IP="";
-        $cible=$ssh_user."@".$Worker_Dest_IP;
-        $cmd="sudo /usr/bin/lxc-destroy -f -q -n test_34";
-        $result=$this->executeRemoteCommand($Worker_Dest_IP, "22", $ssh_user , $privateKeyFile, $publicKeyFile, $cmd);
-        $this->logger->info("Execute Remote Command", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance["uuid"],
-            "result" => $result]);
-*/
-// End of ssh test
-
         if (!is_array($labInstance)) {
             // invalid json
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
@@ -3825,9 +3809,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $process->setTimeout(600);
             try {
                 $process->mustRun();
-                $error=false;
             
-                    //TODO change MAC addr in config file : $local_dir."/config"
                     $local_file="/var/lib/lxc/".$os_imagename.".tgz";
                     $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
 
@@ -3858,7 +3840,22 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
 
                             $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
+
+                            $cmd="rm ".$remote_file;
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $result=$this->executeRemoteCommand($connection, $cmd);
+
+                            $MAC_ADDR=$this->macgen();
+                            $cmd="sed -e \"s/lxc.net.0.hwaddr = .*/lxc.net.0.hwaddr = ".$MAC_ADDR."/g\" /var/lib/lxc/".$os_imagename."/config > /var/lib/lxc/".$os_imagename."/config-new";
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $result=$this->executeRemoteCommand($connection, $cmd);
+
+                            $cmd="mv /var/lib/lxc/".$os_imagename."/config-new /var/lib/lxc/".$os_imagename."/config";
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $result=$this->executeRemoteCommand($connection, $cmd);
+                            
 
                             $result_creation=array("state" => InstanceStateMessage::STATE_OS_COPIED,
                                                     "uuid"=>$os_imagename,
@@ -3969,7 +3966,7 @@ function executeRemoteCommand($connection, $command) {
  */
 function scp($connection, $localFile, $remoteFile) {
     try {
-        ssh2_scp_send($connection, $localFile, $remoteFile);
+        ssh2_scp_send($connection, $localFile, $remoteFile,0640);
         return false;
         // $this->logger->debug("Send file ".$local_file." -> ".$remote_file, InstanceLogMessage::SCOPE_PRIVATE);
         throw new ErrorException('Send file impossible');
