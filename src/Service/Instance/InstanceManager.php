@@ -3670,13 +3670,13 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 ssh2_disconnect($connection);
                 }
                 else {
-                    $this->logger->info("Remote LXC destroy is successfull of OS ".$os_to_copy['os_imagename']." to Worker ".$os_to_copy["Worker_Dest_IP"], InstanceLogMessage::SCOPE_PUBLIC, [   
+                    /*$this->logger->info("Remote LXC destroy is successfull of OS ".$os_to_copy['os_imagename']." to Worker ".$os_to_copy["Worker_Dest_IP"], InstanceLogMessage::SCOPE_PUBLIC, [   
                         'instance' => $os_to_copy['os_imagename'],
                         "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                         "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
                                     ]
                       ]);   
-
+                    */
                     $result_lxc=$this->Create_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename']);               
 
                     if ($result_lxc["error"]) {
