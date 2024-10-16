@@ -2607,7 +2607,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] == 'exporting');
         });
 
-        $this->logger->debug("export process, instance descriptor argument: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("Export device process, instance descriptor argument: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
         if (!count($deviceInstance)) {
             $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']
@@ -2813,7 +2813,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             }
             else {
-                
                 if (!$this->lxc_clone($deviceInstance['uuid'],basename($imagefilename,".img"))) {
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
