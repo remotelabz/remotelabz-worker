@@ -3623,6 +3623,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $os_to_copy = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $state=InstanceStateMessage::STATE_OS_COPIED;
 
+        $this->logger->debug("Enter in copy2worker process ",InstanceLogMessage::SCOPE_PRIVATE);
+
         $publicKeyFile=$this->getParameter('app.ssh.worker.publickey');
         $privateKeyFile=$this->getParameter('app.ssh.worker.privatekey');
         $ssh_user=$this->getParameter('app.ssh.worker.user');
@@ -3634,6 +3636,55 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->debug("Copy ".$os_to_copy["hypervisor"]." image ".$os_to_copy["os_imagename"]." to worker: ".$os_to_copy["Worker_Dest_IP"],InstanceLogMessage::SCOPE_PRIVATE);
         switch ($os_to_copy["hypervisor"]) {
             case "qemu":
+                $connection=$this->ssh($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
+                $local_file="/opt/remotelabz-worker/images/".$os_to_copy["os_imagename"];
+                $remote_file=$local_file;
+               
+                try {
+                    $result=$this->scp($connection, $local_file, $remote_file);                
+
+                    if ($result) {       
+                        $message=$result;
+                        $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $os_to_copy["os_imagename"],
+                            'error' => true,
+                            "options" => [
+                                "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                'error' => $message,
+                                'Worker_Dest_IP' => $os_to_copy["Worker_Dest_IP"]
+                                        ]
+                                ]);
+                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                                "uuid" => $os_to_copy["os_imagename"],
+                                                "error" => true,
+                                                "message" => $message,
+                                                "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                            'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
+                                                            'error' => $message
+                                                            ]
+                                    );
+                    } else {
+                        $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+                        
+                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                        "uuid" => $os_to_copy["os_imagename"],
+                        "error" => false,
+                        "message" => $message,
+                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                    'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                    ]
+            );
+                    }
+                } catch(ErrorException $e) {
+
+                    $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'error' => $e->getMessage(),
+                        'instance' => $os_to_copy["os_imagename"]
+                    ]);
+                }
+
+                ssh2_disconnect($connection);
+
                 $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
                                         "uuid"=>"",
                                         "options" => [ "state" =>InstanceActionMessage::ACTION_COPY2WORKER_DEV,
