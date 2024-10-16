@@ -2622,7 +2622,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "new_os_name" => $labInstance["new_os_name"],
                 "new_os_imagename" => $labInstance["new_os_imagename"],
                 "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                "workerIP" => $labInstance["workerIP"]
+                "workerIP" => $labInstance["workerIp"]
                     )
             );
         } else {
@@ -2761,7 +2761,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
                     "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                    "workerIP" => $labInstance["workerIP"],
+                    "workerIP" => $labInstance["workerIp"],
                     "hypervisor" => $hypervisor
                     )
                 );
@@ -2780,7 +2780,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
                     "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                    "workerIP" => $labInstance["workerIP"],
+                    "workerIP" => $labInstance["workerIp"],
                     "hypervisor" => $hypervisor,
                     "error_code" => 1
                     )
@@ -2807,7 +2807,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
                     "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                    "workerIP" => $labInstance["workerIP"],
+                    "workerIP" => $labInstance["workerIp"],
                     "hypervisor" => $hypervisor,
                     "error_code" => 1
                     )
@@ -2829,7 +2829,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "new_os_name" => $labInstance["new_os_name"],
                         "new_os_imagename" => $labInstance["new_os_imagename"],
                         "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                        "workerIP" => $labInstance["workerIP"],
+                        "workerIP" => $labInstance["workerIp"],
                         "hypervisor" => $hypervisor
                         )
                     );
@@ -2846,7 +2846,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "new_os_name" => $labInstance["new_os_name"],
                         "new_os_imagename" => $labInstance["new_os_imagename"],
                         "state" => InstanceActionMessage::ACTION_EXPORT_DEV),
-                        "workerIP" => $labInstance["workerIP"],
+                        "workerIP" => $labInstance["workerIp"],
                         "hypervisor" => $hypervisor
                     );
                 }
@@ -2868,7 +2868,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "new_os_imagename" => $labInstance["new_os_imagename"],
                 "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
                 "error_code" => 1,
-                "workerIP" => $labInstance["workerIP"],
+                "workerIP" => $labInstance["workerIp"],
                 "hypervisor" => $hypervisor)
                 
             );
