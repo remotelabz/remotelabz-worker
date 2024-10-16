@@ -2622,7 +2622,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "new_os_name" => $labInstance["new_os_name"],
                 "new_os_imagename" => $labInstance["new_os_imagename"],
                 "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                "workerIP" => $labInstance["workerIP"]
+                "workerIP" => $labInstance["workerIp"]
                     )
             );
         } else {
@@ -2761,7 +2761,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
                     "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                    "workerIP" => $labInstance["workerIP"],
+                    "workerIP" => $labInstance["workerIp"],
                     "hypervisor" => $hypervisor
                     )
                 );
@@ -2780,12 +2780,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
                     "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                    "workerIP" => $labInstance["workerIP"],
+                    "workerIP" => $labInstance["workerIp"],
                     "hypervisor" => $hypervisor,
                     "error_code" => 1
                     )
                 );
-
             }
         }
         elseif ($hypervisor === "lxc") {
@@ -2802,15 +2801,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
                     "options" => array(
-                    "newOS_id" => $labInstance["newOS_id"],
-                    "newDevice_id" => $labInstance["newDevice_id"],
-                    "new_os_name" => $labInstance["new_os_name"],
-                    "new_os_imagename" => $labInstance["new_os_imagename"],
-                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                    "workerIP" => $labInstance["workerIP"],
-                    "hypervisor" => $hypervisor,
-                    "error_code" => 1
-                    )
+                        "newOS_id" => $labInstance["newOS_id"],
+                        "newDevice_id" => $labInstance["newDevice_id"],
+                        "new_os_name" => $labInstance["new_os_name"],
+                        "new_os_imagename" => $labInstance["new_os_imagename"],
+                        "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                        "workerIP" => $labInstance["workerIp"],
+                        "hypervisor" => $hypervisor,
+                        "error_code" => 1
+                       )
                 );
             }
             else {
@@ -2824,14 +2823,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "state" => InstanceStateMessage::STATE_EXPORTED,
                         "uuid" => $deviceInstance['uuid'],
                         "options" => array(
-                        "newOS_id" => $labInstance["newOS_id"],
-                        "newDevice_id" => $labInstance["newDevice_id"],
-                        "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"],
-                        "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                        "workerIP" => $labInstance["workerIP"],
-                        "hypervisor" => $hypervisor
-                        )
+                            "newOS_id" => $labInstance["newOS_id"],
+                            "newDevice_id" => $labInstance["newDevice_id"],
+                            "new_os_name" => $labInstance["new_os_name"],
+                            "new_os_imagename" => $labInstance["new_os_imagename"],
+                            "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                            "workerIP" => $labInstance["workerIp"],
+                            "hypervisor" => $hypervisor
+                            )
                     );
                 } else {
                     $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
@@ -2841,14 +2840,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "state" => InstanceStateMessage::STATE_ERROR,
                         "uuid" => $deviceInstance['uuid'],
                         "options" => array(
-                        "newOS_id" => $labInstance["newOS_id"],
-                        "newDevice_id" => $labInstance["newDevice_id"],
-                        "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"],
-                        "state" => InstanceActionMessage::ACTION_EXPORT_DEV),
-                        "workerIP" => $labInstance["workerIP"],
-                        "hypervisor" => $hypervisor
-                    );
+                            "newOS_id" => $labInstance["newOS_id"],
+                            "newDevice_id" => $labInstance["newDevice_id"],
+                            "new_os_name" => $labInstance["new_os_name"],
+                            "new_os_imagename" => $labInstance["new_os_imagename"],
+                            "state" => InstanceActionMessage::ACTION_EXPORT_DEV),
+                            "workerIP" => $labInstance["workerIp"],
+                            "hypervisor" => $hypervisor
+                        );
                 }
             }
         }
@@ -2862,16 +2861,16 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "state" => InstanceStateMessage::STATE_ERROR,
                 "uuid" => $deviceInstance['uuid'],
                 "options" => array(
-                "newOS_id" => $labInstance["newOS_id"],
-                "newDevice_id" => $labInstance["newDevice_id"],
-                "new_os_name" => $labInstance["new_os_name"],
-                "new_os_imagename" => $labInstance["new_os_imagename"],
-                "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
-                "error_code" => 1,
-                "workerIP" => $labInstance["workerIP"],
-                "hypervisor" => $hypervisor)
-                
-            );
+                    "newOS_id" => $labInstance["newOS_id"],
+                    "newDevice_id" => $labInstance["newDevice_id"],
+                    "new_os_name" => $labInstance["new_os_name"],
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                    "error_code" => 1,
+                    "workerIP" => $labInstance["workerIp"],
+                    "hypervisor" => $hypervisor
+                    )
+                );
         }
         return $result;
     }
@@ -3670,7 +3669,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
                         "uuid" => $os_to_copy["os_imagename"],
                         "error" => false,
-                        "message" => $message,
+                        "message" => $result_scp,
                         "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                     'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
                                     ]
