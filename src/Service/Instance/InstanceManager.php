@@ -3636,15 +3636,16 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->debug("Copy ".$os_to_copy["hypervisor"]." image ".$os_to_copy["os_imagename"]." to worker: ".$os_to_copy["Worker_Dest_IP"],InstanceLogMessage::SCOPE_PRIVATE);
         switch ($os_to_copy["hypervisor"]) {
             case "qemu":
+                $result_scp="";
                 $connection=$this->ssh($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
                 $local_file="/opt/remotelabz-worker/images/".$os_to_copy["os_imagename"];
                 $remote_file=$local_file;
                
                 try {
-                    $result=$this->scp($connection, $local_file, $remote_file);                
+                    $result_scp=$this->scp($connection, $local_file, $remote_file);                
 
-                    if ($result) {       
-                        $message=$result;
+                    if ($result_scp) {       
+                        $message=$result_scp;
                         $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $os_to_copy["os_imagename"],
                             'error' => true,
@@ -3663,7 +3664,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                                             'error' => $message
                                                             ]
                                     );
-                    } else {
+                    } else { // No error return by scp command
                         $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
                         
                         $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
@@ -3673,10 +3674,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                     'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
                                     ]
-            );
+                        );
                     }
                 } catch(ErrorException $e) {
-
                     $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
                         'error' => $e->getMessage(),
                         'instance' => $os_to_copy["os_imagename"]
@@ -3684,13 +3684,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 }
 
                 ssh2_disconnect($connection);
+                
 
-                $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
-                                        "uuid"=>"",
-                                        "options" => [ "state" =>InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                                        "error" => "OS copied on worker"
-                                        ]
-                            );
                 break;
             
             case "lxc":
@@ -4012,7 +4007,7 @@ function executeRemoteCommand($connection, $command) {
  * @param resource $connexion
  * @param string $localDir   Le chemin local du fichier
  * @param string $remoteDir        Le chemin distant du fichier
- * @return string|bool            Le résultat de la commande, ou false en cas d'échec.
+ * @return string|bool            Le résultat de la commande, ou false en cas de succes
  * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
  */
 function scp($connection, $localFile, $remoteFile) {
