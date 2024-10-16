@@ -3670,7 +3670,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
                         "uuid" => $os_to_copy["os_imagename"],
                         "error" => false,
-                        "message" => $message,
+                        "message" => $result_scp,
                         "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                     'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
                                     ]
