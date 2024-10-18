@@ -115,7 +115,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                 case InstanceActionMessage::ACTION_DELETEOS:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     $ReturnArray=$this->instanceManager->deleteOS($message->getContent());
-                    $returnState = InstanceStateMessage::STATE_OSDELETED;
+                    $returnState = InstanceStateMessage::STATE_OS_DELETED;
                     break;
                 
                 case InstanceActionMessage::ACTION_RENAMEOS:
