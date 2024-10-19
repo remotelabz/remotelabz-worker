@@ -1734,7 +1734,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             $error=false;
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container deleted error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
+            $this->logger->error("LXC container deleted error ! ".$exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
             $result=array(
                 "state" => InstanceStateMessage::STATE_ERROR,
                 "uuid" => $uuid,
@@ -2987,20 +2987,28 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * Delete the file or the container of an OS
      * @return Array("state","uuid","options"=array())
      */
-    public function deleteOS(string $descriptor, int $id){
+    public function deleteOS(string $descriptor){
         $operatingSystem = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
         
-        switch($operatingSystem["hypervisor"]["name"]){
+        switch($operatingSystem["hypervisor"]){
             case "qemu":
-                $this->qemu_delete($operatingSystem["uuid"],$this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
+                $this->qemu_delete("",$this->kernel->getProjectDir()."/images/".$operatingSystem["os_imagename"]);
                 break;
             case "lxc":
-                $this->lxc_delete($operatingSystem["imageFilename"]);
+                $this->lxc_delete($operatingSystem["os_imagename"]);
                 break;
         }
         //No uuid because we have no instance in this function
-        return array("uuid"=>"","state"=>InstanceStateMessage::STATE_DELETED ,"options"=> null);
+        return array("uuid"=>"","state"=>InstanceStateMessage::STATE_OS_DELETED ,
+        "options" => array(
+                    "os_imagename" => $operatingSystem["os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_DELETEOS,
+                    "workerIP" => $operatingSystem["Worker_Dest_IP"],
+                    "hypervisor" => $operatingSystem["hypervisor"]
+                    )
+            
+            );
 
     }
 
