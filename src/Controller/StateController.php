@@ -142,9 +142,9 @@ class StateController extends AbstractController
             $response['memory_total']=$total/1000;
 
             
-            $lxcfs=shell_exec("top -b -n2 -d0.2 -p `ps aux | grep -v \"grep\" | grep \"/usr/bin/lxcfs\" |awk '{print $2}'` | tail -1 | awk '{print $9}'");
+            $lxcfs=shell_exec("top -b -n2 -d0.2 -p `ps aux | grep -v \"grep\" | grep \"/usr/bin/lxcfs\" |awk '{print $2}'` | tail -1 |awk '{print $9}' | tr -d \"\n\"");
             if (!is_null($lxcfs) && $lxcfs)
-                $response['lxcfs']=$lxcfs;
+                $response['lxcfs']=(int) $lxcfs;
             else 
                 $response['lxcfs']="";
 
