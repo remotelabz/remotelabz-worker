@@ -91,8 +91,9 @@ class StateController extends AbstractController
                 'cpu' => [],
                 'memory' => [],
                 'disk' => [],
-                //'cmd' => []
+                'lxcfs' => []
             ];
+            
             $output=explode("\n", $messagestatsRessourceProcess->getOutput());
             
             $response['cpu']=100-(int) round(preg_replace('/^.+ni[, ]+([0-9\.]+) id,.+/', '$1', $output[11]));
@@ -140,7 +141,13 @@ class StateController extends AbstractController
             $response['memory']=round(100 - ($avail / $total * 100));
             $response['memory_total']=$total/1000;
 
-            //$response['cmd']=$output;
+            
+            $lxcfs=shell_exec("top -b -n2 -d0.2 -p `ps aux | grep -v \"grep\" | grep \"/usr/bin/lxcfs\" |awk '{print $2}'` | tail -1 |awk '{print $9}' | tr -d \"\n\"");
+            if (!is_null($lxcfs) && $lxcfs)
+                $response['lxcfs']=(int) $lxcfs;
+            else 
+                $response['lxcfs']="";
+
 
             return new JsonResponse($response);
         }
