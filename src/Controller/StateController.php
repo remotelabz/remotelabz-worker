@@ -149,6 +149,24 @@ class StateController extends AbstractController
                 $response['lxcfs']="";
 
 
+                $messagestatsRessourceProcess = new Process([
+                    'lsof',
+                    '-w', '|', 'wc', '-l'
+                ]);
+    
+                try {
+                    $messagestatsRessourceProcess->run();
+                } catch (ProcessFailedException $e) {
+                    return new JsonResponse([
+                        'exitCode' => $messagestatsRessourceProcess->getExitCode(),
+                        'error' => $messagestatsRessourceProcess->getErrorOutput()
+                    ], 500);
+                }
+                $output=explode("\n", $messagestatsRessourceProcess->getOutput());
+
+                $response['openedfiles']=(int) $output[1];
+
+
             return new JsonResponse($response);
         }
         else 
