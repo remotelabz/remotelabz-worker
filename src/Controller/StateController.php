@@ -163,12 +163,24 @@ class StateController extends AbstractController
             else 
                 $response['openedfiles']="";
 
+            $this->logger->info("Number of opened file: ".$lsof);
+
+
             $lxclsrun=shell_exec("sudo lxc-ls -f | grep RUNNING");
             if (!is_null($lxclsrun) && $lxclsrun)
                 $response['lxclsrun']=(int) $lxclsrun;
             else 
-                $response['lxclsrun']="";
+                $response['lxclsrun']=0;
 
+            $this->logger->info("Number of LXC containers running: ".$lxclsrun);
+
+            $qemurun=shell_exec("sudo ps a | grep -v grep | grep -e \"qemu\"");
+            if (!is_null($qemurun) && $qemurun)
+                $response['qemurun']=(int) $qemurun;
+            else 
+                $response['qemurun']=0;
+
+            $this->logger->info("Number of QEMU VM Running: ".$qemurun);
 
             return new JsonResponse($response);
         }
