@@ -174,7 +174,7 @@ class StateController extends AbstractController
 
             $this->logger->info("Number of LXC containers running: ".$lxclsrun);
 
-            $qemurun=shell_exec("sudo ps a | grep -v grep | grep -e \"qemu\"");
+            $qemurun=shell_exec("sudo ps x | grep -e \"qemu\" | wc -l");
             if (!is_null($qemurun) && $qemurun)
                 $response['qemurun']=(int) $qemurun;
             else 
