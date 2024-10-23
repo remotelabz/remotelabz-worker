@@ -7,9 +7,17 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
+use Psr\Log\LoggerInterface;
 
 class StateController extends AbstractController
 {
+    
+    protected $logger;
+
+    public function __construct(LoggerInterface $logger)
+    {
+        $this->logger = $logger;
+    }
 
     /** 
      * @Route("/healthcheck", name="healthcheck")
@@ -79,7 +87,7 @@ class StateController extends AbstractController
 
 
             try {
-                $messagestatsRessourceProcess->run();
+                $messagestatsRessourceProcess->mustRun();
             } catch (ProcessFailedException $e) {
                 return new JsonResponse([
                     'exitCode' => $messagestatsRessourceProcess->getExitCode(),
@@ -105,7 +113,7 @@ class StateController extends AbstractController
             ]);
 
             try {
-                $messagestatsRessourceProcess->run();
+                $messagestatsRessourceProcess->mustRun();
             } catch (ProcessFailedException $e) {
                 return new JsonResponse([
                     'exitCode' => $messagestatsRessourceProcess->getExitCode(),
@@ -121,7 +129,7 @@ class StateController extends AbstractController
             ]);
 
             try {
-                $messagestatsRessourceProcess->run();
+                $messagestatsRessourceProcess->mustRun();
             } catch (ProcessFailedException $e) {
                 return new JsonResponse([
                     'exitCode' => $messagestatsRessourceProcess->getExitCode(),
@@ -148,6 +156,31 @@ class StateController extends AbstractController
             else 
                 $response['lxcfs']="";
 
+               
+            $lsof=shell_exec("sudo lsof -w | wc -l");
+            if (!is_null($lsof) && $lsof)
+                $response['openedfiles']=(int) $lsof;
+            else 
+                $response['openedfiles']="";
+
+            $this->logger->info("Number of opened file: ".$lsof);
+
+
+            $lxclsrun=shell_exec("sudo lxc-ls -f | grep RUNNING");
+            if (!is_null($lxclsrun) && $lxclsrun)
+                $response['lxclsrun']=(int) $lxclsrun;
+            else 
+                $response['lxclsrun']=0;
+
+            $this->logger->info("Number of LXC containers running: ".$lxclsrun);
+
+            $qemurun=shell_exec("sudo ps a | grep -v grep | grep -e \"qemu\"");
+            if (!is_null($qemurun) && $qemurun)
+                $response['qemurun']=(int) $qemurun;
+            else 
+                $response['qemurun']=0;
+
+            $this->logger->info("Number of QEMU VM Running: ".$qemurun);
 
             return new JsonResponse($response);
         }
