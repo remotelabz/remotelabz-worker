@@ -166,7 +166,7 @@ class StateController extends AbstractController
             $this->logger->info("Number of opened file: ".$lsof);
 
 
-            $lxclsrun=shell_exec("sudo lxc-ls -f | grep RUNNING");
+            $lxclsrun=shell_exec("sudo lxc-ls -f | grep RUNNING | wc -l");
             if (!is_null($lxclsrun) && $lxclsrun)
                 $response['lxclsrun']=(int) $lxclsrun;
             else 
