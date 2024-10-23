@@ -7,9 +7,17 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
+use Psr\Log\LoggerInterface;
 
 class StateController extends AbstractController
 {
+    
+    protected $logger;
+
+    public function __construct(LoggerInterface $logger)
+    {
+        $this->logger = $logger;
+    }
 
     /** 
      * @Route("/healthcheck", name="healthcheck")
@@ -79,7 +87,7 @@ class StateController extends AbstractController
 
 
             try {
-                $messagestatsRessourceProcess->run();
+                $messagestatsRessourceProcess->mustRun();
             } catch (ProcessFailedException $e) {
                 return new JsonResponse([
                     'exitCode' => $messagestatsRessourceProcess->getExitCode(),
@@ -105,7 +113,7 @@ class StateController extends AbstractController
             ]);
 
             try {
-                $messagestatsRessourceProcess->run();
+                $messagestatsRessourceProcess->mustRun();
             } catch (ProcessFailedException $e) {
                 return new JsonResponse([
                     'exitCode' => $messagestatsRessourceProcess->getExitCode(),
@@ -121,7 +129,7 @@ class StateController extends AbstractController
             ]);
 
             try {
-                $messagestatsRessourceProcess->run();
+                $messagestatsRessourceProcess->mustRun();
             } catch (ProcessFailedException $e) {
                 return new JsonResponse([
                     'exitCode' => $messagestatsRessourceProcess->getExitCode(),
@@ -148,23 +156,18 @@ class StateController extends AbstractController
             else 
                 $response['lxcfs']="";
 
+               
+            $lsof=shell_exec("sudo lsof -w | wc -l");
+            if (!is_null($lsof) && $lsof)
+                $response['openedfiles']=(int) $lsof;
+            else 
+                $response['openedfiles']="";
 
-                $messagestatsRessourceProcess = new Process([
-                    'lsof',
-                    '-w', '|', 'wc', '-l'
-                ]);
-    
-                try {
-                    $messagestatsRessourceProcess->run();
-                } catch (ProcessFailedException $e) {
-                    return new JsonResponse([
-                        'exitCode' => $messagestatsRessourceProcess->getExitCode(),
-                        'error' => $messagestatsRessourceProcess->getErrorOutput()
-                    ], 500);
-                }
-                $output=explode("\n", $messagestatsRessourceProcess->getOutput());
-
-                $response['openedfiles']=(int) $output[1];
+            $lxclsrun=shell_exec("sudo lxc-ls -f | grep RUNNING");
+            if (!is_null($lxclsrun) && $lxclsrun)
+                $response['lxclsrun']=(int) $lxclsrun;
+            else 
+                $response['lxclsrun']="";
 
 
             return new JsonResponse($response);
