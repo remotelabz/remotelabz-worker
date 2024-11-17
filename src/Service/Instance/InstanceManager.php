@@ -555,7 +555,7 @@ class InstanceManager extends AbstractController
             $this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance,
                 'instance' => $deviceInstance['uuid']
-            ]);
+            ]);sudo tail re
             */
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];

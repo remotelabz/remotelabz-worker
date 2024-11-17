@@ -32,7 +32,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
        // The following generate an error on json param
        $message_array=json_decode($message->getContent(), true);
-       $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
+       //$this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
 
         $returnState = "";
         $instanceType = "";
