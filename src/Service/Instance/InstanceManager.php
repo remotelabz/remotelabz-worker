@@ -221,10 +221,11 @@ class InstanceManager extends AbstractController
         }
 
         try {
-            $this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
+            /*$this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance,
                 'instance' => $deviceInstance['uuid']
             ]);
+            */
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
             $labInstanceUuid = $labInstance['uuid'];
@@ -549,10 +550,10 @@ class InstanceManager extends AbstractController
         }
 
         try {
-            $this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
+            /*$this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance,
                 'instance' => $deviceInstance['uuid']
-            ]);
+            ]);*/
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
             $labInstanceUuid = $labInstance['uuid'];

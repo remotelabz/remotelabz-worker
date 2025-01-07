@@ -6,6 +6,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Exception\ProcessTimeOutException;
 use Symfony\Component\Process\Process;
 use Psr\Log\LoggerInterface;
 
@@ -202,11 +203,25 @@ class StateController extends AbstractController
     }
 
     private function opened_file() {
-        $lsof=shell_exec("sudo lsof -w | wc -l");
-        if (!is_null($lsof) && $lsof)
-            return (int) $lsof;
-        else 
-            return "";
+        #TODO use process to timeout the commande. When the number of files if too important, the process crash
+
+        $command = [
+            'bash','-c','sudo lsof -w | wc -l'
+        ];
+        
+        $process = new Process($command);
+        try {
+            $process->setTimeout(10);
+            $process->run();
+            return $process->getOutput();
+        } catch (ProcessTimedOutException $e) {
+            $this->logger->error($e->getMessage());
+            return "Process too long";
+        } catch (\Exception $e) {
+            $this->logger->error($e->getMessage());
+            return "NA";
+        }
+        
     }
 
     private function lxc_number() {   
