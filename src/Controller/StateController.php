@@ -203,8 +203,6 @@ class StateController extends AbstractController
     }
 
     private function opened_file() {
-        #TODO use process to timeout the commande. When the number of files if too important, the process crash
-
         $command = [
             'bash','-c','sudo lsof -w | wc -l'
         ];
