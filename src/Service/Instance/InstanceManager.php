@@ -222,6 +222,8 @@ class InstanceManager extends AbstractController
 
         try {
             /*$this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
+            /*
+            $this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance,
                 'instance' => $deviceInstance['uuid']
             ]);
