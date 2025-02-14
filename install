@@ -263,9 +263,9 @@ fi;
 
 LXC=`lxc-ls -name "Ubuntu24LTS"`;
 if [ "${LXC}" == "" ] ; then
-  echo "Creation of a container Ubuntu 20 LTS"
+  echo "Creation of a container Ubuntu 24 LTS"
   DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu24LTS -- -d ubuntu -r focal -a amd64
-  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
+  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu24LTS/rootfs/etc/issue"
   echo "OK ✔️"
 fi;
 
