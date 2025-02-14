@@ -261,20 +261,20 @@ if [ "${LXC}" == "" ] ; then
   echo "OK ✔️"
 fi;
 
-LXC=`lxc-ls -name "Ubuntu20LTS"`;
+LXC=`lxc-ls -name "Ubuntu24LTS"`;
 if [ "${LXC}" == "" ] ; then
   echo "Creation of a container Ubuntu 20 LTS"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu24LTS -- -d ubuntu -r focal -a amd64
   echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
   echo "OK ✔️"
 fi;
 
-LXC=`lxc-ls -name "Alpine3.16"`;
+LXC=`lxc-ls -name "AlpineEdge"`;
 if [ "${LXC}" == "" ] ; then
-echo "Creation of a container Alpine 3.16"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine3.16 -- -d alpine -r 3.16 -a amd64
-echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine3.16/rootfs/etc/issue"
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.16/rootfs/etc/resolv.conf"
+echo "Creation of a container Alpine Edge"
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine-Stable -- -d alpine -r edge -a amd64
+echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine-Stable/rootfs/etc/issue"
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine-Stable/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 fi;
 
