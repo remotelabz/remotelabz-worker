@@ -308,6 +308,9 @@ fi;
 #wget -q http://194.57.105.124/~fnolot/ubuntu-18-SrvLxde.img
 #echo "OK ✔️"
 
+chown remotelabz-worker:www-data var -R
+chmod g+w var -R
+
 systemctl enable remotelabz-worker
 systemctl start remotelabz-worker
 echo "Thank you for using our software. ❤️"
