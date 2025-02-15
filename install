@@ -308,8 +308,8 @@ fi;
 #wget -q http://194.57.105.124/~fnolot/ubuntu-18-SrvLxde.img
 #echo "OK ✔️"
 
-chown remotelabz-worker:www-data var -R
-chmod g+w var -R
+chown remotelabz-worker:www-data /opt/remotelabz-worker/var -R
+chmod g+w /opt/remotelabz-worker/var -R
 
 systemctl enable remotelabz-worker
 systemctl start remotelabz-worker
