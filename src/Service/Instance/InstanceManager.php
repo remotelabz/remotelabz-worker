@@ -1816,9 +1816,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+        /*$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
             'labInstance' => $labInstance
-        ]);
+        ]);*/
 
         // Network interfaces
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
@@ -3433,9 +3433,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
     private function stop_device_lxc($uuid,$deviceInstance,$labInstance) {
-            $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
+            /*$this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance
-            ]);
+            ]);*/
             $result=$this->lxc_stop($uuid);
             if ($result['state']===InstanceStateMessage::STATE_STOPPED) {
                 $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -3544,9 +3544,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
     private function stop_device_physical($uuid,$deviceInstance,$labInstance)
     {
-        $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+        /*$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
             'labInstance' => $labInstance
-        ]);
+        ]);*/
 
         $result = $this->changePhysicalDeviceState($uuid, $deviceInstance, "stop");
         if ($result["state"] === InstanceStateMessage::STATE_STOPPED) {
