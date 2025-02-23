@@ -306,7 +306,7 @@ class InstanceManager extends AbstractController
                             'instance' => $uuid
                             ]);    
                     }
-                    $this->logger->debug("error state at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
+                    $this->logger->debug("State at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $uuid,
                         'error' => $error
                         ]);
@@ -348,7 +348,7 @@ class InstanceManager extends AbstractController
                 }
                 $response["error"]= $error;
                 
-                $this->logger->debug("Error state after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug("State after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid'],
                     'result-error' => $response["error"]
                 ]);
@@ -727,7 +727,7 @@ class InstanceManager extends AbstractController
                     );
                     
                     $result=$this->remote_access_start($deviceInstance,$sandbox);
-                    $this->logger->debug("Error state after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
+                    $this->logger->debug("State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid'],
                         'result-error' => $result["error"]
                     ]);
@@ -956,7 +956,7 @@ class InstanceManager extends AbstractController
         }
         $result["error"]=$result["error"] || $error;
         
-        $this->logger->debug("Error state after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("State after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -994,7 +994,7 @@ class InstanceManager extends AbstractController
 
         $result["error"]=$result["error"] || $error;
 
-        $this->logger->debug("Error state after ttyd for serial", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("State after ttyd for serial", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -1026,7 +1026,7 @@ class InstanceManager extends AbstractController
         }
         $result["error"]=$result["error"] || $error;
 
-        $this->logger->debug("Error state after websockify", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("State after websockify", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -2069,14 +2069,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             $statusChangedResponse = curl_exec($curl);
                             if (curl_errno($curl)) { 
                                 $statusChangedResponse = null; 
-                                $this->logger->debug("Curl Error state", InstanceLogMessage::SCOPE_PRIVATE, [
+                                $this->logger->debug("Curl State", InstanceLogMessage::SCOPE_PRIVATE, [
                                     'instance' => $deviceInstance['uuid'],
                                     "error" => "Curl error: ".curl_error($curl)
                                     ]);
                             }
                             else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
                                 $statusChangedResponse = null; 
-                                $this->logger->debug("Http Error state", InstanceLogMessage::SCOPE_PRIVATE, [
+                                $this->logger->debug("Http error state", InstanceLogMessage::SCOPE_PRIVATE, [
                                     'instance' => $deviceInstance['uuid'],
                                     "error" => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
                                     ]);
