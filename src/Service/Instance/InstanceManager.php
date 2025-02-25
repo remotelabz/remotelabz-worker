@@ -271,8 +271,7 @@ class InstanceManager extends AbstractController
                             'instance' => $uuid
                             ]);
                         $process->start();
-
-                        
+                        sleep(2); // The process can take time                        
                     }
                     catch (ProcessFailedException $exception) {
                     $this->logger->error("process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
@@ -2816,6 +2815,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             }
             else {
+
                 if (!$this->lxc_clone($deviceInstance['uuid'],basename($imagefilename,".img"))) {
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
