@@ -109,6 +109,7 @@ class StateController extends AbstractController
             $response['qemurun']=$this->qemu_number();
             $this->logger->info("Number of QEMU VM Running: ".$response['qemurun']);
 
+            $response['lxcfs']=null;
             return new JsonResponse($response);
         }
 

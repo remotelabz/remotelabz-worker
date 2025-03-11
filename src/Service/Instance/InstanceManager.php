@@ -99,7 +99,8 @@ class InstanceManager extends AbstractController
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        $this->logger->debug("Lab instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+        //$this->logger->debug("Lab instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+        $this->logger->info("Lab instance to deleted: ".$labInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance["uuid"]]);
 
         try {
             $bridgeName = $labInstance['bridgeName'];
@@ -141,7 +142,8 @@ class InstanceManager extends AbstractController
         }
         $error=false;
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
-            $this->logger->debug("Device instance to delete : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
+            //$this->logger->debug("Device instance to delete : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
+            $this->logger->info("Device instance to delete : ".$deviceInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE,["instance" => $deviceInstance["uuid"]]);
 
             if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
                 $result=$this->stop_device_qemu($deviceInstance["uuid"],$deviceInstance,$labInstance);
@@ -271,44 +273,46 @@ class InstanceManager extends AbstractController
                             'instance' => $uuid
                             ]);
                         $process->start();
-                        sleep(2); // The process can take time                        
+                        $process->waitUntil(function ($type,$output):bool {
+
+                            $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
+                            $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $uuid
+                                ]);
+                                
+                            $process2 = Process::fromShellCommandline($command);
+                            try { 
+                                $process2->mustRun();
+                                $pidInstance = $process2->getOutput();
+                                $this->logger->debug("pid process list of ttyd started ", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $uuid,
+                                    'pid' => $pidInstance,
+                                    'error' => $error
+                                    ]);
+                            }   catch (ProcessFailedException $exception) {
+                                $error=true;
+                                $this->logger->error("Listing process to find ttyd process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $uuid
+                                    ]);
+                            }
+                            if ($pidInstance==""){
+                                $error=true;
+                                $this->logger->error("ttyd not started !", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $uuid
+                                    ]);    
+                            }
+                            $this->logger->debug("State at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $uuid,
+                                'error' => $error
+                                ]);
+                        }
+                        );
                     }
                     catch (ProcessFailedException $exception) {
                     $this->logger->error("process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $uuid
                         ]);
-                    }
-
-                    $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
-                    $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid
-                        ]);
-                        
-                    $process = Process::fromShellCommandline($command);
-                    try { 
-                        $process->mustRun();
-                        $pidInstance = $process->getOutput();
-                        $this->logger->debug("pid process list of ttyd started ", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $uuid,
-                            'pid' => $pidInstance,
-                            'error' => $error
-                            ]);
-                    }   catch (ProcessFailedException $exception) {
-                        $error=true;
-                        $this->logger->error("Listing process to find ttyd process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $uuid
-                            ]);
-                    }
-                    if ($pidInstance==""){
-                        $error=true;
-                        $this->logger->error("ttyd not started !", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $uuid
-                            ]);    
-                    }
-                    $this->logger->debug("State at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid,
-                        'error' => $error
-                        ]);
+                    }                
 
                     if ($error == false) {
                         $result=array(
