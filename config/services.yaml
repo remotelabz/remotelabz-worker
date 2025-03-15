@@ -8,6 +8,9 @@ parameters:
     app.network.lab.cidr: '%env(resolve:LAB_NETWORK)%'
     app.network.data.interface: '%env(resolve:DATA_INTERFACE)%'
     app.network.data.cidr: '%env(resolve:DATA_NETWORK)%'
+    app.serverssh: '%env(resolve:SERVER_SSH)%'
+    app.pdu.api.login: '%env(resolve:PDU_API_LOGIN)%'
+    app.pdu.api.password: '%env(resolve:PDU_API_PASSWORD)%'
     app.network.lab.internet_interface: '%env(string:INTERNET_INTERFACE_ACCESS)%'
     app.data.network.interface.ip: '%env(resolve:DATA_INT_IP_ADDRESS)%'
     app.data.network.gateway: '%env(resolve:DATA_INT_GW)%'
@@ -17,6 +20,10 @@ parameters:
     app.vpn.interface: '%env(string:VPN_CONCENTRATOR_INTERFACE)%'
     app.network.front.ip: '%env(string:FRONT_SERVER_IP)%'
     app.general.contact_mail: '%env(resolve:CONTACT_MAIL)%'
+    app.ssh.worker.user : '%env(string:SSH_USER_WORKER)%'
+    app.ssh.worker.passwd : '%env(string:SSH_USER_PASSWD)%'
+    app.ssh.worker.privatekey : '%env(string:SSH_USER_PRIVATEKEY_FILE)%'
+    app.ssh.worker.publickey : '%env(string:SSH_USER_PUBLICKEY_FILE)%'
 
 services:
     # default configuration for services in *this* file
@@ -39,5 +46,8 @@ services:
     App\Service\Instance\InstanceManager:
         arguments:
             $front_ip: '%app.network.front.ip%'
+            $server_ssh: '%app.serverssh%'
+            $pdu_api_login: '%app.pdu.api.login%'
+            $pdu_api_password: '%app.pdu.api.password%'
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

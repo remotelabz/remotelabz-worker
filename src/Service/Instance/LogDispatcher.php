@@ -61,10 +61,12 @@ class LogDispatcher
 
     public function info($message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {
         $this->logger->info($message, $context);
-        $this->setUuid($context['instance']);
-        $this->bus->dispatch(
-            new InstanceLogMessage($message, $this->uuid, InstanceLogMessage::TYPE_INFO, $scope)
-        );
+        //if (array_key_exists("instance",$context)) { // In case of CopyOS2Worker, for example, this message is not link to an instance
+            $this->setUuid($context['instance']);
+            $this->bus->dispatch(
+                new InstanceLogMessage($message, $this->uuid, InstanceLogMessage::TYPE_INFO, $scope)
+            );
+        //}
     }
 
     public function debug($message, $scope = InstanceLogMessage::SCOPE_PRIVATE, array $context = array()) {

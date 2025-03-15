@@ -32,7 +32,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
        // The following generate an error on json param
        $message_array=json_decode($message->getContent(), true);
-       $this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
+       //$this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
 
         $returnState = "";
         $instanceType = "";
@@ -56,17 +56,23 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
                 case InstanceActionMessage::ACTION_START:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    if (strstr($message_array["lab"]["name"],"Sandbox_"))
+                    if ($message_array["lab"]["virtuality"] == 1) {
+                        if (strstr($message_array["lab"]["name"],"Sandbox_"))
                         {
-                        $this->logger->debug("Start device from Sandbox detected");  
-                        $from_sandbox=true;
+                            $this->logger->debug("Start device from Sandbox detected");  
+                            $from_sandbox=true;
                         }
-                    else
-                    {
-                        $this->logger->debug("Start device from a classical lab");  
-                        $from_sandbox=false;
+                        else
+                        {
+                            $this->logger->debug("Start device from a classical lab");  
+                            $from_sandbox=false;
+                        }
+                        $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid(),$from_sandbox);
                     }
-                    $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid(),$from_sandbox);
+                    else {
+                        $ReturnArray=$this->instanceManager->startRealDeviceInstance($message->getContent(), $message->getUuid());
+                    }
+                    
                     $returnState = $ReturnArray["state"];
                     //ReturnArray has a state in $ReturnArray['state']
                     break;
@@ -76,15 +82,27 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     $ReturnArray=$this->instanceManager->stopDeviceInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STOPPED;
                     break;
+
+                case InstanceActionMessage::ACTION_RESET:
+                    $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                    $ReturnArray=$this->instanceManager->resetDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $ReturnArray["state"];
+                    break;
                 
                 case InstanceActionMessage::ACTION_CONNECT:
                     $ReturnArray=$this->instanceManager->connectToInternet($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_STARTED;
                     break;
 
-                case InstanceActionMessage::ACTION_EXPORT:
+                case InstanceActionMessage::ACTION_EXPORT_DEV:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
                     $ReturnArray= $this->instanceManager->exportDeviceInstance($message->getContent(), $message->getUuid());
+                    $returnState = $ReturnArray["state"];
+                    break;
+
+                case InstanceActionMessage::ACTION_EXPORT_LAB:
+                    $instanceType = InstanceStateMessage::TYPE_LAB;
+                    $ReturnArray= $this->instanceManager->exportLabInstance($message->getContent(), $message->getUuid());
                     $returnState = $ReturnArray["state"];
                     break;
 
@@ -96,13 +114,19 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                 
                 case InstanceActionMessage::ACTION_DELETEOS:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                    $ReturnArray=$this->instanceManager->deleteOS($message->getContent(), $message->getUuid());
-                    $returnState = InstanceStateMessage::STATE_DELETED;
+                    $ReturnArray=$this->instanceManager->deleteOS($message->getContent());
+                    $returnState = InstanceStateMessage::STATE_OS_DELETED;
                     break;
                 
                 case InstanceActionMessage::ACTION_RENAMEOS:
                         $instanceType = InstanceStateMessage::TYPE_DEVICE;
                         $ReturnArray=$this->instanceManager->renameOS($message->getContent(),$message->getUuid());
+                        $returnState = $ReturnArray['state'];
+                        break;
+
+                case InstanceActionMessage::ACTION_COPY2WORKER_DEV:
+                        $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                        $ReturnArray=$this->instanceManager->copy2worker($message->getContent());
                         $returnState = $ReturnArray['state'];
                         break;
             }
@@ -138,7 +162,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
             "uuid" => $message->getUuid()
         ]);
         
-        if (($message->getAction() === InstanceActionMessage::ACTION_EXPORT) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
+        if ((($message->getAction() === InstanceActionMessage::ACTION_EXPORT_DEV) || ($message->getAction() === InstanceActionMessage::ACTION_EXPORT_LAB)) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
             $this->logger->debug("export and error");
         }
         

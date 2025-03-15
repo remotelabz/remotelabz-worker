@@ -5,6 +5,7 @@
         size 10M
         compress
         notifempty
+        copytruncate
         create 664 remotelabz-worker www-data
         su remotelabz-worker www-data
 }

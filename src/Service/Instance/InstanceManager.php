@@ -21,6 +21,7 @@ use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Process\Process;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 
 class InstanceManager extends AbstractController
 {
@@ -28,17 +29,26 @@ class InstanceManager extends AbstractController
     protected $logger;
     protected $params;
     protected $front_ip;
+    protected $server_ssh;
+    protected $pdu_api_login;
+    protected $pdu_api_password;
 
     public function __construct(
         LogDispatcher $logger,
         KernelInterface $kernel,
         ParameterBagInterface $params,
-        string $front_ip
+        string $front_ip,
+        string $server_ssh,
+        string $pdu_api_login,
+        string $pdu_api_password
     ) {
         $this->kernel = $kernel;
         $this->logger = $logger;
         $this->params = $params;
         $this->front_ip = $front_ip;
+        $this->server_ssh = $server_ssh;
+        $this->pdu_api_login = $pdu_api_login;
+        $this->pdu_api_password = $pdu_api_password;
     }
 
     public function createLabInstance(string $descriptor, string $uuid) {
@@ -52,27 +62,29 @@ class InstanceManager extends AbstractController
             throw new BadDescriptorException($labInstance);
         }
 
-        try {
-            $bridgeName = $labInstance['bridgeName'];
-        } catch (ErrorException $e) {
-            $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
-            throw new BadDescriptorException($labInstance, "", 0, $e);
+        if ($labInstance["lab"]["virtuality"] == 1) {
+            try {
+                $bridgeName = $labInstance['bridgeName'];
+            } catch (ErrorException $e) {
+                $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+                throw new BadDescriptorException($labInstance, "", 0, $e);
+            }
+    
+            // OVS
+            if (!IPTools::networkInterfaceExists($bridgeName)) {
+                $this->logger->debug("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'bridgeName' => $bridgeName,
+                    'instance' => $labInstance['uuid']
+                ]);
+                OVS::bridgeAdd($bridgeName, true);
+            } else {
+                $this->logger->debug("Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'bridgeName' => $bridgeName,
+                    'instance' => $labInstance['uuid']
+                ]);
+            }
         }
-
-        // OVS
-        if (!IPTools::networkInterfaceExists($bridgeName)) {
-            $this->logger->debug("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
-                'bridgeName' => $bridgeName,
-                'instance' => $labInstance['uuid']
-            ]);
-            OVS::bridgeAdd($bridgeName, true);
-        } else {
-            $this->logger->debug("Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
-                'bridgeName' => $bridgeName,
-                'instance' => $labInstance['uuid']
-            ]);
-        }
-
+       
         $result=array("state"=> InstanceStateMessage::STATE_CREATED, "uuid"=> $uuid, "options" => null);
         return $result;
     }
@@ -87,7 +99,8 @@ class InstanceManager extends AbstractController
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        $this->logger->debug("Lab instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+        //$this->logger->debug("Lab instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+        $this->logger->info("Lab instance to deleted: ".$labInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance["uuid"]]);
 
         try {
             $bridgeName = $labInstance['bridgeName'];
@@ -129,7 +142,8 @@ class InstanceManager extends AbstractController
         }
         $error=false;
         foreach ($labInstance["deviceInstances"] as $deviceInstance){
-            $this->logger->debug("Device instance to delete : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
+            //$this->logger->debug("Device instance to delete : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $deviceInstance]);
+            $this->logger->info("Device instance to delete : ".$deviceInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE,["instance" => $deviceInstance["uuid"]]);
 
             if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
                 $result=$this->stop_device_qemu($deviceInstance["uuid"],$deviceInstance,$labInstance);
@@ -169,6 +183,206 @@ class InstanceManager extends AbstractController
             $result=array("state"=> InstanceStateMessage::STATE_DELETED, "uuid"=> $uuid, "options" => null);
         } else
             $this->logger->error("Error in deleteLabInstance",InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
+        return $result;
+    }
+
+    /**
+     * Start an instance described by JSON descriptor for a real device instance specified by UUID
+     * 
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to start.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return array("state","uuid", "options") options is an array
+     */
+    public function startRealDeviceInstance(string $descriptor, string $uuid) {
+        /** @var array $labInstance */
+        $result=null;
+
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        if (!is_array($labInstance)) {
+            // invalid json
+            $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+
+            throw new BadDescriptorException($labInstance);
+        }
+        
+        $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
+            return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] != 'started');
+        });
+
+        if (!count($deviceInstance)) {
+            $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']
+            ]);
+            // instance is already started or whatever
+            return;
+        } else {
+            $deviceIndex = array_key_first($deviceInstance);
+            $deviceInstance = $deviceInstance[$deviceIndex];
+        }
+
+        try {
+            /*$this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
+            /*
+            $this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
+                'labInstance' => $labInstance,
+                'instance' => $deviceInstance['uuid']
+            ]);
+            */
+            $labUser = $labInstance['owner']['uuid'];
+            $ownedBy = $labInstance['ownedBy'];
+            $labInstanceUuid = $labInstance['uuid'];
+        } catch (ErrorException $e) {
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+            $error=true;
+        }
+        //check if the device is connected to an outlet
+        if (isset($deviceInstance["device"]["outlet"])) {
+            $this->logger->debug("process output", InstanceLogMessage::SCOPE_PRIVATE, [
+                "in function" => "yes"
+            ]);
+            $model = $deviceInstance["device"]["outlet"]["pdu"]["model"];
+            $brand = $deviceInstance["device"]["outlet"]["pdu"]["brand"];
+            $ip = $deviceInstance["device"]["outlet"]["pdu"]["ip"];
+            $outlet = $deviceInstance["device"]["outlet"]["outlet"];
+            $uuid = $deviceInstance['uuid'];
+
+            $error = false;
+
+            $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, "start");
+            if ($response["state"] === InstanceStateMessage::STATE_STARTED) {
+                $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid'],
+                ]);
+                //get the port to connect to the device
+                if ($port=$this->isLogin($deviceInstance)) {
+                    $this->logger->info("Login access requested.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+
+                    ]);
+                    
+                    $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+
+                    $command = "screen -S ".$uuid." -dm ttyd -p ".$port." -b /device/".$uuid." sshpass -f ".$this->kernel->getProjectDir()."/config/ssh/pass_server_ssh.txt ssh -t ".$this->server_ssh." 'telnet ".$deviceInstance["device"]["ip"]." ".$deviceInstance["device"]["port"]."'";                    
+                    $process = Process::fromShellCommandline($command);
+                    try {
+                        $this->logger->debug("real device starting command: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);
+                        $process->start();
+                        $process->waitUntil(function ($type,$output):bool {
+
+                            $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
+                            $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $uuid
+                                ]);
+                                
+                            $process2 = Process::fromShellCommandline($command);
+                            try { 
+                                $process2->mustRun();
+                                $pidInstance = $process2->getOutput();
+                                $this->logger->debug("pid process list of ttyd started ", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $uuid,
+                                    'pid' => $pidInstance,
+                                    'error' => $error
+                                    ]);
+                            }   catch (ProcessFailedException $exception) {
+                                $error=true;
+                                $this->logger->error("Listing process to find ttyd process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $uuid
+                                    ]);
+                            }
+                            if ($pidInstance==""){
+                                $error=true;
+                                $this->logger->error("ttyd not started !", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $uuid
+                                    ]);    
+                            }
+                            $this->logger->debug("State at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $uuid,
+                                'error' => $error
+                                ]);
+                        }
+                        );
+                    }
+                    catch (ProcessFailedException $exception) {
+                    $this->logger->error("process in error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid
+                        ]);
+                    }                
+
+                    if ($error == false) {
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_STARTED,
+                            "uuid" => $uuid,
+                            "options" => null
+                        );
+
+                        $this->logger->info("ttyd process started for login", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                    }
+                    else {
+                        $error = true;
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $uuid,
+                            "options" => null
+                        );
+                        $this->logger->error("ttyd starting process in error for login!", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid']
+                         ]);
+                    }
+                }
+                else {
+                    $error = true;
+                    $this->logger->debug("new port not found", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid'],
+                    ]);
+    
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $uuid,
+                        "options" => null
+                    );
+                }
+                $response["error"]= $error;
+                
+                $this->logger->debug("State after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'result-error' => $response["error"]
+                ]);
+            }
+            else {
+                $this->logger->debug("Could not start device instance", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                ]);
+
+                $this->logger->error("Device has not been started", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid'],
+                ]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $uuid,
+                    "options" => null
+                );
+            }
+
+        }
+        else {
+            $this->logger->debug("The device is not connected to a pdu", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+            ]);
+
+            $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $uuid,
+                "options" => null
+            );
+        }
         return $result;
     }
 
@@ -341,10 +555,10 @@ class InstanceManager extends AbstractController
         }
 
         try {
-            $this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
+            /*$this->logger->debug("Lab instance is starting", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance,
                 'instance' => $deviceInstance['uuid']
-            ]);
+            ]);*/
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
             $labInstanceUuid = $labInstance['uuid'];
@@ -447,7 +661,7 @@ class InstanceManager extends AbstractController
                             '-m',
                             $deviceInstance['device']['flavor']['memory'],
                             '-drive',
-                            'file='.$img['destination'],
+                            'file='.$img['destination'].',if=virtio',
                         ],
                         'smp' => ['-smp'],
                         'network' => [],
@@ -516,7 +730,7 @@ class InstanceManager extends AbstractController
                     );
                     
                     $result=$this->remote_access_start($deviceInstance,$sandbox);
-                    $this->logger->debug("Error state after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
+                    $this->logger->debug("State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid'],
                         'result-error' => $result["error"]
                     ]);
@@ -584,6 +798,9 @@ class InstanceManager extends AbstractController
             $error=false;
             if (!$this->lxc_exist($uuid)) {
                 //$this->lxc_clone("Service",$uuid);
+                if (!$this->lxc_exist($deviceInstance['device']['operatingSystem']['image'])) {
+                    $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['brand']), $deviceInstance['device']['model']);
+                }
                 if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
@@ -642,42 +859,41 @@ class InstanceManager extends AbstractController
                     //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
                 }
 
-                if ($this->remote_access_start($deviceInstance,$sandbox)["error"]===false) {
-                    $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
+                
+                if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
+                    $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-
-                    $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
-
-                    if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-                        $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
+                        $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
                             ]);
-                        if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
-                            $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                        }
-
-                        
-
-                    } else {
-                        $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                            "uuid"=>$deviceInstance['uuid'],
-                            "options" => null);
                     }
-                } else {
-                    $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
+
+                    if ($this->remote_access_start($deviceInstance,$sandbox)["error"]===false) {
+                        $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+
+                        } else {
+                        $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+
+                } else { //LXC doesn't start
+                    $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                    );
+                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid"=>$deviceInstance['uuid'],
+                        "options" => null);
                 }
             }
         }
@@ -743,7 +959,7 @@ class InstanceManager extends AbstractController
         }
         $result["error"]=$result["error"] || $error;
         
-        $this->logger->debug("Error state after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("State after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -781,7 +997,7 @@ class InstanceManager extends AbstractController
 
         $result["error"]=$result["error"] || $error;
 
-        $this->logger->debug("Error state after ttyd for serial", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("State after ttyd for serial", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -813,7 +1029,7 @@ class InstanceManager extends AbstractController
         }
         $result["error"]=$result["error"] || $error;
 
-        $this->logger->debug("Error state after websockify", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("State after websockify", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -881,6 +1097,7 @@ public function websockify_start($uuid,$IpAddress,$Port){
 public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$device_remote_port=null){
     $error=false;
     $command = ['screen','-S',$uuid,'-dm','ttyd'];
+    
     if ($sandbox)
         $this->logger->debug("Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
@@ -900,20 +1117,75 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             ]);
         if ($remote_protocol === "login") {
             if ($sandbox) {
-                $this->logger->debug("Start device from Sandbox detected");  
+                $this->logger->debug("Start device from Sandbox detected and login");
+                #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'";  
+                #$process = Process::fromShellCommandline($commandTmux);
                 array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
             }
             else {
-                $this->logger->debug("Start device from lab detected");
-                //array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-console','-n',$uuid);
+                $this->logger->debug("Start device from lab detected and login");
+                #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid." -- login'";  
+                #$commandTmux2 = "tmux -S /tmp/tmux-remotelabz new -d -s admin-".$uuid. " 'lxc-attach -n ".$uuid."'";  
+                #$process = Process::fromShellCommandline($commandTmux);
+                #$process2 = Process::fromShellCommandline($commandTmux2);
+                $command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
                 array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
+                array_push($command2, '-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
             }
         }
         elseif ($remote_protocol === "serial") {
                 $this->logger->debug("Start serial detected");
                 array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
-                //array_push($command, '-p',$port,'telnet','localhost',$device_remote_port);
+                #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'telnet localhost ".$device_remote_port."'";  
+                #$process = Process::fromShellCommandline($commandTmux);
         }
+
+//        try {
+//            $process->start();
+            /*$this->logger->debug("tmux command", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'command' => $commandTmux
+                    ]);  */
+//            $this->logger->debug("ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
+//                'instance' => $uuid,
+//                'command' => $command
+//            ]);
+
+//        }   catch (ProcessFailedException $exception) {
+//            $error=true;
+            /*$this->logger->debug("tmux error command", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'exception' => $exception
+            ]);*/
+//           $this->logger->debug("ttyd error command", InstanceLogMessage::SCOPE_PRIVATE, [
+//                'instance' => $uuid,
+//                'command' => $command
+//            ]);
+//        }
+    
+        //$command = ['ttyd'];
+        //array_push($command, '-p',$port,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', $uuid);
+        //array_push($command, '-p',$port,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', $uuid);
+
+        /*
+        if (isset($process2)) {
+            try {
+                $process2->start();
+                $this->logger->debug("tmux command2", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'command' => $commandTmux2
+                        ]);  
+            }   catch (ProcessFailedException $exception) {
+                $error=true;
+                $this->logger->debug("tmux error command", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'exception' => $exception
+                        ]);
+            }
+            $command2 = ['ttyd'];
+            array_push($command2, '-p',$port+1,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', 'admin-'.$uuid);
+        }
+        */
         
 
     $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -931,6 +1203,24 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'exception' => $exception
                 ]);
     }
+  
+    if (isset($command2)) {
+        $this->logger->debug("Ttyd command2", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid,
+            'command2' => $command2
+                ]);
+        $process2 = new Process($command2);
+        try {
+            $process2->start();
+        }   catch (ProcessFailedException $exception) {
+            $error=true;
+            $this->logger->debug("Ttyd error command2", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'exception' => $exception
+                    ]);
+        }
+    }
+
     $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
     $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
         'instance' => $uuid
@@ -1374,6 +1664,56 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
     /**
+     * Function to create a LXC container
+     * @param string $lxc_name Name of the LXC contianer to create.
+     * @param string $lxc_dist Distribution of the LXC contianer to create.
+     * @param string $lxc_release release/version of the LXC contianer to create.
+     * @return $error: true if error or false if no error
+     */
+    public function lxc_create(string $lxc_name, string $lxc_dist, string $lxc_release){
+        $error=null;
+        $command = [
+            'lxc-create',
+            '-t',
+            'download',
+            '-n',
+            "$lxc_name",
+            "--",
+            "-d",
+            "$lxc_dist",
+            "-r",
+            "$lxc_release",
+            "-a",
+            "amd64"
+        ];
+        $this->logger->info("Creating LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
+            'instance' => $lxc_name]
+        );
+        $this->logger->debug("Creating LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command)
+        ]);
+
+        $process = new Process($command);
+        $process->setTimeout(600);
+        try {
+            $process->mustRun();
+            $error=false;
+        }   catch (ProcessFailedException $exception) {
+            $error=true;
+            $this->logger->error("LXC container created is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                'error' => $exception->getMessage(),
+                'instance' => $lxc_name
+            ]);
+        }
+        if (!$error)
+            $this->logger->info("LXC container created successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $lxc_name]);
+
+        return $error;
+        
+    }
+
+    /**
      * Delete a lxc container
      * @param string $uuid UUID of LXC contianer to delete.
      */
@@ -1400,7 +1740,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             $error=false;
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container deleted error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
+            $this->logger->error("LXC container deleted error ! ".$exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
             $result=array(
                 "state" => InstanceStateMessage::STATE_ERROR,
                 "uuid" => $uuid,
@@ -1479,9 +1819,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+        /*$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
             'labInstance' => $labInstance
-        ]);
+        ]);*/
 
         // Network interfaces
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
@@ -1501,6 +1841,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $result=$this->stop_device_qemu($uuid,$deviceInstance,$labInstance);
         } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
             $result=$this->stop_device_lxc($uuid,$deviceInstance,$labInstance);
+        }
+        elseif ($deviceInstance['device']['hypervisor']['name'] === 'physical') {
+            $result=$this->stop_device_physical($uuid,$deviceInstance,$labInstance);
         }
 
         // OVS
@@ -1600,7 +1943,261 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );  
             }
         }
+        
         return $result;
+    }
+
+    public function changePhysicalDeviceState($uuid, $deviceInstance, $action) {
+        $model = $deviceInstance["device"]["outlet"]["pdu"]["model"];
+        $brand = $deviceInstance["device"]["outlet"]["pdu"]["brand"];
+        $ip = $deviceInstance["device"]["outlet"]["pdu"]["ip"];
+        $outlet = $deviceInstance["device"]["outlet"]["outlet"];
+        $uuid = $deviceInstance['uuid'];
+
+         //get token
+         $curl = curl_init();
+         curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/user/login");
+         curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "POST");
+         curl_setopt($curl, CURLOPT_POSTFIELDS,json_encode(["username"=>$this->pdu_api_login,"password"=>$this->pdu_api_password]));
+         curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Content-Type: application/json"]);
+         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+         $loginResponse = json_decode(curl_exec($curl), true);
+         if (curl_errno($curl)) { 
+             $loginResponse = null; 
+             $this->logger->debug("curl Error connexion", InstanceLogMessage::SCOPE_PRIVATE, [
+                 'instance' => $deviceInstance['uuid'],
+                 'error' => "curl error: ".curl_error($curl)
+                 ]);
+         }
+         else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+            $loginResponse = null; 
+            $this->logger->debug("http Error connexion", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'error' => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                ]);
+         }
+         curl_close($curl);
+         if ($loginResponse != null) {
+            $this->logger->debug("Connexion", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'response' => $loginResponse
+                ]);
+            $authorization = "Bearer ".$loginResponse["access_token"];
+
+            //get pdu list
+            $curl = curl_init();
+            curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/pdu");
+            curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "GET");
+            curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Authorization: ".$authorization]);
+            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+            $listPduResponse = json_decode(curl_exec($curl), true);
+            if (curl_errno($curl)) { 
+                $listPduResponse = null; 
+                $this->logger->debug("Curl Error Pdu list", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    "error" => curl_error($curl)
+                ]);
+            } 
+            else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+                $listPduResponse = null; 
+                $this->logger->debug("Http Error Pdu list", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    "error" => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                ]);
+            }
+            curl_close($curl);
+            if ($listPduResponse != null) {
+                $this->logger->debug("list pdu", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'response' => $listPduResponse
+                ]);
+                $pduID = null;
+                foreach ($listPduResponse as $pdu) {
+                    if ($pdu['ip'] == $ip && strtolower($pdu['model']) == strtolower($model) && strtolower($pdu['vendor']['name']) == strtolower($brand)) {
+                        $pduID = $pdu["id"];
+                        break;
+                    }
+                }
+                if ($pduID != null) {
+                    //get pdu outlet status
+                    $curl = curl_init();
+                    curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/pdu/".$pduID."/refresh");
+                    curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "GET");
+                    curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Authorization: ".$authorization]);
+                    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+                    $statusResponse = json_decode(curl_exec($curl), true);
+                    if (curl_errno($curl)) { 
+                        $statusResponse = null; 
+                        $this->logger->debug("Curl Error outlet", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                            "error" => "Curl error: ".curl_error($curl)
+                            ]);
+                    }
+                    else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+                        $statusResponse = null; 
+                        $this->logger->debug("Http Error outlet", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                            "error" => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                            ]);
+                    }
+                    curl_close($curl);
+                    if ($statusResponse != null) {
+                        $this->logger->debug("refresh pdu", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                            'response' => $statusResponse
+                        ]);
+                        $foundPDU = null;
+
+                        foreach ($statusResponse['outlets'] as $pduOutlet) {
+                            if ($pduOutlet["numero"] == $outlet) {
+                                $foundPDU = ["id" => $statusResponse["id"], "ip" => $ip, "model" => $model, "brand" => $brand, "outletNumber" => $pduOutlet["numero"], "outletState" => $pduOutlet["state"]];
+                                break;
+                            }
+                        }
+
+                        if (($action == "start" && $foundPDU["outletState"] == false) || ($action == "stop" && $foundPDU["outletState"] == true)) {
+                            //change pdu outlet status
+                            if ($action == "start") {
+                                $setState = true;
+                            }
+                            else {
+                                $setState = false;
+                            }
+                            $curl = curl_init();
+                            curl_setopt($curl, CURLOPT_URL, "http://10.22.9.34:5000/pdu/".$foundPDU['id']."/outlet/".$foundPDU['outletNumber']);
+                            curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "POST");
+                            curl_setopt($curl, CURLOPT_POSTFIELDS,json_encode(["state"=>$setState]));
+                            curl_setopt($curl, CURLOPT_HTTPHEADER, ["cachecontrol: no-cache", "Content-Type: application/json", "Authorization: ".$authorization]);
+                            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+                            $statusChangedResponse = curl_exec($curl);
+                            if (curl_errno($curl)) { 
+                                $statusChangedResponse = null; 
+                                $this->logger->debug("Curl State", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $deviceInstance['uuid'],
+                                    "error" => "Curl error: ".curl_error($curl)
+                                    ]);
+                            }
+                            else if (curl_getinfo($curl, CURLINFO_HTTP_CODE) != 200) {
+                                $statusChangedResponse = null; 
+                                $this->logger->debug("Http error state", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $deviceInstance['uuid'],
+                                    "error" => "Http request failed. Http code:  ".curl_getinfo($curl, CURLINFO_HTTP_CODE)
+                                    ]);
+                            }
+                            curl_close($curl);
+                            $this->logger->debug("set state", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid'],
+                                'response' => $statusChangedResponse
+                            ]);
+                            if ($statusChangedResponse != null) {
+                                if ($action == "start") {
+                                    $result=array(
+                                        "state" => InstanceStateMessage::STATE_STARTED,
+                                        "uuid" => $deviceInstance['uuid'],
+                                        "options" => null
+                                    );
+                                }
+                                else {
+                                    $result=array(
+                                        "state" => InstanceStateMessage::STATE_STOPPED,
+                                        "uuid" => $deviceInstance['uuid'],
+                                        "options" => null
+                                    );
+                                }
+                            }
+                            else {
+                                $changedStatus = ($action == "start") ? "started" : "stopped";
+                                $this->logger->debug("Device instance has not been ".$changedStatus."!", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'instance' => $deviceInstance['uuid'],
+                                ]);
+
+                                $result=array(
+                                    "state" => InstanceStateMessage::STATE_ERROR,
+                                    "uuid" => $deviceInstance['uuid'],
+                                    "options" => null
+                                );
+                            }
+                        }
+                        else if (($action == "start" && $foundPDU["outletState"] == true) || ($action == "stop" && $foundPDU["outletState"] == false)){
+                            if ($action == "start") {
+                                $result=array(
+                                    "state" => InstanceStateMessage::STATE_STARTED,
+                                    "uuid" => $deviceInstance['uuid'],
+                                    "options" => null
+                                );
+                            }
+                            else {
+                                $result=array(
+                                    "state" => InstanceStateMessage::STATE_STOPPED,
+                                    "uuid" => $deviceInstance['uuid'],
+                                    "options" => null
+                                );
+                            }
+                            
+                        }
+                        else {
+                            $changedStatus = ($action == "start") ? "started" : "stopped";
+                            $this->logger->debug("Could not find if the device is already ".$changedStatus, InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $deviceInstance['uuid'],
+                            ]);
+
+                            $result=array(
+                                "state" => InstanceStateMessage::STATE_ERROR,
+                                "uuid" => $deviceInstance['uuid'],
+                                "options" => null
+                            );
+                        }
+                    }
+                    else {
+                        $this->logger->debug("Could not request the device status", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $deviceInstance['uuid'],
+                        ]);
+
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+                    
+                }
+                else {
+                    $this->logger->debug("The pdu is not found on the list", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid'],
+                    ]);
+
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
+            }
+            else {
+                $this->logger->debug("Could not get the pdus list", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                ]);
+
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+            }
+        }
+        else {
+            $this->logger->debug("Authentication to the API failed", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+            ]);
+
+            $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
+        }
+
+         return $result;
     }
 
     public function connectToInternet(string $descriptor)
@@ -1728,6 +2325,278 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         OVS::UnlinkTwoOVS($bridge, $bridgeInt);
     }
 
+     /**
+     * reset a device specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a device instance.
+     * @param string $uuid UUID of the device instance to stop.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return void
+     */
+
+     public function resetDeviceInstance(string $descriptor, string $uuid) {
+
+        $deviceInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+
+        if ($deviceInstance['device']['virtuality'] == 0) {
+            $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, "stop");
+            if ($response['state'] == InstanceStateMessage::STATE_STOPPED) {
+                sleep(10);
+                $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, "start");
+                if ($response['state'] == InstanceStateMessage::STATE_STARTED) {
+                    $this->logger->info("Reset device requested.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+    
+                    ]);
+                    $this->logger->info('Device is resetting', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+    
+                    $command = "expect ".$this->kernel->getProjectDir()."/scripts/reset-device.sh ".$this->kernel->getProjectDir()."/config/ssh/pass_server_ssh.txt ".$this->server_ssh. " " .$deviceInstance["device"]["ip"]. " ".$deviceInstance["device"]["port"];                    
+                    $process = Process::fromShellCommandline($command);
+                    $process->setTimeout(620);
+                    try {
+                        $this->logger->debug("real device resetting command: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);
+                            
+                        $process->start();
+    
+                        $this->logger->debug("real device is resetting", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                            ]);
+    
+                        $process->wait();
+                        $this->logger->debug("real device resetting output: ".$process->getOutput(), InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                        ]);
+                        $this->logger->info("Device reset successfully",InstanceLogMessage::SCOPE_PUBLIC,[
+                            'instance' => $uuid
+                        ]);
+    
+                    }
+                    catch (ProcessTimedOutException $exception) {
+                        $this->logger->error("process timeout !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                        ]);
+                        $this->logger->debug("real device resetting output: ".$process->getOutput(), InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $uuid
+                        ]);
+                        $this->logger->error("Error while resetting device",InstanceLogMessage::SCOPE_PUBLIC,[
+                            'instance' => $uuid
+                        ]);
+                    }
+                    
+                    if (str_contains($process->getOutput(), "The reset is done")) {
+                        $this->changePhysicalDeviceState($uuid, $deviceInstance, "stop");
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_RESET,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                        
+                    }
+                    else {
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+                    $pidProcess = Process::fromShellCommandline("ps aux | grep expect | grep '" . $deviceInstance["device"]["ip"] . " " . $deviceInstance["device"]["port"] . "' | grep -v grep | awk '{print $2}'");
+    
+                    try {
+                        $pidProcess->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Process listing error to find expect error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                        ['instance' => $uuid
+                        ]);
+                        $error=true;
+                    }
+    
+                    $pidExpect = $pidProcess->getOutput();
+                    if (!empty($pidExpect)) {
+                        $pidExpect = explode("\n", $pidExpect);
+    
+                        foreach ($pidExpect as $pid) {
+                            if (!empty($pid)) {
+                                $pid = str_replace("\n", '', $pid);
+                                $pidProcess = new Process(['kill', '-9', $pid]);
+                                try {
+                                    $pidProcess->mustRun();
+                                }   catch (ProcessFailedException $exception) {
+                                    $this->logger->error("Killing expect error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                                    ['instance' => $uuid
+                                    ]);
+                                }
+                                $this->logger->debug("Killing expect process", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    "PID" => $pid
+                                ]);
+                            }
+                        }
+                    }
+    
+                }
+            }
+            
+        }
+        else {
+            if ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
+                $this->logger->info('LXC container is resetting', InstanceLogMessage::SCOPE_PUBLIC, [
+                    "image" => $deviceInstance['device']['operatingSystem']['name'],
+                    'instance' => $deviceInstance['uuid']
+                ]);
+    
+                $uuid = $deviceInstance["uuid"];
+                $error=false;
+    
+                if ($this->lxc_exist($uuid)) {
+                    $delete = $this->lxc_delete($uuid);
+                    if($delete['state'] == InstanceStateMessage::STATE_DELETED) {
+                        if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
+                            $this->logger->info("Device reset successfully",InstanceLogMessage::SCOPE_PUBLIC,[
+                                'instance' => $deviceInstance['uuid']
+                            ]);
+                            $result=array(
+                                "state" => InstanceStateMessage::STATE_RESET,
+                                "uuid" => $deviceInstance['uuid'],
+                                "options" => null
+                            );
+                        }
+                        else {
+                            $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
+                                'instance' => $deviceInstance['uuid']
+                            ]);
+                            $result=array(
+                                "state" => InstanceStateMessage::STATE_DELETED,
+                                "uuid" => $deviceInstance['uuid'],
+                                "options" => null
+                            );
+                            $error=true;
+                        }
+                    }
+                    else {
+                        $this->logger->info("Container has not been deleted",InstanceLogMessage::SCOPE_PUBLIC,[
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_STOPPED,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                        $error=true;
+                    }
+                }
+                else {
+                    $this->logger->info("Container does not exist",InstanceLogMessage::SCOPE_PUBLIC,[
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_STOPPED,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                    $error=true;
+                }
+            }
+            else if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
+                $filesystem = new Filesystem();
+    
+                $img = [
+                    "source" => $deviceInstance['device']['operatingSystem']['image']
+                ];
+    
+                $download_ok=true;
+                $this->logger->info('QEMU vm is resetting', InstanceLogMessage::SCOPE_PUBLIC, [
+                    "image" => $deviceInstance['device']['operatingSystem']['name'],
+                    'instance' => $deviceInstance['uuid']
+                ]);
+                $image_base=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
+                if ( !$filesystem->exists($image_base) ) {
+                    $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+                        "image" => $img['source'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+    
+                    if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
+                        $url=$img["source"];
+                    }
+                    else {
+                        //The source uploaded on the front.
+                        $url="http://".$this->front_ip."/uploads/images/".basename($img["source"]);
+                    }
+                    $this->logger->debug('Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
+                        "image" => $img['source'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    $download_ok=$this->download_http_image($url,$deviceInstance['uuid']);
+                }
+    
+                if ($download_ok) {
+    
+                    $labUser = $deviceInstance['labInstance']['owner']['uuid'];
+                    $ownedBy = $deviceInstance['labInstance']['ownedBy'];
+                    $labInstanceUuid = $deviceInstance['labInstance']['uuid'];
+    
+                    $instancePath = $this->kernel->getProjectDir() . "/instances";
+                    $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
+                    $instancePath .= '/' . $labUser;
+                    $instancePath .= '/' . $labInstanceUuid;
+                    $instancePath .= '/' . $uuid;
+    
+                    $img['destination'] = $instancePath . '/' . basename($img['source']);
+                    $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
+    
+                    if ($filesystem->exists($img['destination'])) {
+                        $this->qemu_delete($deviceInstance['uuid'],$img['destination']);
+                    }
+                    $this->logger->info('Resetting image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'source' => $img['source'],
+                        'destination' => $img['destination'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+    
+                    if ($this->qemu_create_relative_img($img['source'], $img['destination'],$deviceInstance['uuid'])) {
+                        $this->logger->info('VM image reset.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img['destination'],
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+    
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_RESET,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+                    else {
+                        $this->logger->error('VM image reset in error.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img['destination'],
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid"=>$uuid,
+                            "options" => null);
+                    }
+                    
+                }
+                else {
+                    $this->logger->error("Download QEMU image in error ! Perhaps, image file is too large", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+                    $this->qemu_delete($deviceInstance['uuid'],$image_base);
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
+            }
+        }
+        
+
+        return $result;
+     }
+
     /**
      * Export an instance described by JSON descriptor for device instance specified by UUID.
      *
@@ -1744,7 +2613,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] == 'exporting');
         });
 
-        $this->logger->debug("export process, instance descriptor argument: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
+        //$this->logger->debug("Export device process, instance descriptor argument: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
         if (!count($deviceInstance)) {
             $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']
@@ -1758,7 +2627,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "newDevice_id" => $labInstance["newDevice_id"],
                 "new_os_name" => $labInstance["new_os_name"],
                 "new_os_imagename" => $labInstance["new_os_imagename"],
-                "state" => InstanceActionMessage::ACTION_EXPORT,
+                "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                "workerIP" => $labInstance["workerIp"]
                     )
             );
         } else {
@@ -1783,108 +2653,108 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         
         // Test here if hypervisor is qemu
         if (($hypervisor === "qemu") || ($hypervisor === "file")) {
-                $this->logger->debug("Qemu image exportation detected");
-                $instancePath = $this->kernel->getProjectDir() . "/instances";
-                $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
-                $instancePath .= '/' . $labUser;
-                $instancePath .= '/' . $labInstanceUuid;
-                $instancePath .= '/' . $uuid;
+            $this->logger->debug("Qemu image exportation detected");
+            $instancePath = $this->kernel->getProjectDir() . "/instances";
+            $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
+            $instancePath .= '/' . $labUser;
+            $instancePath .= '/' . $labInstanceUuid;
+            $instancePath .= '/' . $uuid;
 
-                $imagePath = $this->kernel->getProjectDir() . "/images";
+            $imagePath = $this->kernel->getProjectDir() . "/images";
 
-                $newImagePath = $imagePath . '/' . $imagefilename;
-                $copyInstancePath = $instancePath . '/snap-' . basename($img["source"]);
+            $newImagePath = $imagePath . '/' . $imagefilename;
+            $copyInstancePath = $instancePath . '/snap-' . basename($img["source"]);
 
-                // Test if the image instance file exists. If the device has not been started before the export, the image instance doesn't exist.
-                    
-                $filename=$instancePath . '/' . basename($img["source"]);
-                $this->logger->debug("Test if image exist $filename",InstanceLogMessage::SCOPE_PRIVATE);
-                    
-                if (file_exists($filename)) {
-                    $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-
-                    $command = [
-                    'cp',
-                    $imagePath . '/' . basename($img["source"]),
-                    $newImagePath
-                    ];
-
-                    $this->logger->debug("Copying base image.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        "command" => implode(' ',$command)
-                    ]);
-
-                    $process = new Process($command);
-                    $process->setTimeout(600);
-                    try {
-                        $process->mustRun();
-                    }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
-                    }
-
-                    $command = [
-                        'cp',
-                        $instancePath . '/' . basename($img["source"]),
-                        $copyInstancePath
-                    ];
-
-                    $this->logger->debug("Copying backing image file.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        "command" => implode(' ',$command),
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-
-                    $process = new Process($command);
-                    $process->setTimeout(600);
-                    try {
-                        $process->mustRun();
-                    }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
-                    }
-
-                    $command = [
-                        'qemu-img',
-                        'rebase',
-                        '-f','qcow2','-F','qcow2',
-                        '-b',
-                        $newImagePath,
-                        $copyInstancePath
-                    ];
-
-                    $this->logger->debug("Rebasing backing and base image", InstanceLogMessage::SCOPE_PRIVATE, [
-                        "command" => implode(' ',$command),
-                        'instance' => $deviceInstance['uuid']
-
-                    ]);
-
-                    $process = new Process($command);
-                    $process->setTimeout(600);
-                    try {
-                        $process->mustRun();
-                    }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
-                    }
-
-                    $command = [
-                        'qemu-img',
-                        'commit',
-                        $copyInstancePath
-                    ];
-
-                    $this->logger->debug("Commit change on image.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        "command" => implode(' ',$command)
-                    ]);
-
-                    $process = new Process($command);
-                    $process->setTimeout(600);
-                    try {
-                        $process->mustRun();
-                    }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
-                    }
-
-                    $this->qemu_delete($deviceInstance['uuid'],$copyInstancePath);
+            // Test if the image instance file exists. If the device has not been started before the export, the image instance doesn't exist.
                 
+            $filename=$instancePath . '/' . basename($img["source"]);
+            $this->logger->debug("Test if image exist $filename",InstanceLogMessage::SCOPE_PRIVATE);
+                
+            if (file_exists($filename)) {
+                $this->logger->info("Starting export image...", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                ]);
+
+                $command = [
+                'cp',
+                $imagePath . '/' . basename($img["source"]),
+                $newImagePath
+                ];
+
+                $this->logger->debug("Copying base image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "command" => implode(' ',$command)
+                ]);
+
+                $process = new Process($command);
+                $process->setTimeout(600);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, $exception->getMessage());
+                }
+
+                $command = [
+                    'cp',
+                    $instancePath . '/' . basename($img["source"]),
+                    $copyInstancePath
+                ];
+
+                $this->logger->debug("Copying backing image file.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "command" => implode(' ',$command),
+                    'instance' => $deviceInstance['uuid']
+                ]);
+
+                $process = new Process($command);
+                $process->setTimeout(600);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Copying QEMU image file error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
+                }
+
+                $command = [
+                    'qemu-img',
+                    'rebase',
+                    '-f','qcow2','-F','qcow2',
+                    '-b',
+                    $newImagePath,
+                    $copyInstancePath
+                ];
+
+                $this->logger->debug("Rebasing backing and base image", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "command" => implode(' ',$command),
+                    'instance' => $deviceInstance['uuid']
+
+                ]);
+
+                $process = new Process($command);
+                $process->setTimeout(600);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Export: Rebase QEMU process error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
+                }
+
+                $command = [
+                    'qemu-img',
+                    'commit',
+                    $copyInstancePath
+                ];
+
+                $this->logger->debug("Commit change on image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "command" => implode(' ',$command)
+                ]);
+
+                $process = new Process($command);
+                $process->setTimeout(600);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Export: QEMU commit error ! ", InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid'], 'error' => $exception->getMessage()]);
+                }
+
+                $this->qemu_delete($deviceInstance['uuid'],$copyInstancePath);
+            
                 $this->logger->info("Image exported successfully!",InstanceLogMessage::SCOPE_PUBLIC,[
                     'instance' => $deviceInstance['uuid']
                 ]);
@@ -1896,11 +2766,17 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
-                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                    "workerIP" => $labInstance["workerIp"],
+                    "hypervisor" => $hypervisor
                     )
                 );
             }
             else {
+                $this->logger->info("You have to start at least one time the device !",InstanceLogMessage::SCOPE_PUBLIC,[
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+
                 $result=array(
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
@@ -1909,10 +2785,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "newDevice_id" => $labInstance["newDevice_id"],
                     "new_os_name" => $labInstance["new_os_name"],
                     "new_os_imagename" => $labInstance["new_os_imagename"],
-                    "state" => InstanceActionMessage::ACTION_EXPORT
+                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                    "workerIP" => $labInstance["workerIp"],
+                    "hypervisor" => $hypervisor,
+                    "error_code" => 1
                     )
                 );
-
             }
         }
         elseif ($hypervisor === "lxc") {
@@ -1929,16 +2807,19 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
                     "options" => array(
-                    "newOS_id" => $labInstance["newOS_id"],
-                    "newDevice_id" => $labInstance["newDevice_id"],
-                    "new_os_name" => $labInstance["new_os_name"],
-                    "new_os_imagename" => $labInstance["new_os_imagename"],
-                    "state" => InstanceActionMessage::ACTION_EXPORT
-                    )
+                        "newOS_id" => $labInstance["newOS_id"],
+                        "newDevice_id" => $labInstance["newDevice_id"],
+                        "new_os_name" => $labInstance["new_os_name"],
+                        "new_os_imagename" => $labInstance["new_os_imagename"],
+                        "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                        "workerIP" => $labInstance["workerIp"],
+                        "hypervisor" => $hypervisor,
+                        "error_code" => 1
+                       )
                 );
             }
             else {
-                
+
                 if (!$this->lxc_clone($deviceInstance['uuid'],basename($imagefilename,".img"))) {
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
@@ -1948,12 +2829,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "state" => InstanceStateMessage::STATE_EXPORTED,
                         "uuid" => $deviceInstance['uuid'],
                         "options" => array(
-                        "newOS_id" => $labInstance["newOS_id"],
-                        "newDevice_id" => $labInstance["newDevice_id"],
-                        "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"],
-                        "state" => InstanceActionMessage::ACTION_EXPORT
-                        )
+                            "newOS_id" => $labInstance["newOS_id"],
+                            "newDevice_id" => $labInstance["newDevice_id"],
+                            "new_os_name" => $labInstance["new_os_name"],
+                            "new_os_imagename" => $labInstance["new_os_imagename"],
+                            "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                            "workerIP" => $labInstance["workerIp"],
+                            "hypervisor" => $hypervisor
+                            )
                     );
                 } else {
                     $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
@@ -1963,12 +2846,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "state" => InstanceStateMessage::STATE_ERROR,
                         "uuid" => $deviceInstance['uuid'],
                         "options" => array(
-                        "newOS_id" => $labInstance["newOS_id"],
-                        "newDevice_id" => $labInstance["newDevice_id"],
-                        "new_os_name" => $labInstance["new_os_name"],
-                        "new_os_imagename" => $labInstance["new_os_imagename"],
-                        "state" => InstanceActionMessage::ACTION_EXPORT)
-                    );
+                            "newOS_id" => $labInstance["newOS_id"],
+                            "newDevice_id" => $labInstance["newDevice_id"],
+                            "new_os_name" => $labInstance["new_os_name"],
+                            "new_os_imagename" => $labInstance["new_os_imagename"],
+                            "state" => InstanceActionMessage::ACTION_EXPORT_DEV),
+                            "workerIP" => $labInstance["workerIp"],
+                            "hypervisor" => $hypervisor
+                        );
                 }
             }
         }
@@ -1982,16 +2867,71 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "state" => InstanceStateMessage::STATE_ERROR,
                 "uuid" => $deviceInstance['uuid'],
                 "options" => array(
-                "newOS_id" => $labInstance["newOS_id"],
-                "newDevice_id" => $labInstance["newDevice_id"],
-                "new_os_name" => $labInstance["new_os_name"],
-                "new_os_imagename" => $labInstance["new_os_imagename"],
-                "state" => InstanceActionMessage::ACTION_EXPORT)
-            );
+                    "newOS_id" => $labInstance["newOS_id"],
+                    "newDevice_id" => $labInstance["newDevice_id"],
+                    "new_os_name" => $labInstance["new_os_name"],
+                    "new_os_imagename" => $labInstance["new_os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_EXPORT_DEV,
+                    "error_code" => 1,
+                    "workerIP" => $labInstance["workerIp"],
+                    "hypervisor" => $hypervisor
+                    )
+                );
         }
         return $result;
     }
 
+    /**
+     * Export an instance described by JSON descriptor for device instance specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to export.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return array ["state", "uuid", "options"=array("newOs_id", "newDevice_id", "new_os_name", "new_os_imagename")]
+     */
+    public function exportLabInstance(string $descriptor, string $uuid) {
+        $this->logger->setUuid($uuid);
+        $result="";
+        $results = [];
+        $error = false;
+        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        foreach($labInstance['deviceInstances'] as $deviceInstance) {
+            array_push($results, $this->exportDeviceInstance($descriptor, $deviceInstance['uuid']));
+        }
+        
+        foreach($results as $result) {
+            if ($result['state'] === InstanceStateMessage::STATE_ERROR) {
+                $error = true;
+            }
+        }
+        if ($error == true) {
+            $result = $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => array(
+                "newOS_id" => $labInstance["newOS_id"],
+                "newDevice_id" => $labInstance["newDevice_id"],
+                "new_os_name" => $labInstance["new_os_name"],
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT_LAB)
+            );
+        }
+        else {
+            $result = $result=array(
+                "state" => InstanceStateMessage::STATE_EXPORTED,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => array(
+                "newOS_id" => $labInstance["newOS_id"],
+                "newDevice_id" => $labInstance["newDevice_id"],
+                "new_os_name" => $labInstance["new_os_name"],
+                "new_os_imagename" => $labInstance["new_os_imagename"],
+                "state" => InstanceActionMessage::ACTION_EXPORT_LAB)
+            );
+        }
+        
+        return $result;
+    }
+    
     /**
      * Delete an image on the filesystem
      *
@@ -2054,20 +2994,28 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * Delete the file or the container of an OS
      * @return Array("state","uuid","options"=array())
      */
-    public function deleteOS(string $descriptor, int $id){
+    public function deleteOS(string $descriptor){
         $operatingSystem = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
         
-        switch($operatingSystem["hypervisor"]["name"]){
+        switch($operatingSystem["hypervisor"]){
             case "qemu":
-                $this->qemu_delete($operatingSystem["uuid"],$this->kernel->getProjectDir()."/images/".$operatingSystem["imageFilename"]);
+                $this->qemu_delete("",$this->kernel->getProjectDir()."/images/".$operatingSystem["os_imagename"]);
                 break;
             case "lxc":
-                $this->lxc_delete($operatingSystem["imageFilename"]);
+                $this->lxc_delete($operatingSystem["os_imagename"]);
                 break;
         }
         //No uuid because we have no instance in this function
-        return array("uuid"=>"","state"=>InstanceStateMessage::STATE_DELETED ,"options"=> null);
+        return array("uuid"=>"","state"=>InstanceStateMessage::STATE_OS_DELETED ,
+        "options" => array(
+                    "os_imagename" => $operatingSystem["os_imagename"],
+                    "state" => InstanceActionMessage::ACTION_DELETEOS,
+                    "workerIP" => $operatingSystem["Worker_Dest_IP"],
+                    "hypervisor" => $operatingSystem["hypervisor"]
+                    )
+            
+            );
 
     }
 
@@ -2489,9 +3437,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
     private function stop_device_lxc($uuid,$deviceInstance,$labInstance) {
-            $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
+            /*$this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
                 'labInstance' => $labInstance
-            ]);
+            ]);*/
             $result=$this->lxc_stop($uuid);
             if ($result['state']===InstanceStateMessage::STATE_STOPPED) {
                 $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -2560,7 +3508,541 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         }
                     }
                 }
+                
             }
+
+           /* $cmd = "tmux -S /tmp/tmux-remotelabz has-session -t admin-".$deviceInstance['uuid'];
+            $process = Process::fromShellCommandline($cmd);
+            $process->run();
+            if ($process->getExitCode() == 0) {
+                $cmd = "tmux -S /tmp/tmux-remotelabz kill-session -t admin-".$deviceInstance['uuid'];
+                $process = Process::fromShellCommandline($cmd);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $this->logger->error("Kill admin tmux session error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                        ['instance' => $deviceInstance['uuid']
+                    ]);
+                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                    "uuid"=>$deviceInstance['uuid'],
+                                    "options" => null);
+                    $error=true;
+                }
+            }
+
+            $cmd = "tmux -S /tmp/tmux-remotelabz kill-session -t ".$deviceInstance['uuid'];
+            $process = Process::fromShellCommandline($cmd);
+            try {
+                $process->mustRun();
+            }   catch (ProcessFailedException $exception) {
+                $this->logger->error("Kill tmux session error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $deviceInstance['uuid']
+                ]);
+                $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                "uuid"=>$deviceInstance['uuid'],
+                                "options" => null);
+                $error=true;
+            }*/
         return $result;
     }
+
+    private function stop_device_physical($uuid,$deviceInstance,$labInstance)
+    {
+        /*$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+            'labInstance' => $labInstance
+        ]);*/
+
+        $result = $this->changePhysicalDeviceState($uuid, $deviceInstance, "stop");
+        if ($result["state"] === InstanceStateMessage::STATE_STOPPED) {
+            $this->logger->info("Device stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']]);
+            $result=array(
+                "state" => InstanceStateMessage::STATE_STOPPED,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
+        }
+        else {
+            $this->logger->error("Device stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']]);
+            $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
+        }
+
+        $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
+
+        $this->logger->info("Find process ttyd command:".$cmd, InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance["uuid"]
+        ]);
+        $process = Process::fromShellCommandline($cmd);
+        $error=false;
+        try {
+            $process->mustRun();
+        }   catch (ProcessFailedException $exception) {
+            $this->logger->error("Process listing error to find Login connexion error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+                ['instance' => $deviceInstance['uuid']
+            ]);
+            $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid"=>$deviceInstance['uuid'],
+                            "options" => null);
+            $error=true;
+        }
+        if (!$error) {
+            $pidscreen = $process->getOutput();
+            $this->logger->debug("Process ttyd output :".$pidscreen, InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance["uuid"]
+            ]);
+        }
+        $error=false;
+
+        if (!empty($pidscreen)) {
+            $pidscreen = explode("\n", $pidscreen);
+
+            foreach ($pidscreen as $pid) {
+                if (!empty($pid)) {
+                    $pid = str_replace("\n", '', $pid);
+                    $process = new Process(['kill', '-9', $pid]);
+                    try {
+                        $process->mustRun();
+                    }   catch (ProcessFailedException $exception) {
+                        $this->logger->error("Killing screen error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ['instance' => $deviceInstance['uuid']]);
+                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid"=>$deviceInstance['uuid'],
+                            "options" => null);
+                    }
+                    $this->logger->debug("Killing screen process", InstanceLogMessage::SCOPE_PRIVATE, [
+                        "PID" => $pid
+                    ]);
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Export an instance described by JSON descriptor for device instance specified by UUID.
+     *
+     * @param string $descriptor JSON representation of a lab instance.
+     * @param string $uuid UUID of the device instance to export.
+     * @throws ProcessFailedException When a process failed to run.
+     * @return array ["state", "uuid", "options"=array("newOs_id", "newDevice_id", "new_os_name", "new_os_imagename")]
+     */
+    public function copy2worker(string $descriptor) {
+        $result="";
+        $os_to_copy = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $state=InstanceStateMessage::STATE_OS_COPIED;
+
+        $this->logger->debug("Enter in copy2worker process ",InstanceLogMessage::SCOPE_PRIVATE);
+
+        $publicKeyFile=$this->getParameter('app.ssh.worker.publickey');
+        $privateKeyFile=$this->getParameter('app.ssh.worker.privatekey');
+        $ssh_user=$this->getParameter('app.ssh.worker.user');
+        $ssh_password=$this->getParameter('app.ssh.worker.passwd');
+
+        $cible=$ssh_user."@".$os_to_copy["Worker_Dest_IP"];
+        
+        $this->logger->debug("Copy process to worker: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("Copy ".$os_to_copy["hypervisor"]." image ".$os_to_copy["os_imagename"]." to worker: ".$os_to_copy["Worker_Dest_IP"],InstanceLogMessage::SCOPE_PRIVATE);
+        switch ($os_to_copy["hypervisor"]) {
+            case "qemu":
+                $result_scp="";
+                $connection=$this->ssh($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
+                $local_file="/opt/remotelabz-worker/images/".$os_to_copy["os_imagename"];
+                $remote_file=$local_file;
+               
+                try {
+                    $result_scp=$this->scp($connection, $local_file, $remote_file);                
+
+                    if ($result_scp) {       
+                        $message=$result_scp;
+                        $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $os_to_copy["os_imagename"],
+                            'error' => true,
+                            "options" => [
+                                "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                'error' => $message,
+                                'Worker_Dest_IP' => $os_to_copy["Worker_Dest_IP"]
+                                        ]
+                                ]);
+                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                                "uuid" => $os_to_copy["os_imagename"],
+                                                "error" => true,
+                                                "message" => $message,
+                                                "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                            'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
+                                                            'error' => $message
+                                                            ]
+                                    );
+                    } else { // No error return by scp command
+                        $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+                        
+                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                        "uuid" => $os_to_copy["os_imagename"],
+                        "error" => false,
+                        "message" => $result_scp,
+                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                    'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                    ]
+                        );
+                    }
+                } catch(ErrorException $e) {
+                    $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'error' => $e->getMessage(),
+                        'instance' => $os_to_copy["os_imagename"]
+                    ]);
+                }
+
+                ssh2_disconnect($connection);
+                
+
+                break;
+            
+            case "lxc":
+                /* Sur le worker source qui vient de recevoir l'ordre de copy sur un autre
+                ssh remotelabz-worker@$deviceInstance["worker_dest"] "sudo lxc-create -n '$deviceInstance['os_imagename']' -t none"
+                scp -r "/var/lib/lxc/".$deviceInstance["os_imagename"] remotelabz-worker@$deviceInstance["worker_dest"]:"/var/lib/lxc/".$deviceInstance["os_imagename"]
+                */
+                $connection=$this->ssh($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
+
+                $result_lxc=$this->Destroy_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename']);
+                              
+                if ($result_lxc["error"]) {
+                    $this->logger->error("Error in remote LXC destroy ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
+                        'instance' => $deviceInstance['os_imagename'],
+                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                        "error" => $result_lxc["message"],
+                                        "worker_dest_ip" => $deviceInstance["Worker_Dest_IP"]
+                                    ]
+                        ]);
+                    
+                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                    "uuid"=>$os_to_copy['os_imagename'],
+                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                        "error" => $result_lxc["message"],
+                                        "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
+                                    ]
+                            );
+                ssh2_disconnect($connection);
+                }
+                else {
+                    /*$this->logger->info("Remote LXC destroy is successfull of OS ".$os_to_copy['os_imagename']." to Worker ".$os_to_copy["Worker_Dest_IP"], InstanceLogMessage::SCOPE_PUBLIC, [   
+                        'instance' => $os_to_copy['os_imagename'],
+                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                        "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
+                                    ]
+                      ]);   
+                    */
+                    $result_lxc=$this->Create_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename']);               
+
+                    if ($result_lxc["error"]) {
+                        $this->logger->error("Error in remote LXC creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
+                            'instance' => $os_to_copy['os_imagename'],
+                            "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                            "error" => $result_lxc["message"],
+                                            "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
+                                        ]
+                        ]);
+                        
+                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                    "uuid"=>$os_to_copy['os_imagename'],
+                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                        "error" => $result_lxc["message"],
+                                        'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                                ]
+                                    );
+                    ssh2_disconnect($connection);
+                    } else 
+                    {   $this->logger->info("Remote LXC creation successfull of OS ".$os_to_copy['os_imagename']." to Worker ".$os_to_copy["Worker_Dest_IP"], InstanceLogMessage::SCOPE_PUBLIC, [   
+                                            'instance' => $os_to_copy['os_imagename'],
+                                            "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                            "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
+                                                        ]
+                                          ]);                        
+                        
+                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                    "uuid"=>$os_to_copy['os_imagename'],
+                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                                ]
+                                    );
+                    }
+                }
+            break;
+            default:
+                //$this->logger->error("Copy process in error, unknow hypervisor: ".$deviceInstance["hypervisor"],InstanceLogMessage::SCOPE_PRIVATE);
+                $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                                        "uuid"=>"",
+                                        "options" => [ "state" =>InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                            "error" => "unknow hypervisor"
+                                        ]
+                            );
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Destroy a remote LXC
+     *
+     * @param resource $connection from a authenticated ssh connexion
+     * @param string $os_imagename
+     * @throws ProcessFailedException When a process failed to run.
+     */
+    public function Destroy_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename) {
+        $result="";
+        $result_destroy=array();
+        $message="";
+
+        $cmd="sudo /usr/bin/lxc-destroy -f -n ".$os_imagename;
+        $result=$this->executeRemoteCommand($connection, $cmd);
+
+       /* $this->logger->info("Destroy a remote LXC container ".$os_imagename." on ".$Worker_Dest_IP, InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $os_imagename
+        ]);
+        $this->logger->debug("Destroy a remote LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ',$command),
+            'instance' => $os_imagename
+        ]);
+        */
+        if ($result) {       
+            $message=$exception->getMessage();
+            $this->logger->error("Error in remote LXC container destruction ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $os_imagename,
+                "options" => [
+                    "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                    'error' => $message,
+                    'Worker_Dest_IP' => $Worker_Dest_IP
+                            ]
+                    ]);
+
+            $result_destroy=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                    "uuid"=>$os_imagename,
+                                    'error' => true,
+                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                'worker_dest_ip' => $Worker_Dest_IP
+                                                ]
+                        );
+        } else 
+            $result_destroy=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                "uuid"=>$os_imagename,
+                'error' => false,
+                "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                            'worker_dest_ip' => $Worker_Dest_IP
+                            ]
+                );  
+        return $result_destroy;
+    }
+
+   /**
+     * Create a remote LXC
+     *
+     * @param string $ssh_user The user of the other worker
+     * @param string $Worker_Dest_IP
+     * @param string $os_imagename
+     * @throws ProcessFailedException When a process failed to run.
+     */
+    public function Create_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename) {
+        $result="";
+        $result_creation=array();
+        $message="";
+
+            $cmd="sudo /usr/bin/lxc-create -n ".$os_imagename." -t none";
+            $result=$this->executeRemoteCommand($connection, $cmd);
+        
+            $cmd="sudo chown root:remotelabz-worker /var/lib/lxc/".$os_imagename." -R";
+            $result=$this->executeRemoteCommand($connection, $cmd);
+
+            $command = [
+                'tar','czf',"/var/lib/lxc/".$os_imagename.".tgz","-C","/var/lib/lxc/",$os_imagename
+            ];
+            
+            $this->logger->debug("Creating LXC container backup.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ',$command)
+            ]);
+    
+            $process = new Process($command);
+            $process->setTimeout(600);
+            try {
+                $process->mustRun();
+            
+                    $local_file="/var/lib/lxc/".$os_imagename.".tgz";
+                    $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
+
+                    try {
+                        $result=$this->scp($connection, $local_file, $remote_file);                
+
+                        if ($result) {       
+                            $message=$result;
+                            $this->logger->error("Error in remote LXC container creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                                'instance' => $os_imagename,
+                                'error' => true,
+                                "options" => [
+                                    "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                    'error' => $message,
+                                    'Worker_Dest_IP' => $Worker_Dest_IP
+                                            ]
+                                    ]);
+                            $result_creation=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                                    "uuid"=>$os_imagename,
+                                                    "error" => true,
+                                                    "message" => $message,
+                                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                                'worker_dest_ip' => $Worker_Dest_IP,
+                                                                'error' => $message
+                                                                ]
+                                        );
+                        } else {
+                            $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+
+                            $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $result=$this->executeRemoteCommand($connection, $cmd);
+
+                            $cmd="rm ".$remote_file;
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $result=$this->executeRemoteCommand($connection, $cmd);
+
+                            $MAC_ADDR=$this->macgen();
+                            $cmd="sed -e \"s/lxc.net.0.hwaddr = .*/lxc.net.0.hwaddr = ".$MAC_ADDR."/g\" /var/lib/lxc/".$os_imagename."/config > /var/lib/lxc/".$os_imagename."/config-new";
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $result=$this->executeRemoteCommand($connection, $cmd);
+
+                            $cmd="mv /var/lib/lxc/".$os_imagename."/config-new /var/lib/lxc/".$os_imagename."/config";
+                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $result=$this->executeRemoteCommand($connection, $cmd);
+                            
+
+                            $result_creation=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                                    "uuid"=>$os_imagename,
+                                                    "error" => false,
+                                                    "message" => $message,
+                                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                                'worker_dest_ip' => $Worker_Dest_IP
+                                                                ]
+                                        );
+                        }
+                    }
+                    catch (ErrorException $exception){
+                        $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'error' => $exception->getMessage(),
+                            'instance' => $os_imagename
+                        ]);
+                    }
+            }   catch (ProcessFailedException $exception) {
+                $error=true;
+                $this->logger->error("Failed LXC container backup creation", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'error' => $exception->getMessage(),
+                    'instance' => $os_imagename
+                ]);
+            }
+        return $result_creation;
+    }
+
+    /**
+     * Fonction pour exécuter une commande sur un serveur distant via SSH en utilisant une clé privée.
+     *
+     * @param string $host            L'adresse IP ou le nom de domaine du serveur distant.
+     * @param int    $port            Le port SSH (par défaut 22).
+     * @param string $username        Le nom d'utilisateur SSH.
+     * @param string $privateKeyFile  Le chemin vers la clé privée.
+     * @param string $publicKeyFile   Le chemin vers la clé publique (facultatif).
+     * @return string|bool            Le résultat de la commande, ou false en cas d'échec.
+     * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
+    */
+    function ssh($host, $port, $username, $password, $publicKeyFile, $privateKeyFile) {
+        $connection = ssh2_connect($host, $port);
+        if (!$connection) {
+            throw new Exception('Échec de la connexion au serveur distant.');
+            return false;
+        }
+        $this->logger->debug("Starting ssh connection", InstanceLogMessage::SCOPE_PRIVATE);
+
+        try {
+            // Authentification avec la clé privée
+            if (ssh2_auth_pubkey_file($connection, $username, $publicKeyFile,$privateKeyFile)) {
+                $this->logger->debug("Authentication with pubkey successfull", InstanceLogMessage::SCOPE_PRIVATE);
+                return $connection;
+                }
+                else {
+                    $this->logger->debug("Authentication with pubkey failed", InstanceLogMessage::SCOPE_PRIVATE);
+                    throw new ErrorException('Authentication with pubkey failed');
+                    return false;
+                }
+        }
+        catch (ErrorException $e) {
+            // Gestion de l'erreur
+            // return $e->getMessage();
+            $this->logger->debug("Test with authentication password", InstanceLogMessage::SCOPE_PRIVATE);
+            if (!ssh2_auth_password($connection, $username, $password)) {
+                throw new ErrorException('Authentication with password failed');
+                return false;
+            } else {
+                $this->logger->debug("Authentication with password successfull", InstanceLogMessage::SCOPE_PRIVATE);
+                return $connection;
+            }
+        }
+    }
+
+ /**
+ * Fonction pour exécuter une commande sur un serveur distant via SSH en utilisant une clé privée.
+ *
+ * @param resource $connection    A connection authenticated
+ * @param string $command         La commande à exécuter sur le serveur distant.
+ * @return string|bool            Le résultat de la commande, ou false en cas d'échec.
+ * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
+ */
+function executeRemoteCommand($connection, $command) {  
+
+        // Exécution de la commande
+        $stream = ssh2_exec($connection, $command);
+        if (!$stream) {
+            throw new Exception('Command execution failed');
+        }
+
+        // Gestion des flux de sortie
+        stream_set_blocking($stream, true);
+        $output = stream_get_contents($stream);
+        //$this->logger->debug("Exec4 ssh return :".$output, InstanceLogMessage::SCOPE_PRIVATE);
+
+        fclose($stream); // Fermer le flux après l'exécution
+        //$this->logger->debug("Exec5 ssh return :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+
+        return false;
+}
+
+/**
+ * Fonction pour exécuter une commande sur un serveur distant via SSH en utilisant une clé privée.
+ *
+ * @param resource $connexion
+ * @param string $localDir   Le chemin local du fichier
+ * @param string $remoteDir        Le chemin distant du fichier
+ * @return string|bool            Le résultat de la commande, ou false en cas de succes
+ * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
+ */
+function scp($connection, $localFile, $remoteFile) {
+    try {
+        ssh2_scp_send($connection, $localFile, $remoteFile,0640);
+        return false;
+        // $this->logger->debug("Send file ".$local_file." -> ".$remote_file, InstanceLogMessage::SCOPE_PRIVATE);
+        throw new ErrorException('Send file impossible');
+    }
+    catch (ErrorException $e) {
+        $this->logger->debug("Send failed for file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
+
+    $this->logger->error("SCP Failed ".$localFile, InstanceLogMessage::SCOPE_PRIVATE,
+        ['instance' => $localFile,
+        'error' => true,
+        "options" => [
+            "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+            'error' => $e->getMessage()
+                    ]
+            ]);
+    return $e->getMessage();
+    }
+}
+
 }

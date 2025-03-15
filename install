@@ -95,13 +95,13 @@ debug "Running apt-get to grab required packages"
 apt-get install -y software-properties-common
 #add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php zip unzip qemu qemu-kvm openvswitch-switch git python3 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4
+apt-get install -y ntp apache2 php php-ssh2 zip unzip qemu qemu-kvm openvswitch-switch git python3.9 python3-pip python3-openvswitch php-xml php-curl php-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect
 echo "OK ✔️"
 
-# Create user remotelabz and remotelabz group
+# Create user remotelabz-worker and remotelabz-worker group
 if [ ! $(getent passwd remotelabz-worker) ]; then
   echo "Creating remotelabz-worker user"
-  useradd -N remotelabz-worker
+  useradd -N -m remotelabz-worker
 fi
 if [ ! $(getent group remotelabz-worker) ]; then
   echo "Creating remotelabz-worker group"
@@ -114,6 +114,15 @@ usermod -aG remotelabz-worker remotelabz-worker
 chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
+# ssh key
+mkdir /home/remotelabz-worker
+mkdir /home/remotelabz-worker/.ssh
+chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh
+chmod 700 /home/remotelabz-worker/.ssh
+ssh-keygen -t rsa -b 4096 -f /home/remotelabz-worker/.ssh/id_rsa
+chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh/id_rsa*
+chmod 600 /home/remotelabz-worker/.ssh/id_rsa
+cat /home/remotelabz-worker/.ssh/id_rsa.pub | sudo tee -a /home/remotelabz-worker/.ssh/authorized_keys
 
 #echo "Configure data network"
 #ovs-vsctl --may-exist add-br "${BRIDGE_INT}"
@@ -131,8 +140,8 @@ sed -i 's/[#| ]*net.ipv4.ip_forward[ ]*=[ |0|1]*/net.ipv4.ip_forward = 1/g' /etc
 echo "OK ✔️"
 
 echo "Adding sudo permissions for remotelabz-worker user"
-echo "%remotelabz-worker     ALL = (ALL) NOPASSWD: $(which ip), $(which iptables), $(which ovs-vsctl), $(which systemctl) start remotelabz*, $(which systemctl) stop remotelabz*, $(which systemctl) restart remotelabz*, $(which systemctl) status remotelabz*" | sudo tee /etc/sudoers.d/remotelabz-worker
-echo "%www-data     ALL = (ALL) NOPASSWD: $(which ip), $(which iptables), $(which ovs-vsctl), $(which systemctl) start remotelabz*, $(which systemctl) stop remotelabz*, $(which systemctl) restart remotelabz*, $(which systemctl) status remotelabz*" | sudo tee -a /etc/sudoers.d/remotelabz-worker
+cp config/sudo/remotelabz-worker /etc/sudoers.d/
+chmod 440 /etc/sudoers.d/remotelabz-worker
 echo "OK ✔️"
 
 # Composer
@@ -171,7 +180,7 @@ if ! [ $(command -v websockify) ]; then
     debug "Installing WebSockify..."
     pip3 install setuptools
     git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify"
-    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install)
+    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3.9 setup.py install)
     rm -rf "${REMOTELABZ_WORKER_PATH}/websockify"
     echo "OK ✔️"
 else
@@ -252,20 +261,20 @@ if [ "${LXC}" == "" ] ; then
   echo "OK ✔️"
 fi;
 
-LXC=`lxc-ls -name "Ubuntu20LTS"`;
+LXC=`lxc-ls -name "Ubuntu24LTS"`;
 if [ "${LXC}" == "" ] ; then
-  echo "Creation of a container Ubuntu 20 LTS"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu20LTS -- -d ubuntu -r focal -a amd64
-  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu20LTS/rootfs/etc/issue"
+  echo "Creation of a container Ubuntu 24 LTS"
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu24LTS -- -d ubuntu -r focal -a amd64
+  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu24LTS/rootfs/etc/issue"
   echo "OK ✔️"
 fi;
 
-LXC=`lxc-ls -name "Alpine3.15"`;
+LXC=`lxc-ls -name "AlpineEdge"`;
 if [ "${LXC}" == "" ] ; then
-echo "Creation of a container Alpine 3.15"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine3.15 -- -d alpine -r 3.15 -a amd64
-echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine3.15/rootfs/etc/issue"
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine3.15/rootfs/etc/resolv.conf"
+echo "Creation of a container Alpine Edge"
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine-Stable -- -d alpine -r edge -a amd64
+echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine-Stable/rootfs/etc/issue"
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine-Stable/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 fi;
 
@@ -278,6 +287,9 @@ fi;
 echo "OK ✔️"
 
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs!"
+echo "you have to define the authentication key between all workers for ssh. On each worker, you have to execute the following commands :"
+echo "sudo -u remotelabz-worker ssh-copy-id -i /home/remotelabz-worker/.ssh/id_rsa.pub remotelabz-worker@Worker_X-IP"
+
 echo "On your worker, you have now to follow the instruction https://docs.remotelabz.com/administrators/getting-started/ubuntu-standalone/#add-a-dhcp-service-for-your-laboratory"
 
 if ! [ -f "${REMOTELABZ_WORKER_PATH}/images/alpinelab1.img" ] ; then
@@ -295,6 +307,9 @@ fi;
 #echo "Download Ubuntu Server 18 with LXDE qemu image"
 #wget -q http://194.57.105.124/~fnolot/ubuntu-18-SrvLxde.img
 #echo "OK ✔️"
+
+chown remotelabz-worker:www-data /opt/remotelabz-worker/var -R
+chmod g+w /opt/remotelabz-worker/var -R
 
 systemctl enable remotelabz-worker
 systemctl start remotelabz-worker
