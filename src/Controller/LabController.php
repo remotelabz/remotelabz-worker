@@ -22,17 +22,12 @@ class LabController extends AbstractController
     private $workerDir;
     protected $logger;
 
-    public function __construct(KernelInterface $kernel, LoggerInterface $logger)
-    {
-        $this->kernel = $kernel;
+    public function __construct(KernelInterface $kernel, LoggerInterface $logger) {
         $this->workerDir = realpath(dirname(__FILE__) . "/../../");
-        $this->logger = $logger;
     }
 
-    /**
-     * @Route("/worker/port/free", name="get_free_port")
-     */
-    public function getFreePortAction()
+    #[Route('/worker/port/free', name: 'get_free_port')]
+    public function getFreePortAction(): Response
     {
         $process = new Process([ $this->kernel->getProjectDir().'/scripts/get-available-port.sh' ]);
         try {

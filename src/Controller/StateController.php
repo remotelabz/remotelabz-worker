@@ -20,10 +20,8 @@ class StateController extends AbstractController
         $this->logger = $logger;
     }
 
-    /** 
-     * @Route("/healthcheck", name="healthcheck")
-     */
-    public function healthcheckAction()
+    #[Route('/healthcheck', name: 'healthcheck')]
+    public function healthcheckAction(): JsonResponse
     {
         $messageServiceStateProcess = new Process([
             'systemctl',
@@ -46,10 +44,8 @@ class StateController extends AbstractController
         return new JsonResponse($response);
     }
 
-    /** 
-     * @Route("/service/{service}", name="manage_service")
-     */
-    public function manageServiceAction(Request $request, string $service)
+    #[Route('/service/{service}', name: 'manage_service')]
+    public function manageServiceAction(Request $request, string $service): JsonResponse
     {
         $action = $request->query->get('action');
 
@@ -73,10 +69,8 @@ class StateController extends AbstractController
         return new JsonResponse();
     }
 
-    /** 
-     * @Route("/stats/{ressource}", name="stats_ressource")
-     */
-    public function statsRessourceAction(Request $request, string $ressource)
+    #[Route('//stats/{ressource}', name: 'stats_ressource')]
+    public function statsRessourceAction(Request $request, string $ressource): JsonResponse
     {
 
         $response = [
@@ -126,7 +120,7 @@ class StateController extends AbstractController
             return new JsonResponse(null);
     }
 
-    private function cpu_load() {
+    private function cpu_load(): int {
         $messagestatsRessourceProcess = new Process([
             'top',
             '-b','-n2','-p1','-d1'
@@ -146,7 +140,7 @@ class StateController extends AbstractController
         return 100-(int) round(preg_replace('/^.+ni[, ]+([0-9\.]+) id,.+/', '$1', $output[11]));
     }
 
-    private function disk_usage() {
+    private function disk_usage(): int {
         $messagestatsRessourceProcess = new Process([
             'df',
             '-h', '/'
@@ -164,7 +158,7 @@ class StateController extends AbstractController
         return (int) round(preg_replace('/^.+ ([0-9]+)% .+/', '$1', $output[1]));
     }
 
-    private function memory_usage() : array {
+    private function memory_usage(): array {
         $messagestatsRessourceProcess = new Process([
             'cat',
             '/proc/meminfo'
@@ -195,7 +189,7 @@ class StateController extends AbstractController
         return $result;
     }
 
-    private function lxcfs_load() {            
+    private function lxcfs_load(): int|sring {            
         $lxcfs=shell_exec("top -b -n2 -d0.2 -p `ps aux | grep -v \"grep\" | grep \"/usr/bin/lxcfs\" |awk '{print $2}'` | tail -1 |awk '{print $9}' | tr -d \"\n\"");
         if (!is_null($lxcfs) && $lxcfs)
             return (int) $lxcfs;
@@ -203,7 +197,7 @@ class StateController extends AbstractController
             return "";
     }
 
-    private function opened_file() {
+    private function opened_file(): string {
         $command = [
             'bash','-c','sudo lsof -w | wc -l'
         ];
@@ -223,7 +217,7 @@ class StateController extends AbstractController
         
     }
 
-    private function lxc_number() {   
+    private function lxc_number(): int {   
         $lxclsrun=shell_exec("sudo lxc-ls -f | grep RUNNING | wc -l");
         if (!is_null($lxclsrun) && $lxclsrun)
             return (int) $lxclsrun;
@@ -231,7 +225,7 @@ class StateController extends AbstractController
             return 0;
     }
 
-    private function qemu_number(){
+    private function qemu_number(): int{
         $qemurun=shell_exec("sudo ps x | grep -e \"qemu\" | wc -l");
         if (!is_null($qemurun) && $qemurun)
             return (int) $qemurun;

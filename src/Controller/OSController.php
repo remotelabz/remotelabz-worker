@@ -11,10 +11,8 @@ use Symfony\Component\Process\Process;
 class OSController extends AbstractController
 {
 
-    /** 
-     * @Route("/os", name="os")
-     */
-    public function osAction()
+    #[Route('/os', name: 'os')]
+    public function osAction(): JsonResponse
     {
         $response = [
             'IP' => [],

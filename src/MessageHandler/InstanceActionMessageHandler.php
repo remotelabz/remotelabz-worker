@@ -15,16 +15,17 @@ use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
 class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwareInterface
 {
     protected $instanceManager;
-    /** @var LoggerInterface $logger */
     private $logger;
     private $bus;
 
     public function __construct(
         InstanceManager $instanceManager,
-        MessageBusInterface $bus
+        MessageBusInterface $bus,
+        LoggerInterface $logger
     ) {
         $this->instanceManager = $instanceManager;
         $this->bus = $bus;
+        $this->logger = $logger;
     }
 
     public function __invoke(InstanceActionMessage $message)
@@ -176,7 +177,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         );
     }
 
-    public function setLogger(LoggerInterface $logger) {
+    public function setLogger(LoggerInterface $logger): void {
         $this->logger = $logger;
     }
 }
