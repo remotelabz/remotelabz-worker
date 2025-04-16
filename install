@@ -255,7 +255,7 @@ fi;
 
 LXC=`lxc-ls -name "Debian"`;
 if [ "${LXC}" == "" ] ; then
-  echo "Creation of the container to prepare the DHCP service"
+  echo "Creation of a container Debian"
   DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64
   echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
   echo "nameserver 1.1.1.3" > "/var/lib/lxc/Debian/rootfs/etc/resolv.conf"
