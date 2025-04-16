@@ -115,8 +115,7 @@ chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
 # ssh key
-mkdir /home/remotelabz-worker
-mkdir /home/remotelabz-worker/.ssh
+mkdir -p /home/remotelabz-worker/.ssh
 chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh
 chmod 700 /home/remotelabz-worker/.ssh
 ssh-keygen -t rsa -b 4096 -f /home/remotelabz-worker/.ssh/id_rsa
