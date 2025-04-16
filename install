@@ -173,8 +173,10 @@ chmod g+rwx "${REMOTELABZ_WORKER_PATH}/images"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/instances"
 
+
 # Websockify
 echo "Installing WebSockify"
+pip install numpy
 if ! [ $(command -v websockify) ]; then
     debug "Installing WebSockify..."
     pip3 install setuptools
