@@ -181,7 +181,7 @@ if ! [ $(command -v websockify) ]; then
     debug "Installing WebSockify..."
     pip3 install setuptools
     git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify"
-    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3.9 setup.py install)
+    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && sed -i "s/'numpy',\s*//g" setup.py && python3.9 setup.py install)
     rm -rf "${REMOTELABZ_WORKER_PATH}/websockify"
     echo "OK ✔️"
 else
