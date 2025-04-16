@@ -273,9 +273,9 @@ fi;
 LXC=`lxc-ls -name "AlpineEdge"`;
 if [ "${LXC}" == "" ] ; then
 echo "Creation of a container Alpine Edge"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n edge -- -d alpine -r edge -a amd64
-echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/edge/rootfs/etc/issue"
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/edge/rootfs/etc/resolv.conf"
+DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine-Stable -- -d alpine -r edge -a amd64
+echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine-Stable/rootfs/etc/issue"
+echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine-Stable/rootfs/etc/resolv.conf"
 echo "OK ✔️"
 fi;
 
