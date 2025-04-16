@@ -15,7 +15,7 @@ framework:
                     queues:
                         #name of the queue linked to the worker
                         messages_worker1:
-                            binding_keys: [192.168.11.131]
+                            binding_keys: [127.0.0.1]
                 retry_strategy:
                     max_retries: 3
                     # milliseconds delay
