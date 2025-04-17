@@ -218,12 +218,12 @@ sudo service remotelabz-worker start
 systemctl daemon-reload || true
 echo "OK ✔️"
 
-echo "Backup .env.local and copy .env to .env.local"
-if [ -f "${REMOTELABZ_WORKER_PATH}"/.env.local ]; then 
-	cp "${REMOTELABZ_WORKER_PATH}"/.env.local "${REMOTELABZ_WORKER_PATH}"/.env.local.bak
-fi
-cp "${REMOTELABZ_WORKER_PATH}"/.env "${REMOTELABZ_WORKER_PATH}"/.env.local
-echo "OK ✔️"
+#echo "Backup .env.local and copy .env to .env.local"
+#if [ -f "${REMOTELABZ_WORKER_PATH}"/.env.local ]; then 
+#	cp "${REMOTELABZ_WORKER_PATH}"/.env.local "${REMOTELABZ_WORKER_PATH}"/.env.local.bak
+#fi
+#cp "${REMOTELABZ_WORKER_PATH}"/.env "${REMOTELABZ_WORKER_PATH}"/.env.local
+#echo "OK ✔️"
 
 echo "Create certs directory"
 REP="${REMOTELABZ_WORKER_PATH}/config/certs/"
