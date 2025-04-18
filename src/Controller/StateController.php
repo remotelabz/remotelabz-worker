@@ -189,7 +189,7 @@ class StateController extends AbstractController
         return $result;
     }
 
-    private function lxcfs_load(): int|sring {            
+    private function lxcfs_load(): int|string {            
         $lxcfs=shell_exec("top -b -n2 -d0.2 -p `ps aux | grep -v \"grep\" | grep \"/usr/bin/lxcfs\" |awk '{print $2}'` | tail -1 |awk '{print $9}' | tr -d \"\n\"");
         if (!is_null($lxcfs) && $lxcfs)
             return (int) $lxcfs;

@@ -168,11 +168,17 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         }
         
         $this->logger->debug("Value of the ReturnArray before InstanceStateMessage ".$returnState." ".json_encode($ReturnArray));
-        
+        $this->logger->debug("Dispatching InstanceStateMessage", [
+    "state" => $returnState,
+    "uuid" => $ReturnArray["uuid"],
+    "type" => $instanceType,
+    "options" => $ReturnArray["options"]
+]);
+
         $this->bus->dispatch(
-            new InstanceStateMessage($instanceType,
+            new InstanceStateMessage($instanceState,
             $ReturnArray["uuid"],
-            $returnState,
+            $returnType,
             $ReturnArray["options"])
         );
     }
