@@ -175,12 +175,15 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
     "options" => $ReturnArray["options"]
 ]);
 
-        $this->bus->dispatch(
-            new InstanceStateMessage($instanceState,
-            $ReturnArray["uuid"],
-            $returnType,
-            $ReturnArray["options"])
-        );
+        $instanceStateMessage = new InstanceStateMessage(
+    		$returnState,
+    		$ReturnArray["uuid"],
+    		$instanceType,
+    		$ReturnArray["options"] ?? []
+	);
+
+	$this->bus->dispatch($instanceStateMessage);
+
     }
 
     public function setLogger(LoggerInterface $logger): void {
