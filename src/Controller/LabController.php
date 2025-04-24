@@ -23,6 +23,8 @@ class LabController extends AbstractController
     protected $logger;
 
     public function __construct(KernelInterface $kernel, LoggerInterface $logger) {
+	$this->kernel = $kernel;
+	$this->logger = $logger;
         $this->workerDir = realpath(dirname(__FILE__) . "/../../");
     }
 

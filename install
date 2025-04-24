@@ -291,14 +291,14 @@ if [ "${LXC}" == "" ] ; then
   echo "OK ✔️"
 fi;
 
-LXC=`lxc-ls -name "AlpineEdge"`;
-if [ "${LXC}" == "" ] ; then
-echo "Creation of a container Alpine Edge"
-DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine-Stable -- -d alpine -r edge -a amd64
-echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine-Stable/rootfs/etc/issue"
-echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine-Stable/rootfs/etc/resolv.conf"
-echo "OK ✔️"
-fi;
+#LXC=`lxc-ls -name "AlpineEdge"`;
+#if [ "${LXC}" == "" ] ; then
+#echo "Creation of a container Alpine Edge"
+#DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine-Stable -- -d alpine -r edge -a amd64
+#echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine-Stable/rootfs/etc/issue"
+#echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine-Stable/rootfs/etc/resolv.conf"
+#echo "OK ✔️"
+#fi;
 
 echo "Increase route cache for ipv6"
 PATTERN=`awk '/net.ipv6.route.max_size = 20000/' "/etc/sysctl.conf"`;
