@@ -3,7 +3,7 @@
 # For additional config options, please look at lxc.container.conf(5)
 
 # Uncomment the following line to support nesting containers:
-#lxc.include = /usr/share/lxc/config/nesting.conf
+lxc.include = /usr/share/lxc/config/nesting.conf
 # (Be aware this has security implications)
 
 # Distribution configuration
@@ -11,7 +11,7 @@ lxc.include = /usr/share/lxc/config/common.conf
 lxc.arch = linux64
 
 # Container specific configuration
-lxc.rootfs.path = dir:/var/lib/lxc/NAME-CONT/rootfs
+lxc.rootfs.path = dir:/home/remotelabz-lxc/.local/share/lxc/NAME-CONT/rootfs
 lxc.uts.name = NAME-CONT
 
 # Network configuration
@@ -25,6 +25,8 @@ lxc.net.0.hwaddr = MAC_ADDR
 
 lxc.hook.version = 1
 
-lxc.apparmor.profile=generated
+lxc.apparmor.profile=unconfined
 lxc.apparmor.allow_nesting=1
 
+lxc.idmap = u 0 362144 65536
+lxc.idmap = g 0 362144 65536

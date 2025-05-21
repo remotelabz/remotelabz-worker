@@ -1486,7 +1486,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         //$process = new Process(['lxc-ls','-f','|grep','-e',"$name",'|grep','-v','grep']);      
         //$process = new Process('lxc-ls -f | grep "$VAR1" | grep -v "$VAR2"');
         //$cmd="lxc-ls -f | grep ".$name;
-        $process = Process::fromShellCommandline("lxc-ls -f");
+        $process = Process::fromShellCommandline("sudo -u remotelabz-lxc lxc-ls -f");
 
         try {
             $process->mustRun();
@@ -1627,41 +1627,67 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $dst_lxc_name Name of the new LXC container created.
      * @return $error: true if error or false if no error
      */
-    public function lxc_clone(string $src_lxc_name,string $dst_lxc_name){
-        $error=null;
+    public function lxc_clone(string $src_lxc_name, string $dst_lxc_name) {
+        $error = null;
+        // pas réussis sans permissions root / impossible pas de documentation trouvé
         $command = [
+            'sudo',
             'lxc-copy',
             '-n',
-            "$src_lxc_name",
+            $src_lxc_name,
+            '-P',
+            '/home/remotelabz-lxc/.local/share/lxc',
             '-N',
-            "$dst_lxc_name"
+            $dst_lxc_name,
+            '-l',
+            'DEBUG'
         ];
+
         $this->logger->info("Cloning LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
-            'instance' => $dst_lxc_name]
-        );
+            'instance' => $dst_lxc_name
+        ]);
         $this->logger->debug("Cloning LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
+            "command" => implode(' ', $command)
         ]);
 
         $process = new Process($command);
         $process->setTimeout(600);
         try {
             $process->mustRun();
-            $error=false;
-        }   catch (ProcessFailedException $exception) {
-            $error=true;
+            $chownCommand = [
+                'sudo',
+                'chown',
+                '-R',
+                'remotelabz-lxc:remotelabz-lxc',
+                "/home/remotelabz-lxc/.local/share/lxc/$dst_lxc_name"
+            ];
+            $chownProcess = new Process($chownCommand);
+            $chownProcess->mustRun();
+
+            $this->logger->info("Ownership changed to remotelabz-lxc for container directory", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $dst_lxc_name
+            ]);
+
+            $error = false;
+        } catch (ProcessFailedException $exception) {
+            $error = true;
             $this->logger->error("LXC container cloned is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
                 'error' => $exception->getMessage(),
                 'instance' => $dst_lxc_name
             ]);
         }
-        if (!$error)
+
+        if (!$error) {
             $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                'instance' => $dst_lxc_name]);
+                'instance' => $dst_lxc_name
+            ]);
+        }
 
         return $error;
-        
     }
+
+
+
 
     /**
      * Function to create a LXC container
@@ -1672,20 +1698,32 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_create(string $lxc_name, string $lxc_dist, string $lxc_release){
         $error=null;
+
+        // Définir XDG_RUNTIME_DIR et DBUS_SESSION_BUS_ADDRESS pour remotelabz-lxc
+        $uid = posix_getpwnam('remotelabz-lxc')['uid'];
+        $xdg_runtime_dir = "/run/user/$uid";
+        $dbus_address = "unix:path=$xdg_runtime_dir/bus";
+
         $command = [
+            'sudo', '-u', 'remotelabz-lxc',
+            'env',
+            "XDG_RUNTIME_DIR=$xdg_runtime_dir",
+            "DBUS_SESSION_BUS_ADDRESS=$dbus_address",
+            'systemd-run',
+            '--unit=lxc-create-' . $lxc_name,
+            '--user',
+            '--scope',
+            '-p', 'Delegate=yes',
+            '--',
             'lxc-create',
-            '-t',
-            'download',
-            '-n',
-            "$lxc_name",
-            "--",
-            "-d",
-            "$lxc_dist",
-            "-r",
-            "$lxc_release",
-            "-a",
-            "amd64"
+            '-t', 'download',
+            '-n', $lxc_name,
+            '--',
+            '-d', $lxc_dist,
+            '-r', $lxc_release,
+            '-a', 'amd64'
         ];
+
         $this->logger->info("Creating LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $lxc_name]
         );
@@ -1765,12 +1803,26 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_start(string $lxc_name,string $template){
         $result=null;
+
+        // Définir XDG_RUNTIME_DIR et DBUS_SESSION_BUS_ADDRESS pour remotelabz-lxc
+        $uid = posix_getpwnam('remotelabz-lxc')['uid'];
+        $xdg_runtime_dir = "/run/user/$uid";
+        $dbus_address = "unix:path=$xdg_runtime_dir/bus";
+
         $command = [
+            'sudo', '-u', 'remotelabz-lxc',
+            'env',
+            "XDG_RUNTIME_DIR=$xdg_runtime_dir",
+            "DBUS_SESSION_BUS_ADDRESS=$dbus_address",
+            'systemd-run',
+            '--unit=lxc-start-' . $lxc_name,
+            '--user',
+            '--scope',
+            '-p', 'Delegate=yes',
+            '--',
             'lxc-start',
-            '-n',
-            $lxc_name,
-            '-f',
-            $template
+            '-n', $lxc_name,
+            '-f', $template
         ];
 
         $this->logger->debug("Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [

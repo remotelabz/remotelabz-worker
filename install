@@ -98,7 +98,7 @@ apt-get update
 apt-get install -y software-properties-common
 add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php8.1 php8.1-ssh2 zip unzip qemu-system-x86 qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.1-xml php8.1-curl php8.1-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect
+apt-get install -y ntp apache2 php8.1 php8.1-ssh2 zip unzip qemu-system-x86 qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.1-xml php8.1-curl php8.1-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect lxc libpam-cgfs uidmap bridge-utils debootstrap dbus-user-session libcap2 libapparmor1 libselinux1 libseccomp2 libgnutls30 liblua5.3-0 python3-dev
 
 
 
@@ -125,6 +125,126 @@ usermod -aG remotelabz-worker remotelabz-worker
 
 chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
+
+
+#--------------------------------------------------------------------------------
+
+# Étape 1 : Créer l’utilisateur LXC
+sudo adduser --disabled-password --gecos "" remotelabz-lxc
+
+# Attribution dynamique des subuids/subgids
+function find_free_subid_range() {
+  USED_RANGES=$(cut -d: -f2 /etc/subuid /etc/subgid 2>/dev/null | sort -n)
+  START=100000
+  SIZE=65536
+
+  while true; do
+    END=$((START + SIZE - 1))
+    CONFLICT=$(echo "$USED_RANGES" | awk -v s=$START -v e=$END '$1 <= e && $1 + '$SIZE' - 1 >= s')
+    if [ -z "$CONFLICT" ]; then
+      echo "$START"
+      return
+    fi
+    START=$((START + SIZE))
+  done
+}
+
+FREE_RANGE=$(find_free_subid_range)
+
+echo "remotelabz-lxc:$FREE_RANGE:65536" >> /etc/subuid
+echo "remotelabz-lxc:$FREE_RANGE:65536" >> /etc/subgid
+
+# Configuration de lxc-usernet si nécessaire
+echo "remotelabz-lxc veth lxcbr0 10" | sudo tee -a /etc/lxc/lxc-usernet
+
+# Étape 2 : Activer le linger
+loginctl enable-linger remotelabz-lxc
+mkdir -p /var/lib/systemd/linger
+touch /var/lib/systemd/linger/remotelabz-lxc
+chown remotelabz-lxc: /var/lib/systemd/linger/remotelabz-lxc
+
+# Étape 3 : Préparer les fichiers LXC dans le home
+sudo -u remotelabz-lxc mkdir -p /home/remotelabz-lxc/.config/lxc
+sudo -u remotelabz-lxc cp /etc/lxc/default.conf /home/remotelabz-lxc/.config/lxc/default.conf
+
+# Étape 4 : Ajouter les paramètres réseau et sécurité à default.conf
+cat <<EOF | sudo -u remotelabz-lxc tee -a /home/remotelabz-lxc/.config/lxc/default.conf > /dev/null
+
+lxc.net.0.type = veth
+lxc.net.0.link = lxcbr0
+lxc.net.0.flags = up
+
+lxc.apparmor.profile = unconfined
+lxc.apparmor.allow_nesting = 1
+
+lxc.idmap = u 0 $FREE_RANGE 65536
+lxc.idmap = g 0 $FREE_RANGE 65536
+
+EOF
+
+# Étape additionnelle : donner l'accès en exécution à tous
+chmod +x /home/remotelabz-lxc
+
+#--------------------------------------------------------------------------------
+
+sudo -u remotelabz-lxc env XDG_RUNTIME_DIR=/run/user/$(id -u remotelabz-lxc) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u remotelabz-lxc)/bus systemd-run --unit=test-lxc --user --scope -p Delegate=yes -- echo "OK"
+
+
+
+# Création du conteneur "Migration"
+if ! sudo -u remotelabz-lxc lxc-ls --filter "^Migration$" | grep -q Migration; then
+  echo "Creation of the container to prepare the DHCP service (Migration)"
+  XDG_RUNTIME_DIR="/run/user/$(id -u remotelabz-lxc)"
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  sudo -u remotelabz-lxc env XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+    systemd-run --unit=Migration-create --user --scope -p Delegate=yes -- \
+    lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64
+  echo "nameserver 1.1.1.3" | sudo tee /home/remotelabz-lxc/.local/share/lxc/Migration/rootfs/etc/resolv.conf > /dev/null
+  echo "OK ✔️"
+fi
+
+# Création du conteneur "Debian"
+if ! sudo -u remotelabz-lxc lxc-ls --filter "^Debian$" | grep -q Debian; then
+  echo "Creation of the container to prepare the DHCP service (Debian)"
+  XDG_RUNTIME_DIR="/run/user/$(id -u remotelabz-lxc)"
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  sudo -u remotelabz-lxc env XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+    systemd-run --unit=Debian-create --user --scope -p Delegate=yes -- \
+    lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64
+  echo "No default login, please use Sandbox to configure a new OS from this" | sudo tee -a /home/remotelabz-lxc/.local/share/lxc/Debian/rootfs/etc/issue > /dev/null
+  echo "nameserver 1.1.1.3" | sudo tee /home/remotelabz-lxc/.local/share/lxc/Debian/rootfs/etc/resolv.conf > /dev/null
+  echo "OK ✔️"
+fi
+
+# Création du conteneur "Ubuntu24LTS"
+if ! sudo -u remotelabz-lxc lxc-ls --filter "^Ubuntu24LTS$" | grep -q Ubuntu24LTS; then
+  echo "Creation of a container Ubuntu 24 LTS"
+  XDG_RUNTIME_DIR="/run/user/$(id -u remotelabz-lxc)"
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  sudo -u remotelabz-lxc env XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+    systemd-run --unit=Ubuntu24LTS-create --user --scope -p Delegate=yes -- \
+    lxc-create -t download -n Ubuntu24LTS -- -d ubuntu -r focal -a amd64
+  echo "No default login, please use Sandbox to configure a new OS from this" | sudo tee -a /home/remotelabz-lxc/.local/share/lxc/Ubuntu24LTS/rootfs/etc/issue > /dev/null
+  echo "OK ✔️"
+fi
+
+# Création du conteneur "AlpineEdge"
+if ! sudo -u remotelabz-lxc lxc-ls --filter "^Alpine-Stable$" | grep -q Alpine-Stable; then
+  echo "Creation of a container Alpine Edge"
+  XDG_RUNTIME_DIR="/run/user/$(id -u remotelabz-lxc)"
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  sudo -u remotelabz-lxc env XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+    systemd-run --unit=Alpine-create --user --scope -p Delegate=yes -- \
+    lxc-create -t download -n Alpine-Stable -- -d alpine -r edge -a amd64
+  echo "No default login, please use Sandbox to configure a new OS from this" | sudo tee -a /home/remotelabz-lxc/.local/share/lxc/Alpine-Stable/rootfs/etc/issue > /dev/null
+  echo "nameserver 1.1.1.3" | sudo tee /home/remotelabz-lxc/.local/share/lxc/Alpine-Stable/rootfs/etc/resolv.conf > /dev/null
+  echo "OK ✔️"
+fi
+
+#--------------------------------------------------------------------------------
+
+
+
 
 # ssh key
 # PPRI0603 : Demande de suppressoin du répertoire /home/remotelabz-worker s'il existe déjà
@@ -265,40 +385,6 @@ if [ ! -d ttyd-1.7.3 ]; then
         make && sudo make install
 fi;
 echo "OK ✔️"
-
-LXC=`lxc-ls -name "Migration"`;
-if [ "${LXC}" == "" ] ; then
-  echo "Creation of the container to prepare the DHCP service"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64
-  echo "nameserver 1.1.1.3" > "/var/lib/lxc/Migration/rootfs/etc/resolv.conf"
-  echo "OK ✔️"
-fi;
-
-LXC=`lxc-ls -name "Debian"`;
-if [ "${LXC}" == "" ] ; then
-  echo "Creation of the container to prepare the DHCP service"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64
-  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
-  echo "nameserver 1.1.1.3" > "/var/lib/lxc/Debian/rootfs/etc/resolv.conf"
-  echo "OK ✔️"
-fi;
-
-LXC=`lxc-ls -name "Ubuntu24LTS"`;
-if [ "${LXC}" == "" ] ; then
-  echo "Creation of a container Ubuntu 24 LTS"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu24LTS -- -d ubuntu -r focal -a amd64
-  echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu24LTS/rootfs/etc/issue"
-  echo "OK ✔️"
-fi;
-
-LXC=`lxc-ls -name "AlpineEdge"`;
-if [ "${LXC}" == "" ] ; then
- echo "Creation of a container Alpine Edge"
- DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Alpine-Stable -- -d alpine -r edge -a amd64
- echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Alpine-Stable/rootfs/etc/issue"
- echo "nameserver 1.1.1.3" > "/var/lib/lxc/Alpine-Stable/rootfs/etc/resolv.conf"
- echo "OK ✔️"
-fi;
 
 echo "Increase route cache for ipv6"
 PATTERN=`awk '/net.ipv6.route.max_size = 20000/' "/etc/sysctl.conf"`;
