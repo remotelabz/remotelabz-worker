@@ -77,6 +77,11 @@ class InstanceManager extends AbstractController
                     'instance' => $labInstance['uuid']
                 ]);
                 OVS::bridgeAdd($bridgeName, true);
+
+                // Add line to /etc/lxc/lxc-usernet
+                $usernetLine = "remotelabz-lxc veth $bridgeName 10\n";
+                file_put_contents('/etc/lxc/lxc-usernet', $usernetLine, FILE_APPEND | LOCK_EX);
+                $this->logger->debug("Bridge added to /etc/lxc/lxc-usernet");
             } else {
                 $this->logger->debug("Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PRIVATE, [
                     'bridgeName' => $bridgeName,
@@ -177,6 +182,14 @@ class InstanceManager extends AbstractController
                 }
             }*/
         }
+
+
+        // Supprimer l’entrée dans /etc/lxc/lxc-usernet
+        $usernetLine = "remotelabz-lxc veth $bridgeName 10";
+        file_put_contents('/etc/lxc/lxc-usernet', preg_replace("/^" . preg_quote($usernetLine, '/') . "$/m", '', file_get_contents('/etc/lxc/lxc-usernet')));
+        $this->logger->debug("Bridge deleted from /etc/lxc/lxc-usernet");
+
+
         $this->logger->debug("All device deleted", InstanceLogMessage::SCOPE_PRIVATE);
         if (!$error) {
             $this->logger->debug("No error in deleteLabInstance");
@@ -1096,6 +1109,9 @@ public function websockify_start($uuid,$IpAddress,$Port){
  */
 public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$device_remote_port=null){
     $error=false;
+    $uid = posix_getpwnam('remotelabz-lxc')['uid'];
+    $xdg_runtime_dir = "/run/user/$uid";
+    $dbus_address = "unix:path=$xdg_runtime_dir/bus";
     $command = ['screen','-S',$uuid,'-dm','ttyd'];
     
     if ($sandbox)
@@ -1120,7 +1136,18 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $this->logger->debug("Start device from Sandbox detected and login");
                 #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'";  
                 #$process = Process::fromShellCommandline($commandTmux);
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+                array_push(
+                    $command,
+                    '-p', $port,
+                    '-b', '/device/' . $uuid,
+                    'sudo', '-u', 'remotelabz-lxc',
+                    'env',
+                    "XDG_RUNTIME_DIR=$xdg_runtime_dir",
+                    "DBUS_SESSION_BUS_ADDRESS=$dbus_address",
+                    'systemd-run', '--user', '--scope', '-p', 'Delegate=yes',
+                    '--',
+                    'lxc-attach', '-n', $uuid
+                );
             }
             else {
                 $this->logger->debug("Start device from lab detected and login");
@@ -1129,8 +1156,31 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 #$process = Process::fromShellCommandline($commandTmux);
                 #$process2 = Process::fromShellCommandline($commandTmux2);
                 $command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
-                array_push($command2, '-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
+                array_push(
+                    $command,
+                    '-p', $port,
+                    '-b', '/device/' . $uuid,
+                    'sudo', '-u', 'remotelabz-lxc',
+                    'env',
+                    "XDG_RUNTIME_DIR=$xdg_runtime_dir",
+                    "DBUS_SESSION_BUS_ADDRESS=$dbus_address",
+                    'systemd-run', '--user', '--scope', '-p', 'Delegate=yes',
+                    '--',
+                    'lxc-attach', '-n', $uuid, '--', 'login'
+                );
+
+                array_push(
+                    $command2,
+                    '-p', $port + 1,
+                    '-b', '/device/' . $uuid,
+                    'sudo', '-u', 'remotelabz-lxc',
+                    'env',
+                    "XDG_RUNTIME_DIR=$xdg_runtime_dir",
+                    "DBUS_SESSION_BUS_ADDRESS=$dbus_address",
+                    'systemd-run', '--user', '--scope', '-p', 'Delegate=yes',
+                    '--',
+                    'lxc-attach', '-n', $uuid
+                );
             }
         }
         elseif ($remote_protocol === "serial") {
@@ -1668,6 +1718,30 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 'instance' => $dst_lxc_name
             ]);
 
+            // Appliquer les permissions ACL pour le UID mappé
+            $path = "/home/remotelabz-lxc/.local/share/lxc/{$dst_lxc_name}";
+            $uidMapped = 362144;
+
+            if (is_dir($path)) {
+                while ($path !== '/' && is_dir($path)) {
+                    $aclCommand = [
+                        'sudo',
+                        'setfacl',
+                        '-m',
+                        "u:{$uidMapped}:x",
+                        $path
+                    ];
+                    $aclProcess = new Process($aclCommand);
+                    $aclProcess->mustRun();
+
+                    $path = dirname($path);
+                }
+            }
+
+            $this->logger->info("ACL permissions set for remapped UID to access container path", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $dst_lxc_name
+            ]);
+
             $error = false;
         } catch (ProcessFailedException $exception) {
             $error = true;
@@ -1801,14 +1875,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $template the absolute path to the template file of the LXC container
      * @return array $result is an array("state","uuid")
      */
-    public function lxc_start(string $lxc_name,string $template){
-        $result=null;
+    public function lxc_start(string $lxc_name, string $template){
+        $result = null;
 
         // Définir XDG_RUNTIME_DIR et DBUS_SESSION_BUS_ADDRESS pour remotelabz-lxc
-        $uid = posix_getpwnam('remotelabz-lxc')['uid'];
+        $uid             = posix_getpwnam('remotelabz-lxc')['uid'];
         $xdg_runtime_dir = "/run/user/$uid";
-        $dbus_address = "unix:path=$xdg_runtime_dir/bus";
+        $dbus_address    = "unix:path=$xdg_runtime_dir/bus";
 
+        // Lancement du conteneur via systemd-run
         $command = [
             'sudo', '-u', 'remotelabz-lxc',
             'env',
@@ -1826,31 +1901,32 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ];
 
         $this->logger->debug("Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
+            "command" => implode(' ', $command)
         ]);
 
         $process = new Process($command);
         $process->setTimeout(600);
         try {
             $process->mustRun();
-            $result=array(
-                "state" => InstanceStateMessage::STATE_STARTED,
-                "uuid" => $lxc_name,
+            $result = [
+                "state"   => InstanceStateMessage::STATE_STARTED,
+                "uuid"    => $lxc_name,
                 "options" => null
-            );
-        }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container started error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
-                ["instance" => $lxc_name]);
-            $result=array(
-                "state" => InstanceStateMessage::STATE_ERROR,
-                "uuid" => $lxc_name,
+            ];
+        } catch (ProcessFailedException $exception) {
+            $this->logger->error("LXC container started error ! " . $exception, InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $lxc_name
+            ]);
+            $result = [
+                "state"   => InstanceStateMessage::STATE_ERROR,
+                "uuid"    => $lxc_name,
                 "options" => null
-            );
+            ];
         }
 
         return $result;
-
     }
+
 
     /**
      * Stop a device instance described by JSON descriptor for device instance specified by UUID.
