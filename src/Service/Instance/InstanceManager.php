@@ -1810,7 +1810,23 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         try {
             $process->mustRun();
             $error=false;
-        }   catch (ProcessFailedException $exception) {
+
+            // Ajout chown juste après la création
+            $chownCommand = [
+                'sudo',
+                'chown', '-R', "{$uid}:{$uid}",
+                "/home/remotelabz-lxc/.local/share/lxc/{$lxc_name}/rootfs"
+            ];
+            $chownProcess = new Process($chownCommand);
+            $chownProcess->run();
+            if (!$chownProcess->isSuccessful()) {
+                $this->logger->error("Failed to chown rootfs after creation", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'output' => $chownProcess->getErrorOutput()
+                ]);
+                $error = true;
+            }
+
+        } catch (ProcessFailedException $exception) {
             $error=true;
             $this->logger->error("LXC container created is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
                 'error' => $exception->getMessage(),
@@ -1822,8 +1838,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 'instance' => $lxc_name]);
 
         return $error;
-        
+
     }
+
 
     /**
      * Delete a lxc container
@@ -1832,6 +1849,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     public function lxc_delete(string $uuid){
         $result=null;
         $command = [
+            'sudo', '-u', 'remotelabz-lxc',
             'lxc-destroy',
             '-n',
             "$uuid"
@@ -2037,6 +2055,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     public function lxc_stop(string $lxc_name){
         $result=null;
         $command = [
+            'sudo', '-u', 'remotelabz-lxc',
             'lxc-stop',
             '-n',
             "$lxc_name"
