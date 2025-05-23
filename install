@@ -129,10 +129,10 @@ chmod -R g+rwx "${SCRIPTPATH}"
 
 #--------------------------------------------------------------------------------
 
-# Étape 1 : Créer l’utilisateur LXC
+# Create unpriviledge user remotelabz-lxc
 sudo adduser --disabled-password --gecos "" remotelabz-lxc
 
-# Attribution dynamique des subuids/subgids
+# dynamic attribution of subuids/subgids
 function find_free_subid_range() {
   USED_RANGES=$(cut -d: -f2 /etc/subuid /etc/subgid 2>/dev/null | sort -n)
   START=100000
@@ -154,20 +154,20 @@ FREE_RANGE=$(find_free_subid_range)
 echo "remotelabz-lxc:$FREE_RANGE:65536" >> /etc/subuid
 echo "remotelabz-lxc:$FREE_RANGE:65536" >> /etc/subgid
 
-# Configuration de lxc-usernet si nécessaire
+# Configuration of lxc-usernet
 echo "remotelabz-lxc veth lxcbr0 10" | sudo tee -a /etc/lxc/lxc-usernet
 
-# Étape 2 : Activer le linger
+# Activate linger
 loginctl enable-linger remotelabz-lxc
 mkdir -p /var/lib/systemd/linger
 touch /var/lib/systemd/linger/remotelabz-lxc
 chown remotelabz-lxc: /var/lib/systemd/linger/remotelabz-lxc
 
-# Étape 3 : Préparer les fichiers LXC dans le home
+# prepping user for unpriviledge
 sudo -u remotelabz-lxc mkdir -p /home/remotelabz-lxc/.config/lxc
 sudo -u remotelabz-lxc cp /etc/lxc/default.conf /home/remotelabz-lxc/.config/lxc/default.conf
 
-# Étape 4 : Ajouter les paramètres réseau et sécurité à default.conf
+# change default.conf for unpriviledge
 cat <<EOF | sudo -u remotelabz-lxc tee -a /home/remotelabz-lxc/.config/lxc/default.conf > /dev/null
 
 lxc.net.0.type = veth
@@ -182,7 +182,6 @@ lxc.idmap = g 0 $FREE_RANGE 65536
 
 EOF
 
-# Étape additionnelle : donner l'accès en exécution à tous
 chmod +x /home/remotelabz-lxc
 
 #--------------------------------------------------------------------------------
