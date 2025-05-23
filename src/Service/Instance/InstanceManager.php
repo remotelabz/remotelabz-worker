@@ -1342,8 +1342,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_add_dhcp_dnsmasq($image,$uuid,$first_ip,$last_ip,$netmask,$gateway){
         $line_to_add=$first_ip.",".$last_ip.",".$netmask.",1h";     
-        $file_path="/var/lib/lxc/".$uuid."/rootfs/etc/dnsmasq.conf";
-        $source_file_path="/var/lib/lxc/".$image."/rootfs/etc/dnsmasq.conf";
+        $file_path="/home/remotelabz-lxc/.local/share/lxc/".$uuid."/rootfs/etc/dnsmasq.conf";
+        $source_file_path="/home/remotelabz-lxc/.local/share/lxc/".$image."/rootfs/etc/dnsmasq.conf";
         $command="sed \
             -e \"s/RANGE_TO_DEFINED/".$line_to_add."/g\" \
             -e \"s/GW_TO_DEFINED/".$gateway."/g\" \
@@ -1811,21 +1811,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $process->mustRun();
             $error=false;
 
-            // Ajout chown juste après la création
-            $chownCommand = [
-                'sudo',
-                'chown', '-R', "{$uid}:{$uid}",
-                "/home/remotelabz-lxc/.local/share/lxc/{$lxc_name}/rootfs"
-            ];
-            $chownProcess = new Process($chownCommand);
-            $chownProcess->run();
-            if (!$chownProcess->isSuccessful()) {
-                $this->logger->error("Failed to chown rootfs after creation", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'output' => $chownProcess->getErrorOutput()
-                ]);
-                $error = true;
-            }
-
         } catch (ProcessFailedException $exception) {
             $error=true;
             $this->logger->error("LXC container created is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -1926,11 +1911,25 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $process->setTimeout(600);
         try {
             $process->mustRun();
+
+            // Chown du rootfs après le démarrage
+            $containerRootfs = "/home/remotelabz-lxc/.local/share/lxc/$lxc_name/rootfs";
+            $uid_gid = '362144:362144'; // À adapter si besoin
+
+            $chownCommand = ['sudo', 'chown', '-R', $uid_gid, $containerRootfs];
+            $this->logger->debug("Chown rootfs after start.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ', $chownCommand)
+            ]);
+
+            $chownProcess = new Process($chownCommand);
+            $chownProcess->mustRun();
+
             $result = [
                 "state"   => InstanceStateMessage::STATE_STARTED,
                 "uuid"    => $lxc_name,
                 "options" => null
             ];
+
         } catch (ProcessFailedException $exception) {
             $this->logger->error("LXC container started error ! " . $exception, InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $lxc_name
@@ -1944,6 +1943,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         return $result;
     }
+
 
 
     /**
@@ -3214,6 +3214,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     public function lxc_destroy(string $src_lxc_name){
         $error=null;
         $command = [
+            'sudo', '-u', 'remotelabz-lxc',
             'lxc-destroy',
             '-n',
             "$src_lxc_name"
@@ -4000,11 +4001,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $cmd="sudo /usr/bin/lxc-create -n ".$os_imagename." -t none";
             $result=$this->executeRemoteCommand($connection, $cmd);
         
-            $cmd="sudo chown root:remotelabz-worker /var/lib/lxc/".$os_imagename." -R";
+            $cmd="sudo chown root:remotelabz-worker /home/remotelabz-lxc/.local/share/lxc/".$os_imagename." -R";
             $result=$this->executeRemoteCommand($connection, $cmd);
 
             $command = [
-                'tar','czf',"/var/lib/lxc/".$os_imagename.".tgz","-C","/var/lib/lxc/",$os_imagename
+                'tar','czf',"/home/remotelabz-lxc/.local/share/lxc/".$os_imagename.".tgz","-C","/home/remotelabz-lxc/.local/share/lxc/",$os_imagename
             ];
             
             $this->logger->debug("Creating LXC container backup.", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -4016,8 +4017,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             try {
                 $process->mustRun();
             
-                    $local_file="/var/lib/lxc/".$os_imagename.".tgz";
-                    $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
+                    $local_file="/home/remotelabz-lxc/.local/share/lxc/".$os_imagename.".tgz";
+                    $remote_file="/home/remotelabz-lxc/.local/share/lxc/".$os_imagename.".tgz";
 
                     try {
                         $result=$this->scp($connection, $local_file, $remote_file);                
@@ -4045,7 +4046,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         } else {
                             $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
 
-                            $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
+                            $cmd="sudo tar xzf ".$remote_file." -C /home/remotelabz-lxc/.local/share/lxc/";
                             $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
 
@@ -4054,11 +4055,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             $result=$this->executeRemoteCommand($connection, $cmd);
 
                             $MAC_ADDR=$this->macgen();
-                            $cmd="sed -e \"s/lxc.net.0.hwaddr = .*/lxc.net.0.hwaddr = ".$MAC_ADDR."/g\" /var/lib/lxc/".$os_imagename."/config > /var/lib/lxc/".$os_imagename."/config-new";
+                            $cmd="sed -e \"s/lxc.net.0.hwaddr = .*/lxc.net.0.hwaddr = ".$MAC_ADDR."/g\" /home/remotelabz-lxc/.local/share/lxc/".$os_imagename."/config > /home/remotelabz-lxc/.local/share/lxc/".$os_imagename."/config-new";
                             $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
 
-                            $cmd="mv /var/lib/lxc/".$os_imagename."/config-new /var/lib/lxc/".$os_imagename."/config";
+                            $cmd="mv /home/remotelabz-lxc/.local/share/lxc/".$os_imagename."/config-new /home/remotelabz-lxc/.local/share/lxc/".$os_imagename."/config";
                             $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
                             
