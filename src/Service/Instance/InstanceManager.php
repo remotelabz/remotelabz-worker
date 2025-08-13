@@ -100,7 +100,7 @@ class InstanceManager extends AbstractController
             throw new BadDescriptorException($labInstance);
         }
         //$this->logger->debug("Lab instance to deleted : ", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
-        $this->logger->info("Lab instance to deleted: ".$labInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance["uuid"]]);
+        $this->logger->info("Lab instance to delete: ".$labInstance["uuid"], InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance["uuid"]]);
 
         try {
             $bridgeName = $labInstance['bridgeName'];
