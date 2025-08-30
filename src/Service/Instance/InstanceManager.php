@@ -3742,7 +3742,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
                     if ($result_lxc["error"]) {
                         $this->logger->error("Error in remote LXC creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
-                            "uuid"=>$os_to_copy['os_imagename'],
                             'instance' => $os_to_copy['os_imagename'],
                             "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                             "error" => $result_lxc["message"],
@@ -3863,7 +3862,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 'tar','czf',"/var/lib/lxc/".$os_imagename.".tgz","-C","/var/lib/lxc/",$os_imagename
             ];
             
-            $this->logger->debug("Creating LXC container backup.", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Creating LXC container backup.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "command" => implode(' ',$command)
             ]);
     
@@ -3887,8 +3886,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                     "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                     'error' => $message,
                                     'Worker_Dest_IP' => $Worker_Dest_IP
-                                            ]
-                                    ]);
+                                ]
+                            ]);
                             $result_creation=array("state" => InstanceStateMessage::STATE_OS_COPIED,
                                                     "uuid"=>$os_imagename,
                                                     "error" => true,
@@ -3899,23 +3898,23 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                                                 ]
                                         );
                         } else {
-                            $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
 
                             $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
-                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
 
                             $cmd="rm ".$remote_file;
-                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
 
                             $MAC_ADDR=$this->macgen();
                             $cmd="sed -e \"s/lxc.net.0.hwaddr = .*/lxc.net.0.hwaddr = ".$MAC_ADDR."/g\" /var/lib/lxc/".$os_imagename."/config > /var/lib/lxc/".$os_imagename."/config-new";
-                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
 
                             $cmd="mv /var/lib/lxc/".$os_imagename."/config-new /var/lib/lxc/".$os_imagename."/config";
-                            $this->logger->debug("Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                             $result=$this->executeRemoteCommand($connection, $cmd);
                             
 
@@ -3962,16 +3961,16 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             throw new Exception('Échec de la connexion au serveur distant.');
             return false;
         }
-        $this->logger->debug("Starting ssh connection", InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("[InstanceManager:ssh]::Starting ssh connection", InstanceLogMessage::SCOPE_PRIVATE);
 
         try {
             // Authentification avec la clé privée
             if (ssh2_auth_pubkey_file($connection, $username, $publicKeyFile,$privateKeyFile)) {
-                $this->logger->debug("Authentication with pubkey successfull", InstanceLogMessage::SCOPE_PRIVATE);
+                $this->logger->debug("[InstanceManager:ssh]::Authentication with pubkey successfull", InstanceLogMessage::SCOPE_PRIVATE);
                 return $connection;
                 }
                 else {
-                    $this->logger->debug("Authentication with pubkey failed", InstanceLogMessage::SCOPE_PRIVATE);
+                    $this->logger->debug("[InstanceManager:ssh]::Authentication with pubkey failed", InstanceLogMessage::SCOPE_PRIVATE);
                     throw new ErrorException('Authentication with pubkey failed');
                     return false;
                 }
@@ -3979,12 +3978,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         catch (ErrorException $e) {
             // Gestion de l'erreur
             // return $e->getMessage();
-            $this->logger->debug("Test with authentication password", InstanceLogMessage::SCOPE_PRIVATE);
+            $this->logger->debug("[InstanceManager:ssh]::Test with authentication password", InstanceLogMessage::SCOPE_PRIVATE);
             if (!ssh2_auth_password($connection, $username, $password)) {
-                throw new ErrorException('Authentication with password failed');
+                throw new ErrorException('SSH authentication with password failed');
                 return false;
             } else {
-                $this->logger->debug("Authentication with password successfull", InstanceLogMessage::SCOPE_PRIVATE);
+                $this->logger->debug("[InstanceManager:ssh]::SSH authentication with password successfull", InstanceLogMessage::SCOPE_PRIVATE);
                 return $connection;
             }
         }
@@ -4034,7 +4033,7 @@ function scp($connection, $localFile, $remoteFile) {
         throw new ErrorException('Send file impossible');
     }
     catch (ErrorException $e) {
-        $this->logger->debug("Send failed for file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("[InstanceManager:scp]::Send failed for file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
 
     $this->logger->error("SCP Failed ".$localFile, InstanceLogMessage::SCOPE_PRIVATE,
         ['instance' => $localFile,
