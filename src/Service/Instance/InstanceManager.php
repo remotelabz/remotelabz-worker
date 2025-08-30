@@ -3636,7 +3636,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $os_to_copy = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $state=InstanceStateMessage::STATE_OS_COPIED;
 
-        $this->logger->debug("Enter in copy2worker process ",InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("[InstanceManager:copy2worker]::Enter in copy2worker process ",InstanceLogMessage::SCOPE_PRIVATE);
 
         $publicKeyFile=$this->getParameter('app.ssh.worker.publickey');
         $privateKeyFile=$this->getParameter('app.ssh.worker.privatekey');
@@ -3645,8 +3645,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         $cible=$ssh_user."@".$os_to_copy["Worker_Dest_IP"];
         
-        $this->logger->debug("Copy process to worker: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
-        $this->logger->debug("Copy ".$os_to_copy["hypervisor"]." image ".$os_to_copy["os_imagename"]." to worker: ".$os_to_copy["Worker_Dest_IP"],InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("[InstanceManager:copy2worker]::Copy process to worker: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("[InstanceManager:copy2worker]::Copy ".$os_to_copy["hypervisor"]." image ".$os_to_copy["os_imagename"]." to worker: ".$os_to_copy["Worker_Dest_IP"],InstanceLogMessage::SCOPE_PRIVATE);
         switch ($os_to_copy["hypervisor"]) {
             case "qemu":
                 $result_scp="";
@@ -3661,6 +3661,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         $message=$result_scp;
                         $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $os_to_copy["os_imagename"],
+                            "uuid"=>$os_to_copy['os_imagename'],
                             'error' => true,
                             "options" => [
                                 "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
@@ -3678,7 +3679,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                                             ]
                                     );
                     } else { // No error return by scp command
-                        $this->logger->debug("Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+                        $this->logger->debug("[InstanceManager:copy2worker]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
                         
                         $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
                         "uuid" => $os_to_copy["os_imagename"],
@@ -3713,6 +3714,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 if ($result_lxc["error"]) {
                     $this->logger->error("Error in remote LXC destroy ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
                         'instance' => $deviceInstance['os_imagename'],
+                        "uuid"=>$os_to_copy['os_imagename'],
                         "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                         "error" => $result_lxc["message"],
                                         "worker_dest_ip" => $deviceInstance["Worker_Dest_IP"]
@@ -3740,6 +3742,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
                     if ($result_lxc["error"]) {
                         $this->logger->error("Error in remote LXC creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
+                            "uuid"=>$os_to_copy['os_imagename'],
                             'instance' => $os_to_copy['os_imagename'],
                             "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                             "error" => $result_lxc["message"],
