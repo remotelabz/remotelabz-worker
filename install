@@ -332,6 +332,8 @@ fi;
 
 chown remotelabz-worker:www-data /opt/remotelabz-worker/var -R
 chmod g+w /opt/remotelabz-worker/var -R
+chown :remotelabz-worker /var/lib/lxc
+chmod g+w /var/lib/lxc
 
 systemctl enable remotelabz-worker
 systemctl start remotelabz-worker

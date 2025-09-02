@@ -3698,8 +3698,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 }
 
                 ssh2_disconnect($connection);
-                
-
                 break;
             
             case "lxc":
@@ -3876,7 +3874,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
                     try {
                         $result=$this->scp($connection, $local_file, $remote_file);                
-
+                        
                         if ($result) {       
                             $message=$result;
                             $this->logger->error("Error in remote LXC container creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -3965,6 +3963,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         try {
             // Authentification avec la clé privée
+            $this->logger->debug("[InstanceManager:ssh]::Authentication with pubkey test; username:".$username." publicKeyFile:".$publicKeyFile." privateKeyFile:".$privateKeyFile,
+                InstanceLogMessage::SCOPE_PRIVATE);
             if (ssh2_auth_pubkey_file($connection, $username, $publicKeyFile,$privateKeyFile)) {
                 $this->logger->debug("[InstanceManager:ssh]::Authentication with pubkey successfull", InstanceLogMessage::SCOPE_PRIVATE);
                 return $connection;
@@ -3984,6 +3984,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 return false;
             } else {
                 $this->logger->debug("[InstanceManager:ssh]::SSH authentication with password successfull", InstanceLogMessage::SCOPE_PRIVATE);
+                ssh2_scp_send($connection, $localFile, $remoteFile,0640);
                 return $connection;
             }
         }
