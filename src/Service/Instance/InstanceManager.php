@@ -1129,7 +1129,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 #$process = Process::fromShellCommandline($commandTmux);
                 #$process2 = Process::fromShellCommandline($commandTmux2);
                 $command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','login');
+                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','/bin/login');
                 array_push($command2, '-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
             }
         }
