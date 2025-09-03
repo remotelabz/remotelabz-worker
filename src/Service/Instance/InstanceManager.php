@@ -3984,7 +3984,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 return false;
             } else {
                 $this->logger->debug("[InstanceManager:ssh]::SSH authentication with password successfull", InstanceLogMessage::SCOPE_PRIVATE);
-                ssh2_scp_send($connection, $localFile, $remoteFile,0640);
                 return $connection;
             }
         }
