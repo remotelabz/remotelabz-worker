@@ -3655,7 +3655,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $remote_file=$local_file;
                
                 try {
-                    $result_scp=$this->scp($connection, $local_file, $remote_file);                
+                    $result_scp=$this->scp($connection, $local_file, $remote_file,$os_to_copy["Worker_Dest_IP"]);                
 
                     if ($result_scp) {       
                         $message=$result_scp;
@@ -3666,7 +3666,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             "options" => [
                                 "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                 'error' => $message,
-                                'Worker_Dest_IP' => $os_to_copy["Worker_Dest_IP"]
+                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
                                         ]
                                 ]);
                         $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
@@ -3755,7 +3755,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                                 ]
                                     );
                     ssh2_disconnect($connection);
-                    } else 
+                    }
+                    else 
                     {   $this->logger->info("Remote LXC creation successfull of OS ".$os_to_copy['os_imagename']." to Worker ".$os_to_copy["Worker_Dest_IP"], InstanceLogMessage::SCOPE_PUBLIC, [   
                                             'instance' => $os_to_copy['os_imagename'],
                                             "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
@@ -3781,7 +3782,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                         ]
                             );
         }
-        
+        $this->logger->debug("[InstanceManager:copy2worker]::Return value at end of this function:", InstanceLogMessage::SCOPE_PRIVATE,$result);
+
         return $result;
     }
 
@@ -3815,7 +3817,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "options" => [
                     "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                     'error' => $message,
-                    'Worker_Dest_IP' => $Worker_Dest_IP
+                    'worker_dest_ip' => $Worker_Dest_IP
                             ]
                     ]);
 
@@ -3869,76 +3871,102 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             try {
                 $process->mustRun();
             
-                    $local_file="/var/lib/lxc/".$os_imagename.".tgz";
-                    $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
+                $local_file="/var/lib/lxc/".$os_imagename.".tgz";
+                $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
 
-                    try {
-                        $result=$this->scp($connection, $local_file, $remote_file);                
-                        
-                        if ($result) {       
-                            $message=$result;
-                            $this->logger->error("Error in remote LXC container creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $os_imagename,
-                                'error' => true,
-                                "options" => [
-                                    "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                    'error' => $message,
-                                    'Worker_Dest_IP' => $Worker_Dest_IP
-                                ]
-                            ]);
-                            $result_creation=array("state" => InstanceStateMessage::STATE_OS_COPIED,
-                                                    "uuid"=>$os_imagename,
-                                                    "error" => true,
-                                                    "message" => $message,
-                                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                                                'worker_dest_ip' => $Worker_Dest_IP,
-                                                                'error' => $message
-                                                                ]
-                                        );
-                        } else {
-                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+                try {
+                    $result=$this->scp($connection, $local_file, $remote_file,$Worker_Dest_IP);                
+                    
+                    if ($result) {       
+                        $message=$result;
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Error in remote LXC container creation ! ");
 
-                            $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
-                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
-                            $result=$this->executeRemoteCommand($connection, $cmd);
-
-                            $cmd="rm ".$remote_file;
-                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
-                            $result=$this->executeRemoteCommand($connection, $cmd);
-
-                            $MAC_ADDR=$this->macgen();
-                            $cmd="sed -e \"s/lxc.net.0.hwaddr = .*/lxc.net.0.hwaddr = ".$MAC_ADDR."/g\" /var/lib/lxc/".$os_imagename."/config > /var/lib/lxc/".$os_imagename."/config-new";
-                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
-                            $result=$this->executeRemoteCommand($connection, $cmd);
-
-                            $cmd="mv /var/lib/lxc/".$os_imagename."/config-new /var/lib/lxc/".$os_imagename."/config";
-                            $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
-                            $result=$this->executeRemoteCommand($connection, $cmd);
-                            
-
-                            $result_creation=array("state" => InstanceStateMessage::STATE_OS_COPIED,
-                                                    "uuid"=>$os_imagename,
-                                                    "error" => false,
-                                                    "message" => $message,
-                                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                                                'worker_dest_ip' => $Worker_Dest_IP
-                                                                ]
-                                        );
-                        }
-                    }
-                    catch (ErrorException $exception){
-                        $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'error' => $exception->getMessage(),
-                            'instance' => $os_imagename
+                        $this->logger->error("Error in remote LXC container creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $os_imagename,
+                            'error' => true,
+                            "options" => [
+                                "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                'error' => $message,
+                                'worker_dest_ip' => $Worker_Dest_IP
+                            ]
                         ]);
+                        $result_creation=array("state" => InstanceStateMessage::STATE_ERROR,
+                                                "uuid"=>$os_imagename,
+                                                "error" => true,
+                                                "message" => $message,
+                                                "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                            'worker_dest_ip' => $Worker_Dest_IP,
+                                                            'error' => $message
+                                                            ]
+                                    );
+                        //The SCP failed but if we are in this function, a empty container has been created so we have to delete it.
+                        $this->Destroy_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename);
+
+                    } else {
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+
+                        $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                        $result=$this->executeRemoteCommand($connection, $cmd);
+
+                        $cmd="rm ".$remote_file;
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                        $result=$this->executeRemoteCommand($connection, $cmd);
+
+                        $MAC_ADDR=$this->macgen();
+                        $cmd="sed -e \"s/lxc.net.0.hwaddr = .*/lxc.net.0.hwaddr = ".$MAC_ADDR."/g\" /var/lib/lxc/".$os_imagename."/config > /var/lib/lxc/".$os_imagename."/config-new";
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                        $result=$this->executeRemoteCommand($connection, $cmd);
+
+                        $cmd="mv /var/lib/lxc/".$os_imagename."/config-new /var/lib/lxc/".$os_imagename."/config";
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
+                        $result=$this->executeRemoteCommand($connection, $cmd);
+                        
+
+                        $result_creation=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                                "uuid"=>$os_imagename,
+                                                "error" => false,
+                                                "message" => $message,
+                                                "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                            'worker_dest_ip' => $Worker_Dest_IP
+                                                            ]
+                                    );
                     }
+                }
+                catch (ErrorException $exception){
+                    $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'error' => $exception->getMessage(),
+                        'instance' => $os_imagename
+                    ]);
+                     $result_creation=array("state" => InstanceStateMessage::STATE_ERROR,
+                                        "uuid"=>$os_imagename,
+                                        "error" => true,
+                                        "message" => $exception->getMessage(),
+                                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                            "error" => $exception->getMessage(),
+                                            "worker_dest_ip" => $Worker_Dest_IP
+                                        ]
+                            );
+                }
             }   catch (ProcessFailedException $exception) {
                 $error=true;
                 $this->logger->error("Failed LXC container backup creation", InstanceLogMessage::SCOPE_PUBLIC, [
                     'error' => $exception->getMessage(),
                     'instance' => $os_imagename
                 ]);
+                $result_creation=array("state" => InstanceStateMessage::STATE_ERROR,
+                                        "uuid"=>$os_imagename,
+                                        "error" => true,
+                                        "message" => $exception->getMessage(),
+                                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                            "error" => $exception->getMessage(),
+                                            "worker_dest_ip" => $Worker_Dest_IP
+                                        ]
+                            );
+                $this->Destroy_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename);              
             }
+        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Return value at end of this function:", InstanceLogMessage::SCOPE_PRIVATE,$result_creation);
+        
         return $result_creation;
     }
 
@@ -4008,10 +4036,8 @@ function executeRemoteCommand($connection, $command) {
         // Gestion des flux de sortie
         stream_set_blocking($stream, true);
         $output = stream_get_contents($stream);
-        //$this->logger->debug("Exec4 ssh return :".$output, InstanceLogMessage::SCOPE_PRIVATE);
-
         fclose($stream); // Fermer le flux après l'exécution
-        //$this->logger->debug("Exec5 ssh return :".$command, InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("[InstanceManager:executeRemoteCommand]::Remote execution of ".$command, InstanceLogMessage::SCOPE_PRIVATE);
 
         return false;
 }
@@ -4025,7 +4051,7 @@ function executeRemoteCommand($connection, $command) {
  * @return string|bool            Le résultat de la commande, ou false en cas de succes
  * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
  */
-function scp($connection, $localFile, $remoteFile) {
+function scp($connection, $localFile, $remoteFile,$Worker_Dest_IP) {
     try {
         ssh2_scp_send($connection, $localFile, $remoteFile,0640);
         return false;
@@ -4040,7 +4066,8 @@ function scp($connection, $localFile, $remoteFile) {
         'error' => true,
         "options" => [
             "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-            'error' => $e->getMessage()
+            'error' => $e->getMessage(),
+            'worker_dest_ip' => $Worker_Dest_IP
                     ]
             ]);
     return $e->getMessage();

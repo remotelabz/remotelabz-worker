@@ -165,11 +165,18 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         
         if ((($message->getAction() === InstanceActionMessage::ACTION_EXPORT_DEV) || ($message->getAction() === InstanceActionMessage::ACTION_EXPORT_LAB)) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
             $this->logger->debug("export and error");
-        } else if ($returnState === InstanceStateMessage::STATE_ERROR) {
+        } /*else if ( (($message->getAction() === InstanceActionMessage::ACTION_COPY2WORKER_DEV)) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
+            $ReturnArray["options"] = array(
+                "state" =>  InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                "worker_dest_ip" => $ReturnArray["options"]["worker_dest_ip"],
+                "error" => $ReturnArray["optionserror"]
+                );
+        }
+        else if ($returnState === InstanceStateMessage::STATE_ERROR) {
             $ReturnArray["options"] = array(
                 "state" =>  $message->getAction()
                 );
-        }
+        }*/
 
         $this->logger->debug("Value of the ReturnArray before InstanceStateMessage ".$returnState." ".json_encode($ReturnArray));
         $this->logger->debug("Dispatching InstanceStateMessage", [
