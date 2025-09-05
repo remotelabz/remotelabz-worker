@@ -700,9 +700,15 @@ class InstanceManager extends AbstractController
 
                         if (!OVS::ovsPortExists($bridgeName, $nicName)) {
                             OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                            $ovs_options=array(
+                                linkk_speed => 100,
+                                duplex => "full"
+                            );
+                            OVS::setInterface($nicName, $ovs_options);
                             $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
                                 'NIC' => $nicName,
-                                'bridge' => $bridgeName
+                                'bridge' => $bridgeName,
+                                'options' => $ovs_options
                             ]);
                         }
                         IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
@@ -1320,7 +1326,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox) {
         if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
-            $this->logger->debug("Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:build_template]::Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "networkinterfaceinstance" => $networkinterfaceinstance[0]
             ]);    
         $path=$instance_path."/".$filename;
@@ -1330,7 +1336,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $path
         ];
             
-            $this->logger->debug("Copying LXC template to instance path.", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:build_template]::Copying LXC template to instance path.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "command" => implode(' ',$command)
             ]);
             
@@ -1343,7 +1349,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             }
 
             //sed  -e "s/XVLANY/$VLAN/g" -e "s/NAME-CONT/$NAME/g" -e "s/IP-ADM/$ADMIN_IP\/$ADMIN_MASK/g" -e "s/IP-DATA/$DATA_IP\/$DATA_MASK/g" ${SOURCE} > $FILE
-            $this->logger->debug("networkinterfaceinstance in template", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:build_template]::Networkinterfaceinstance in template", InstanceLogMessage::SCOPE_PRIVATE, [
                 "array" => $networkinterfaceinstance,
                 "size" => count($networkinterfaceinstance)
             ]);
@@ -1370,7 +1376,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
 
             $process = Process::fromShellCommandline($command);
-            $this->logger->debug("Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
+            $this->logger->debug("[InstanceManager:build_template]::Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
             try {
                 $process->mustRun();
             }   catch (ProcessFailedException $exception) {
@@ -1380,7 +1386,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
             $size=count($networkinterfaceinstance);
             if ($size>0) {
-                $this->logger->debug("More than one interface detected.", InstanceLogMessage::SCOPE_PRIVATE);
+                $this->logger->debug("[InstanceManager:build_template]::More than one interface detected.", InstanceLogMessage::SCOPE_PRIVATE);
                 $command="";
                 $file=$path."-new";
                 $i=0;
@@ -1689,7 +1695,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->info("Creating LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $lxc_name]
         );
-        $this->logger->debug("Creating LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManage:lxc_create]::Creating LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
 
@@ -1725,7 +1731,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             "$uuid"
         ];
 
-        $this->logger->debug("Deleting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManage:lxc_delete]::Deleting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
 
@@ -1773,7 +1779,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $template
         ];
 
-        $this->logger->debug("Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManage:lxc_start]::Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
 
@@ -1829,7 +1835,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         });
 
         if (!count($deviceInstance)) {
-            $this->logger->debug("Device instance is already stopped.", InstanceLogMessage::SCOPE_PUBLIC, [
+            $this->logger->debug("[InstanceManage:stopDeviceInstance]::Device instance is already stopped.", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']]);
             // instance is already stopped or whatever
         } else {
@@ -1909,40 +1915,74 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     public function lxc_stop(string $lxc_name){
         $result=null;
         $command = [
-            'lxc-stop',
+            'lxc-info',
             '-n',
-            "$lxc_name"
+            "$lxc_name",
+            "-s"
         ];
-
-        $this->logger->debug("Stopping LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
-        ]);
 
         $process = new Process($command);
         try {
             $process->mustRun();
-            $result=array(
-                "state" => InstanceStateMessage::STATE_STOPPED,
-                "uuid" => $lxc_name
-            );
-        }   catch (ProcessFailedException $exception) {
-            if (!str_contains($exception,$lxc_name." is not running")) {
-                $this->logger->error("LXC container stopping error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+            if (str_contains($process->getOutput(),"STOPPED")) {
+                $this->logger->debug("[InstanceManage:lxc_stop]::LXC container already stopped.", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
                 $result=array(
-                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "state" => InstanceStateMessage::STATE_STOPPED,
                     "uuid" => $lxc_name,
                     "options" => null
                 );
             }
             else {
-                $this->logger->debug("LXC container not running :".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
-                $result=array(
-                    "state" => InstanceStateMessage::STATE_STOPPED,
-                    "uuid" => $lxc_name,
-                    "options" => null
-                );  
+                $this->logger->debug("[InstanceManage:lxc_stop]::LXC container is running.", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                $command = [
+                    'lxc-stop',
+                    '-n',
+                    "$lxc_name"
+                ];
+
+                $this->logger->debug("[InstanceManage:lxc_stop]::Stopping LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "command" => implode(' ',$command)
+                ]);
+
+                $process = new Process($command);
+                try {
+                    $process->mustRun();
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_STOPPED,
+                        "uuid" => $lxc_name
+                    );
+                }
+                catch (ProcessFailedException $exception) {
+                    if (!str_contains($exception,$lxc_name." is not running")) {
+                        $this->logger->error("LXC container stopping error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $lxc_name,
+                            "options" => null
+                        );
+                    }
+                    else {
+                        $this->logger->debug("[InstanceManage:lxc_stop]::LXC container did'nt run :".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_STOPPED,
+                            "uuid" => $lxc_name,
+                            "options" => null
+                        );  
+                    }
+                }
             }
         }
+        catch (ProcessFailedException $exception) {
+            $this->logger->error("LXC container stat failed before to stop it ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $lxc_name,
+                            "options" => null
+                        );
+
+        }     
+        
+        
         
         return $result;
     }
