@@ -3687,6 +3687,13 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         
         $this->logger->debug("[InstanceManager:copy2worker]::Copy process to worker: ".$descriptor,InstanceLogMessage::SCOPE_PRIVATE);
         $this->logger->debug("[InstanceManager:copy2worker]::Copy ".$os_to_copy["hypervisor"]." image ".$os_to_copy["os_imagename"]." to worker: ".$os_to_copy["Worker_Dest_IP"],InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->info("Receive request to copy ".$os_to_copy["hypervisor"]." image ".$os_to_copy["os_imagename"]." to worker: ".$os_to_copy["Worker_Dest_IP"],InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $os_to_copy["os_imagename"],
+            "uuid"=>$os_to_copy['os_imagename'],
+            "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                            "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
+                        ]
+              ]);
         switch ($os_to_copy["hypervisor"]) {
             case "qemu":
                 $result_scp="";
@@ -3719,7 +3726,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                                                             ]
                                     );
                     } else { // No error return by scp command
-                        $this->logger->debug("[InstanceManager:copy2worker]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
+                        $this->logger->info("::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $local_file,
+                            "uuid"=>    $local_file
+                        ]);
                         
                         $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
                         "uuid" => $os_to_copy["os_imagename"],
@@ -3761,7 +3771,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     
                     $result=array("state" => InstanceStateMessage::STATE_ERROR,
                                     "uuid"=>$os_to_copy['os_imagename'],
-                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                    "options" => [
+                                        "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
                                         "error" => $result_lxc["message"],
                                         "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
                                     ]
@@ -4091,27 +4102,33 @@ function executeRemoteCommand($connection, $command) {
  * @return string|bool            Le résultat de la commande, ou false en cas de succes
  * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
  */
-function scp($connection, $localFile, $remoteFile,$Worker_Dest_IP) {
-    try {
-        ssh2_scp_send($connection, $localFile, $remoteFile,0640);
-        return false;
-        // $this->logger->debug("Send file ".$local_file." -> ".$remote_file, InstanceLogMessage::SCOPE_PRIVATE);
-        throw new ErrorException('Send file impossible');
+function scp($connection, $localFile, $remoteFile,$Worker_Dest_IP) {  
+    $success=ssh2_scp_send($connection, $localFile, $remoteFile,0660); //  Returns true on success or false on failure. 
+    $this->logger->debug("Send file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
+    $this->logger->info("Send ".$localFile." file via scp to ".$Worker_Dest_IP.":".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE,
+        [
+            'instance' => $localFile,
+            'uuid' => $localFile,
+        ]);
+    try { if (!$success)
+            throw new ErrorException('Send file impossible');
     }
     catch (ErrorException $e) {
         $this->logger->debug("[InstanceManager:scp]::Send failed for file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
-
-    $this->logger->error("SCP Failed ".$localFile, InstanceLogMessage::SCOPE_PRIVATE,
-        ['instance' => $localFile,
-        'error' => true,
-        "options" => [
-            "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-            'error' => $e->getMessage(),
-            'worker_dest_ip' => $Worker_Dest_IP
-                    ]
+        $this->logger->error("SCP Failed ".$localFile, InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance' => $localFile,
+            'error' => true,
+            "options" => [
+                "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                'error' => $e->getMessage(),
+                'worker_dest_ip' => $Worker_Dest_IP
+                ]
             ]);
-    return $e->getMessage();
+    $result=$e->getMessage();
     }
+    if ($success)
+        return false;
+    else return $result;
 }
 
 }
