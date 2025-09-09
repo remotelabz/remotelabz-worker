@@ -3708,7 +3708,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         $message=$result_scp;
                         $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $os_to_copy["os_imagename"],
-                            "uuid"=>$os_to_copy['os_imagename'],
+                            "uuid" => $os_to_copy['os_imagename'],
                             'error' => true,
                             "options" => [
                                 "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
@@ -4103,13 +4103,15 @@ function executeRemoteCommand($connection, $command) {
  * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
  */
 function scp($connection, $localFile, $remoteFile,$Worker_Dest_IP) {  
-    $success=ssh2_scp_send($connection, $localFile, $remoteFile,0660); //  Returns true on success or false on failure. 
     $this->logger->debug("Send file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
     $this->logger->info("Send ".$localFile." file via scp to ".$Worker_Dest_IP.":".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE,
         [
             'instance' => $localFile,
             'uuid' => $localFile,
         ]);
+        
+    $success=ssh2_scp_send($connection, $localFile, $remoteFile,0660); //  Returns true on success or false on failure. 
+    
     try { if (!$success)
             throw new ErrorException('Send file impossible');
     }
