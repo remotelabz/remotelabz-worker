@@ -401,7 +401,7 @@ class InstanceManager extends AbstractController
         $result=null;
         //$this->logger->setUuid($uuid);
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-
+        //$this->logger->debug("JSON receive:".$descriptor)
         if (!is_array($labInstance)) {
             // invalid json
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
