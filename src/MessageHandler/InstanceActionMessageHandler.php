@@ -30,10 +30,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
     public function __invoke(InstanceActionMessage $message)
     {
-
        // The following generate an error on json param
        $message_array=json_decode($message->getContent(), true);
-       //$this->logger->debug("Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
+       //$this->logger->debug("[InstanceActionMessageHandler:__invoke]::Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
 
         $returnState = "";
         $instanceType = "";
@@ -50,7 +49,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                 case InstanceActionMessage::ACTION_DELETE:
                     $instanceType = InstanceStateMessage::TYPE_LAB;
                     //Add here a foreach to stop all instance device in the lab
-                    $this->logger->debug("Delete action message received");  
+                    $this->logger->debug("[InstanceActionMessageHandler:__invoke]::Delete action message received");  
                     $ReturnArray=$this->instanceManager->deleteLabInstance($message->getContent(), $message->getUuid());
                     $returnState = InstanceStateMessage::STATE_DELETED;
                     break;
@@ -60,12 +59,12 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     if ($message_array["lab"]["virtuality"] == 1) {
                         if (strstr($message_array["lab"]["name"],"Sandbox_"))
                         {
-                            $this->logger->debug("Start device from Sandbox detected");  
+                            $this->logger->debug("[InstanceActionMessageHandler:__invoke]::Start device from Sandbox detected");  
                             $from_sandbox=true;
                         }
                         else
                         {
-                            $this->logger->debug("Start device from a classical lab");  
+                            $this->logger->debug("[InstanceActionMessageHandler:__invoke]::Start device from a classical lab");  
                             $from_sandbox=false;
                         }
                         $ReturnArray=$this->instanceManager->startDeviceInstance($message->getContent(), $message->getUuid(),$from_sandbox);
@@ -164,7 +163,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         ]);
         
         if ((($message->getAction() === InstanceActionMessage::ACTION_EXPORT_DEV) || ($message->getAction() === InstanceActionMessage::ACTION_EXPORT_LAB)) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
-            $this->logger->debug("export and error");
+            $this->logger->debug("[InstanceActionMessageHandler:__invoke]::export and error");
         } /*else if ( (($message->getAction() === InstanceActionMessage::ACTION_COPY2WORKER_DEV)) && ($returnState === InstanceStateMessage::STATE_ERROR)) {
             $ReturnArray["options"] = array(
                 "state" =>  InstanceActionMessage::ACTION_COPY2WORKER_DEV,
@@ -178,13 +177,13 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                 );
         }*/
 
-        $this->logger->debug("Value of the ReturnArray before InstanceStateMessage ".$returnState." ".json_encode($ReturnArray));
-        $this->logger->debug("Dispatching InstanceStateMessage", [
-    "state" => $returnState,
-    "uuid" => $ReturnArray["uuid"],
-    "type" => $instanceType,
-    "options" => $ReturnArray["options"]
-]);
+        $this->logger->debug("[InstanceActionMessageHandler:__invoke]::Value of the ReturnArray before InstanceStateMessage ".$returnState." ".json_encode($ReturnArray));
+        $this->logger->debug("[InstanceActionMessageHandler:__invoke]::Dispatching InstanceStateMessage", [
+            "state" => $returnState,
+            "uuid" => $ReturnArray["uuid"],
+            "type" => $instanceType,
+            "options" => $ReturnArray["options"]
+        ]);
 
         $instanceStateMessage = new InstanceStateMessage(
     		$returnState,
