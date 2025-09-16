@@ -789,6 +789,8 @@ class InstanceManager extends AbstractController
                     'instance' => $deviceInstance['uuid']
                     ]);
                 $this->qemu_delete($deviceInstance['uuid'],$image_dst);
+                throw new \Exception("Qemu device download failed for UUID: " . $deviceInstance['uuid']);
+
                 $result=array(
                     "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
@@ -821,6 +823,8 @@ class InstanceManager extends AbstractController
                     $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
                     ]);
+                    throw new \Exception("Error in LXC clone process:" . $deviceInstance['uuid']);
+
                     $result=array(
                         "state" => InstanceStateMessage::STATE_ERROR,
                         "uuid" => $deviceInstance['uuid'],
@@ -858,7 +862,7 @@ class InstanceManager extends AbstractController
                 if ($sandbox)
                     $org_file='template.txt';
 
-                $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox);
+                $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox,$deviceInstance['device']['flavor']['memory']);
 
 
                 foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
@@ -886,6 +890,8 @@ class InstanceManager extends AbstractController
                         $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
                             ]);
+                        throw new \Exception("Remote access process failed: " . $deviceInstance['uuid']);
+
                         $result=array(
                             "state" => InstanceStateMessage::STATE_ERROR,
                             "uuid" => $deviceInstance['uuid'],
@@ -897,6 +903,8 @@ class InstanceManager extends AbstractController
                     $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
+                    throw new \Exception("LXC container not started: " . $deviceInstance['uuid']);
+
                     $result=array("state" => InstanceStateMessage::STATE_ERROR,
                         "uuid"=>$deviceInstance['uuid'],
                         "options" => null);
@@ -913,6 +921,8 @@ class InstanceManager extends AbstractController
             $this->logger->error("Device not started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']
             ]);
+            throw new \Exception("Device not started successfully:" . $deviceInstance['uuid']);
+
             $result=array(
                 "state" => InstanceStateMessage::STATE_ERROR,
                 "uuid" => $deviceInstance['uuid'],
@@ -1323,8 +1333,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $network_addr the IP of the container
      * @param string $gateway_IP the gateway the container uses
      * @param boolean $from_sandbox true if this function is called from a sandbox
+     * @param int $memory the memory in Byte for the container
      */
-    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox) {
+    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox,$memory) {
         if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
             $this->logger->debug("[InstanceManager:build_template]::Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "networkinterfaceinstance" => $networkinterfaceinstance[0]
@@ -1366,6 +1377,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             } else
                 $MAC_ADDR=$this->macgen();
 
+            $memory=$memory*1024*1024;
+
             $command="sed \
             -e \"s/NAME-CONT/".$uuid."/g\" \
             -e \"s/INTERFACE/".$INTERFACE."/g\" \
@@ -1373,8 +1386,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             -e \"s/IP_GW/".$IP_GW."/g\" \
             -e \"s/IP/".$IP."\/".$MASK."/g\" \
             -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
+            -e \"s/MEM-MAX/".$memory."/g\" \
             -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
-
+            
             $process = Process::fromShellCommandline($command);
             $this->logger->debug("[InstanceManager:build_template]::Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
             try {
@@ -1773,10 +1787,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $result=null;
         $command = [
             'lxc-start',
-            '-n',
-            $lxc_name,
-            '-f',
-            $template
+            '-n', $lxc_name,
+            '-f', $template
         ];
 
         $this->logger->debug("[InstanceManage:lxc_start]::Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -1793,7 +1805,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "options" => null
             );
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container started error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,
+            $this->logger->error("LXC container started error ! ", InstanceLogMessage::SCOPE_PRIVATE,
                 ["instance" => $lxc_name]);
             $result=array(
                 "state" => InstanceStateMessage::STATE_ERROR,
