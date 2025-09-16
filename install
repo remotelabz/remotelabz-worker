@@ -98,15 +98,12 @@ apt-get update
 apt-get install -y software-properties-common
 add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php8.1 php8.1-ssh2 zip unzip qemu-system-x86 qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.1-xml php8.1-curl php8.1-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect
+apt-get install -y ntp apache2 php8.4 php8.4-ssh2 zip unzip qemu-system-x86 qemu-system-arm qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.1-xml php8.1-curl php8.1-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect
 
-
-
-
-phpenmod -v 8.1 dom
-update-alternatives --set php /usr/bin/php8.1 # PPRI0603 : Ajout des 4 lignes suivantes pour forcer l'utilisation de php8.1
-update-alternatives --set phar /usr/bin/phar8.1
-update-alternatives --set phar.phar /usr/bin/phar.phar8.1
+phpenmod -v 8.4 dom
+update-alternatives --set php /usr/bin/php8.4 # PPRI0603 : Ajout des 4 lignes suivantes pour forcer l'utilisation de php8.1
+update-alternatives --set phar /usr/bin/phar8.4
+update-alternatives --set phar.phar /usr/bin/phar.phar8.4
 systemctl restart apache2
 echo "OK ✔️"
 
