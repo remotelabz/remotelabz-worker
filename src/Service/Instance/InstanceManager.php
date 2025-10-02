@@ -2704,7 +2704,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $imagefilename=$newImageName;
         
         // Test here if hypervisor is qemu
-        if (($hypervisor === "qemu") || ($hypervisor === "file")) {
+        if ((strtolower($hypervisor) === "qemu") || (strtolower($hypervisor) === "file")) {
             $this->logger->debug("Qemu image exportation detected");
             $instancePath = $this->kernel->getProjectDir() . "/instances";
             $instancePath .= ($ownedBy === 'group') ? '/group' : '/user';
@@ -3050,7 +3050,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $operatingSystem = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
         
-        switch($operatingSystem["hypervisor"]){
+        switch(strtolower($operatingSystem["hypervisor"])){
             case "qemu":
                 $this->qemu_delete("",$this->kernel->getProjectDir()."/images/".$operatingSystem["os_imagename"]);
                 break;
@@ -3087,7 +3087,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->debug("new name", InstanceLogMessage::SCOPE_PRIVATE, ["hypervisor" => $hypervisor ,
     "source" => $source, "new_name" => $destination]);
 
-        switch($hypervisor){
+        switch(strtolower($hypervisor)) {
             case "qemu":
                 $this->logger->debug("Rename image qemu from ".$this->kernel->getProjectDir()."/images/".$source." to ".$this->kernel->getProjectDir()."/images/".$destination, InstanceLogMessage::SCOPE_PRIVATE, []);
                 $this->qemu_rename($this->kernel->getProjectDir()."/images/".$source,$this->kernel->getProjectDir()."/images/".$destination);
@@ -3706,7 +3706,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             "worker_dest_ip" => $os_to_copy["Worker_Dest_IP"]
                         ]
               ]);
-        switch ($os_to_copy["hypervisor"]) {
+        switch (strtolower($os_to_copy["hypervisor"])) {
             case "qemu":
                 $result_scp="";
                 $connection=$this->ssh($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
