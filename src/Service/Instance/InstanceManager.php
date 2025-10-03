@@ -507,38 +507,6 @@ class InstanceManager extends AbstractController
         ]);
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
 
-        // DHCP
-        /*
-        if (IPTools::NetworkIfExistDHCP("localhost",8000,"/etc/kea/kea-dhcp4.conf",$labNetwork))
-            $this->logger->debug("Network ".$labNetwork->__toString()." already in the DHCP configuration file");
-        else
-            $this->logger->debug("DHCP registration of network ".$labNetwork->__toString());
-        // Network interfaces
-        $this->logger->debug("First IP and last for DHCP registration ".$labNetwork->getFirstAddress()->getAddr()." ".$labNetwork->getLastAddress()->getAddr());
-        */
-
-        /*        $filename="/etc/kea/kea-dhcp4.conf";
-        $fileContent="";
-        try {
-            $fileContent = file_get_contents($filename);
-        }
-            catch(ErrorException $e) {
-                throw new Exception("Error opening file");
-        }
-        try {
-            $tab = json_decode($fileContent, true);
-        }
-            catch(ErrorException $e) {
-                throw new Exception("Error json_decode of DHCP configuration file");
-        }
-
-        $this->logger->debug("File 1 content: ".$fileContent);
-        $this->logger->debug("Tab 1 content: ".json_decode($fileContent, true));
-*/
-
-      //  IPTools::addnetworkDHCP("localhost",8000,"/etc/kea/kea-dhcp4.conf",$labNetwork,$labNetwork->getFirstAddress(),$labNetwork->getLastAddress());
-        
-
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] != 'started');
         });
@@ -583,7 +551,7 @@ class InstanceManager extends AbstractController
             $filesystem->mkdir($this->kernel->getProjectDir() . "/images");
         }
 
-        if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
+        if (strtolower($deviceInstance['device']['hypervisor']['name']) === 'qemu') {
             $download_ok=true;
             $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $deviceInstance['device']['operatingSystem']['name'],
@@ -592,7 +560,7 @@ class InstanceManager extends AbstractController
             // Start qemu
             $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
             if ( !$filesystem->exists($image_dst) ) {
-                $this->logger->info('Remote image is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info('Remote image is not in cache. Try to downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
                     "image" => $img['source'],
                     'instance' => $deviceInstance['uuid']
                 ]);
@@ -668,6 +636,8 @@ class InstanceManager extends AbstractController
                         'local' => [],
                         'usb' => [],
                         'access' => [],
+                        'uefi' => [],
+                        'cdrom' => []
                     ];
 
                     $smp_parameters=$deviceInstance['device']['nbCpu'];
@@ -682,6 +652,9 @@ class InstanceManager extends AbstractController
                         $smp_parameters=$smp_parameters.',sockets='.$deviceInstance['device']['nbSocket'];
                     
                     array_push($parameters['smp'],$smp_parameters);
+
+                    if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
+                        $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
 
                     foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                         $nicTemplate = $nic['networkInterface'];
@@ -719,8 +692,6 @@ class InstanceManager extends AbstractController
                         array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
                             '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
                     }
-
-                    
                     
                     array_push($parameters['local'], '-k', 'fr');
                     array_push($parameters['local'],
@@ -3089,7 +3060,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         switch(strtolower($hypervisor)) {
             case "qemu":
-                $this->logger->debug("Rename image qemu from ".$this->kernel->getProjectDir()."/images/".$source." to ".$this->kernel->getProjectDir()."/images/".$destination, InstanceLogMessage::SCOPE_PRIVATE, []);
+                $this->logger->debug("[InstanceManager:renameOS]::Rename image qemu from ".$this->kernel->getProjectDir()."/images/".$source." to ".$this->kernel->getProjectDir()."/images/".$destination, InstanceLogMessage::SCOPE_PRIVATE, []);
                 $this->qemu_rename($this->kernel->getProjectDir()."/images/".$source,$this->kernel->getProjectDir()."/images/".$destination);
                 break;
             case "lxc":
@@ -3126,7 +3097,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->info("Destroy LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $src_lxc_name]
         );
-        $this->logger->debug("Destroying LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:lxc_destroy]::Destroying LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
 
@@ -3161,7 +3132,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $source,
             $destination
         ];
-        $this->logger->debug("Rename image.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:qemu_rename]::Rename image.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
     
@@ -3185,38 +3156,49 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
     private function get_filesize_download($source) {
-        if (filter_var($source, FILTER_VALIDATE_URL)) {
-            $url=$source;
-            $context=null;
-        }
-        else {
-            //The source uploaded on the front. 
-            $url="http://".$this->front_ip."/uploads/images/".basename($source);
-            // Only to download from the front when self-signed certificate
-            $context = stream_context_create( [
-                'ssl' => [
-                    'verify_peer' => false,
-                    'verify_peer_name' => false,
-                    'allow_self_signed' => true,
-                ],
-            ]);
-        }
-        $headers = get_headers($source, 1,$context);
-        $this->logger->debug('Headers of the web page to download the image : ', InstanceLogMessage::SCOPE_PRIVATE, [
-            "headers" => $headers
-        ]);
-        $headers = array_change_key_case($headers);
-        $fileSize = 0.0;
-        if(isset($headers['content-length'])){
-            // On 302 request, with http to https, content-length is an array !!
-            // In that case, we take the second value
-            if (is_array($headers['content-length']))
-                $fileSize = (float) $headers['content-length'][1];
-            else 
-                $fileSize = (float) $headers['content-length'];
-        }
-        return $fileSize;
+    if (filter_var($source, FILTER_VALIDATE_URL)) {
+        $url = $source;
+        $verify_ssl = true;  // Par défaut, on vérifie les certificats
+    } else {
+        // The source uploaded on the front.
+        $url = "http://".$this->front_ip."/uploads/images/".basename($source);
+        $verify_ssl = false;  // Certificat auto-signé sur le front
     }
+    
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HEADER, true);
+    curl_setopt($ch, CURLOPT_NOBODY, true);  // HEAD request uniquement
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);  // Suit les redirections automatiquement
+    curl_setopt($ch, CURLOPT_MAXREDIRS, 5);  // Limite le nombre de redirections
+    
+    // Gestion SSL
+    if (!$verify_ssl) {
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    }
+    
+    curl_exec($ch);
+    
+    if (curl_errno($ch)) {
+        $this->logger->error('[InstanceManager:get_filesize_download]::cURL error: ' . curl_error($ch), InstanceLogMessage::SCOPE_PRIVATE);
+        curl_close($ch);
+        return 0.0;
+    }
+    
+    $fileSize = (float) curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    
+    $this->logger->debug('[InstanceManager:get_filesize_download]::File size retrieved', InstanceLogMessage::SCOPE_PRIVATE, [
+        "url" => $url,
+        "fileSize" => $fileSize,
+        "httpCode" => $httpCode
+    ]);
+    
+    curl_close($ch);
+    
+    return $fileSize > 0 ? $fileSize : 0.0;
+}
 
 
     // $source : image source to download
