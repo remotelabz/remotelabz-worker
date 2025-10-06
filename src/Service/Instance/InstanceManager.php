@@ -1259,7 +1259,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $process->mustRun();
             $result=true;
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("QEMU commit error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->error("QEMU commit error ! ".$exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $uuid
                 ]);
             $this->logger->error("QEMU commit error !", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -2348,7 +2348,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         OVS::UnlinkTwoOVS($bridge, $bridgeInt);
     }
 
-     /**
+    /**
      * reset a device specified by UUID.
      *
      * @param string $descriptor JSON representation of a device instance.
@@ -2357,10 +2357,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @return void
      */
 
-     public function resetDeviceInstance(string $descriptor, string $uuid) {
-
+    public function resetDeviceInstance(string $descriptor, string $uuid) {
         $deviceInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-
+        $result="";
         if ($deviceInstance['device']['virtuality'] == 0) {
             $response = $this->changePhysicalDeviceState($uuid, $deviceInstance, "stop");
             if ($response['state'] == InstanceStateMessage::STATE_STOPPED) {
@@ -2596,9 +2595,16 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             'path' => $img['destination'],
                             'instance' => $deviceInstance['uuid']
                         ]);
-                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                            "uuid"=>$uuid,
-                            "options" => null);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $uuid,
+                            "options" => null
+                        );
+
+                        $this->logger->debug("[InstanceManager:resetDeviceInstance]::Return error qemu_create_relative_img :", InstanceLogMessage::SCOPE_PRIVATE, [
+                             "result" => $result
+                        ]);
+                        
                     }
                     
                 }
@@ -2616,7 +2622,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             }
         }
         
-
+        $this->logger->debug("[InstanceManager:resetDeviceInstance]::Return error qemu_create_relative_img :", InstanceLogMessage::SCOPE_PRIVATE, [
+                             "result" => $result
+                        ]);
         return $result;
      }
 
