@@ -60,6 +60,30 @@ class Rule
     }
 
     /**
+     * Example
+     * Bloquer UDP sur un port spécifique
+     * $rule = Rule::create()
+     *  ->setProtocol(Rule::PROTOCOL_UDP)
+     *  ->setDestinationPort('53')
+     *  ->setSource('192.168.1.0/24')
+     *  ->setJump('DROP');
+     */
+
+    /**
+     * $rule = Rule::create()
+     *     ->setProtocol(Rule::PROTOCOL_ALL)
+     *     ->setStates(['ESTABLISHED', 'RELATED'])
+     *     ->setJump('ACCEPT');
+     */
+
+    /**
+     * $rule = Rule::create()
+     *     ->setProtocol(Rule::PROTOCOL_TCP)
+     *     ->setDestinationPort('22')
+     *     ->setJump('ACCEPT');
+     */
+
+    /**
      * Generate an array for the current rule object.
      *
      * @throws UnexpectedValueException if a field is set with an incorrect value.

@@ -474,17 +474,6 @@ class InstanceManager extends AbstractController
             );
         }
 
-        $rule=Rule::create()
-        ->setOutInterface($bridgeName)
-        ->setInInterface($InternetInterface)
-        ->setJump('ACCEPT');
-        if (!IPTables::exists($chaine_forward,$rule)) {
-            IPTables::append(
-                $chaine_forward,
-                $rule
-            );
-        }
-
         if ($VPNInterface != "localhost") {
             $rule=Rule::create()
             ->setInInterface($bridgeName)
@@ -532,11 +521,11 @@ class InstanceManager extends AbstractController
         // Add iptables rules to disallow connexion to the gateway
         $chaine_input=$bridgeName."_input";
         IPTables::create_chain($chaine_input);
-
-        $rule=Rule::create()
-            ->setOutInterface($bridgeName)
-            ->setProtocol(Rule::PROTOCOL_ICMP)
-            ->setJump('ACCEPT');
+       
+        $rule = Rule::create()
+            ->setProtocol(Rule::PROTOCOL_TCP)
+            ->setInInterface($bridgeName)
+            ->setJump('DROP');
         if (!IPTables::exists($chaine_input,$rule)) {
             IPTables::append(
                 $chaine_input,
@@ -544,8 +533,9 @@ class InstanceManager extends AbstractController
             );
         }
 
-        $rule=Rule::create()
-            ->setOutInterface($bridgeName)
+        $rule = Rule::create()
+            ->setProtocol(Rule::PROTOCOL_UDP)
+            ->setInInterface($bridgeName)
             ->setJump('DROP');
         if (!IPTables::exists($chaine_input,$rule)) {
             IPTables::append(
