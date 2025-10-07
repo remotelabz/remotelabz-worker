@@ -14,6 +14,10 @@ class Rule
     const PROTOCOL_ICMP = 'icmp';
     const PROTOCOL_ALL = 'all';
 
+    const STATE_NEW = 'NEW';
+    const STATE_ESTABLISHED = 'ESTABLISHED';
+    const STATE_RELATED = 'RELATED';
+    const STATE_INVALID = 'INVALID';
 
     private $protocol;
     private $source;
@@ -23,6 +27,9 @@ class Rule
     private $inInterface;
     private $outInterface;
     private $fragment;
+    private $sourcePort;
+    private $destinationPort;
+    private $states;
 
     public static function create()
     {
@@ -79,6 +86,30 @@ class Rule
         if (!empty($this->destination)) {
             $rule[] = '--destination';
             $rule[] = $this->destination;
+        }
+
+        // Gestion des ports source (TCP/UDP)
+        if (!empty($this->sourcePort)) {
+            if ($this->protocol === self::PROTOCOL_TCP || $this->protocol === self::PROTOCOL_UDP) {
+                $rule[] = '--source-port';
+                $rule[] = $this->sourcePort;
+            }
+        }
+
+        // Gestion des ports destination (TCP/UDP)
+        if (!empty($this->destinationPort)) {
+            if ($this->protocol === self::PROTOCOL_TCP || $this->protocol === self::PROTOCOL_UDP) {
+                $rule[] = '--destination-port';
+                $rule[] = $this->destinationPort;
+            }
+        }
+
+        // Gestion des états de connexion
+        if (!empty($this->states)) {
+            $rule[] = '-m';
+            $rule[] = 'state';
+            $rule[] = '--state';
+            $rule[] = is_array($this->states) ? implode(',', $this->states) : $this->states;
         }
 
         if (!empty($this->jump)) {
@@ -275,6 +306,69 @@ class Rule
     public function setFragment($fragment)
     {
         $this->fragment = $fragment;
+
+        return $this;
+    }
+
+    /**
+     * Get the value of sourcePort
+     */ 
+    public function getSourcePort()
+    {
+        return $this->sourcePort;
+    }
+
+    /**
+     * Set the value of sourcePort
+     * Peut être un port unique (80) ou une plage (1024:65535)
+     *
+     * @return  self
+     */ 
+    public function setSourcePort($sourcePort)
+    {
+        $this->sourcePort = $sourcePort;
+
+        return $this;
+    }
+
+    /**
+     * Get the value of destinationPort
+     */ 
+    public function getDestinationPort()
+    {
+        return $this->destinationPort;
+    }
+
+    /**
+     * Set the value of destinationPort
+     * Peut être un port unique (80) ou une plage (1024:65535)
+     *
+     * @return  self
+     */ 
+    public function setDestinationPort($destinationPort)
+    {
+        $this->destinationPort = $destinationPort;
+
+        return $this;
+    }
+
+    /**
+     * Get the value of states
+     */ 
+    public function getStates()
+    {
+        return $this->states;
+    }
+
+    /**
+     * Set the value of states
+     * Peut être une chaîne ("ESTABLISHED,RELATED") ou un tableau (["ESTABLISHED", "RELATED"])
+     *
+     * @return  self
+     */ 
+    public function setStates($states)
+    {
+        $this->states = $states;
 
         return $this;
     }
