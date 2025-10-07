@@ -114,14 +114,35 @@ class InstanceManager extends AbstractController
 
         // Iptable
         $rule=Rule::create()
-                ->setJump($labInstance['bridgeName']);
+                ->setJump($labInstance['bridgeName']."_forward");
         if (IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {
             IPTables::delete(
                     IPTables::CHAIN_FORWARD,
                     $rule
                 );
-            }
-        IPTables::delete_chain($labInstance['bridgeName']);
+        }
+
+        $rule=Rule::create()
+                ->setJump($labInstance['bridgeName']."_input");
+        if (IPTables::exists(IPTables::CHAIN_INPUT,$rule)) {
+            IPTables::delete(
+                    IPTables::CHAIN_INPUT,
+                    $rule
+                );
+        }
+
+        $rule=Rule::create()
+                ->setJump($labInstance['bridgeName']."_output");
+        if (IPTables::exists(IPTables::CHAIN_OUTPUT,$rule)) {
+            IPTables::delete(
+                    IPTables::CHAIN_OUTPUT,
+                    $rule
+                );
+        }
+
+        IPTables::delete_chain($labInstance['bridgeName']."_forward");
+        IPTables::delete_chain($labInstance['bridgeName']."_input");
+        IPTables::delete_chain($labInstance['bridgeName']."_output");
 
         try {
             $labUser = $labInstance['owner']['uuid'];
@@ -397,6 +418,10 @@ class InstanceManager extends AbstractController
      */
     public function startDeviceInstance(string $descriptor, string $uuid,$sandbox=false) {
 
+        $chaine_forward=null;
+        $chaine_input=null;
+        $chaine_output=null;
+
         /** @var array $labInstance */
         $result=null;
         //$this->logger->setUuid($uuid);
@@ -435,15 +460,16 @@ class InstanceManager extends AbstractController
         $InternetInterface=$this->getParameter('app.network.lab.internet_interface');
         $VPNInterface=$this->getParameter('app.vpn.interface');
         
-        IPTables::create_chain($bridgeName);
+        $chaine_forward=$bridgeName."_forward";
+        IPTables::create_chain($chaine_forward);
         
         $rule=Rule::create()
         ->setInInterface($bridgeName)
         ->setOutInterface($InternetInterface)
         ->setJump('ACCEPT');
-        if (!IPTables::exists($bridgeName,$rule)) {
+        if (!IPTables::exists($chaine_forward,$rule)) {
             IPTables::append(
-                $bridgeName,
+                $chaine_forward,
                 $rule
             );
         }
@@ -452,39 +478,39 @@ class InstanceManager extends AbstractController
         ->setOutInterface($bridgeName)
         ->setInInterface($InternetInterface)
         ->setJump('ACCEPT');
-        if (!IPTables::exists($bridgeName,$rule)) {
+        if (!IPTables::exists($chaine_forward,$rule)) {
             IPTables::append(
-                $bridgeName,
+                $chaine_forward,
                 $rule
             );
         }
 
         if ($VPNInterface != "localhost") {
-        $rule=Rule::create()
-        ->setInInterface($bridgeName)
-        ->setOutInterface($VPNInterface)
-        ->setJump('ACCEPT');
-        if (!IPTables::exists($bridgeName,$rule)) {
-            IPTables::append(
-                $bridgeName,
-                $rule
-            );
-        }
+            $rule=Rule::create()
+            ->setInInterface($bridgeName)
+            ->setOutInterface($VPNInterface)
+            ->setJump('ACCEPT');
+            if (!IPTables::exists($chaine_forward,$rule)) {
+                IPTables::append(
+                    $chaine_forward,
+                    $rule
+                );
+            }
 
-        $rule=Rule::create()
-        ->setOutInterface($bridgeName)
-        ->setInInterface($VPNInterface)
-        ->setJump('ACCEPT');
-        if (!IPTables::exists($bridgeName,$rule)) {
-            IPTables::append(
-                $bridgeName,
-                $rule
-            );
-        }
+            $rule=Rule::create()
+            ->setOutInterface($bridgeName)
+            ->setInInterface($VPNInterface)
+            ->setJump('ACCEPT');
+            if (!IPTables::exists($chaine_forward,$rule)) {
+                IPTables::append(
+                    $chaine_forward,
+                    $rule
+                );
+            }
         }
         
         $rule=Rule::create()
-                ->setJump($bridgeName);
+                ->setJump($chaine_forward);
         if (!IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {
             IPTables::append(
                 IPTables::CHAIN_FORWARD,
@@ -502,6 +528,41 @@ class InstanceManager extends AbstractController
             ]);
             IPTools::addrAdd($bridgeName, $gateway."/".$labInstance['network']['netmask']['addr']);
         }
+
+        // Add iptables rules to disallow connexion to the gateway
+        $chaine_input=$bridgeName."_input";
+        IPTables::create_chain($chaine_input);
+
+        $rule=Rule::create()
+            ->setOutInterface($bridgeName)
+            ->setProtocol(Rule::PROTOCOL_ICMP)
+            ->setJump('ACCEPT');
+        if (!IPTables::exists($chaine_input,$rule)) {
+            IPTables::append(
+                $chaine_input,
+                $rule
+            );
+        }
+
+        $rule=Rule::create()
+            ->setOutInterface($bridgeName)
+            ->setJump('DROP');
+        if (!IPTables::exists($chaine_input,$rule)) {
+            IPTables::append(
+                $chaine_input,
+                $rule
+            );
+        }
+
+        $rule=Rule::create()
+            ->setJump($chaine_input);
+        if (!IPTables::exists(IPTables::CHAIN_INPUT,$rule)) {
+            IPTables::append(
+                IPTables::CHAIN_INPUT,
+                $rule
+            );
+        }
+
         $this->logger->debug("OVS bridge set up.", InstanceLogMessage::SCOPE_PRIVATE, [
             'bridge' => $bridgeName
         ]);
