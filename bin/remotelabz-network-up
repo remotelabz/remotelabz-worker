@@ -124,6 +124,17 @@ if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
     }
 }
 
+// Autoriser les connexions établies et associées
+    $rule = Rule::create()
+        ->setProtocol(Rule::PROTOCOL_ALL)
+        ->setStates(['ESTABLISHED', 'RELATED'])
+        ->setJump('ACCEPT');
+    if (!IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {
+        IPTables::append(
+            IPTables::CHAIN_FORWARD,
+            $rule
+        );
+    }
 
 # Configure iptables to NAT all lab (temporary because Internet connexion, on the fly, is not yet implemented)
 ## Flush all nat rules
