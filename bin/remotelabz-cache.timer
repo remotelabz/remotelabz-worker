@@ -1,0 +1,11 @@
+[Unit]
+Description=Run RemoteLabz Resources Cache Updater every 30 seconds
+Requires=remotelabz-cache.service
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
