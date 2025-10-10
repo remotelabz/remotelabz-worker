@@ -9,7 +9,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 class UpdateResourcesCacheCommand extends Command
 {
     protected static $defaultName = 'app:update-resources-cache';
-    protected static $defaultDescription = 'Met à jour le cache des ressources système';
+    protected static $defaultDescription = 'Update system resource cache';
 
     private $resourcesCacheService;
 
@@ -21,9 +21,9 @@ class UpdateResourcesCacheCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $output->writeln('Mise à jour du cache des ressources...');
+        $output->writeln('Updating resource cache...');
         $this->resourcesCacheService->updateCache();
-        $output->writeln('Cache mis à jour avec succès');
+        $output->writeln('Update resource cache done');
 
         return Command::SUCCESS;
     }

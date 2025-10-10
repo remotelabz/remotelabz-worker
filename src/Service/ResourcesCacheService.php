@@ -98,7 +98,8 @@ class ResourcesCacheService
         }
 
         $output = explode("\n", $process->getOutput());
-        return 100 - (int)round(preg_replace('/^.+ni[, ]+([0-9\.]+) id,.+/', '$1', $output[11] ?? '0'));
+        $idleValue = preg_replace('/^.+ni[, ]+([0-9\.]+) id,.+/', '$1', $output[11] ?? '0');
+        return 100 - (int)round((float)$idleValue);
     }
 
     private function disk_usage(): int
@@ -158,7 +159,7 @@ class ResourcesCacheService
         return "";
     }
 
-    private function opened_file(): string
+    private function opened_file(): int
     {
         $command = ['bash', '-c', 'sudo lsof -w | wc -l'];
         $process = new Process($command);
@@ -166,10 +167,10 @@ class ResourcesCacheService
         try {
             $process->setTimeout(10);
             $process->run();
-            return trim($process->getOutput());
+            return (int)trim($process->getOutput());
         } catch (\Exception $e) {
             $this->logger->error('Erreur opened files : ' . $e->getMessage());
-            return "0";
+            return 0;
         }
     }
 

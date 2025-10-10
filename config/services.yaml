@@ -48,3 +48,7 @@ services:
     App\Service\ResourcesCacheService:
         arguments:
             $projectDir: '%kernel.project_dir%'
+
+    App\Controller\CachedStateController:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
