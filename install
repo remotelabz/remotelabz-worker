@@ -125,8 +125,6 @@ usermod -aG remotelabz-worker remotelabz-worker
 chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
-# ssh key
-# PPRI0603 : Demande de suppressoin du répertoire /home/remotelabz-worker s'il existe déjà
 if [ -d "/home/remotelabz-worker" ]; then
     read -p "The /home/remotelabz-worker directory already exists. Do you want to delete it? (o/n) " reponse
     if [[ $reponse == [oO] ]]; then
@@ -194,6 +192,8 @@ mkdir -p "${REMOTELABZ_WORKER_PATH}/images"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/images"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/instances"
+mkdir -p "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
+chmod g+rwx "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
 
 # Websockify
 echo "Installing WebSockify"
@@ -235,11 +235,11 @@ echo "Setup remotelabz service"
 ln -fs "${SCRIPTPATH}"/bin/remotelabz-worker.service /etc/systemd/system/remotelabz-worker.service
 ln -fs "${SCRIPTPATH}"/bin/remotelabz-cache.service /etc/systemd/system/remotelabz-cache.service
 ln -fs "${SCRIPTPATH}"/bin/remotelabz-cache.timer /etc/systemd/system/remotelabz-cache.timer
-sudo systemctl daemon-reload
-sudo systemctl enable remotelabz-worker.service
-sudo systemctl enable remotelabz-cache.timer
-sudo systemctl start remotelabz-cache.timer
-sudo systemctl start remotelabz-worker
+systemctl daemon-reload
+systemctl enable remotelabz-worker.service
+systemctl enable remotelabz-cache.timer
+systemctl start remotelabz-cache.timer
+systemctl start remotelabz-worker
 systemctl daemon-reload || true
 echo "OK ✔️"
 
@@ -304,12 +304,36 @@ if [ "${LXC}" == "" ] ; then
  echo "OK ✔️"
 fi;
 
-echo "Increase route cache for ipv6"
+echo "[ \e[32mOK\e[39m ] Increase route cache for ipv6"
 PATTERN=`awk '/net.ipv6.route.max_size = 20000/' "/etc/sysctl.conf"`;
 if [ "${PATTERN}" == "" ]; then
   echo "net.ipv6.route.max_size = 20000" >> "/etc/sysctl.conf"
-  sysctl -f /etc/sysctl.conf
 fi;
+echo "OK ✔️"
+
+echo "[ \e[32mOK\e[39m ] Increase lxc capabilities"
+
+PATTERN=`awk '/fs.inotify.max_user_watches=800000/' "/etc/sysctl.conf"`;
+if [ "${PATTERN}" == "" ]; then
+  echo "fs.inotify.max_user_watches=800000" >> "/etc/sysctl.conf"
+fi;
+
+PATTERN=`awk '/fs.inotify.max_user_instances=500000/' "/etc/sysctl.conf"`;
+if [ "${PATTERN}" == "" ]; then
+  echo "fs.inotify.max_user_instances=500000" >> "/etc/sysctl.conf"
+fi;
+
+PATTERN=`awk '/fs.file-max=15793398/' "/etc/sysctl.conf"`;
+if [ "${PATTERN}" == "" ]; then
+  echo "fs.file-max=15793398" >> "/etc/sysctl.conf"
+fi;
+
+PATTERN=`awk '/kernel.pty.max = 10000/' "/etc/sysctl.conf"`;
+if [ "${PATTERN}" == "" ]; then
+  echo "kernel.pty.max = 10000" >> "/etc/sysctl.conf"
+fi;
+
+sysctl -f /etc/sysctl.conf
 echo "OK ✔️"
 
 echo -e "[ \e[32mOK\e[39m ] RemoteLabz-worker is installed and ready to serve neat VMs!"

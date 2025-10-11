@@ -47,7 +47,7 @@ class ResourcesCacheService
             'openedfiles' => $this->opened_file(),
             'lxclsrun' => $this->lxc_number(),
             'qemurun' => $this->qemu_number(),
-            'lxcfs' => null  // Volontairement null comme dans l'original
+            'lxcfs' => $this->lxcfs_load()
         ];
 
         $memoryResult = $this->memory_usage();
@@ -57,6 +57,7 @@ class ResourcesCacheService
         $this->logger->info("Number of opened file: " . $response['openedfiles']);
         $this->logger->info("Number of LXC containers running: " . $response['lxclsrun']);
         $this->logger->info("Number of QEMU VM Running: " . $response['qemurun']);
+        $this->logger->info("LXCFS load: " . $response['lxcfs']);
 
         return $response;
     }
@@ -88,7 +89,7 @@ class ResourcesCacheService
 
     private function cpu_load(): int
     {
-        $process = new Process(['top', '-b', '-n2', '-p1', '-d1']);
+        $process = new Process(['vmstat', '1', '2']);
         
         try {
             $process->mustRun();
@@ -98,8 +99,29 @@ class ResourcesCacheService
         }
 
         $output = explode("\n", $process->getOutput());
-        $idleValue = preg_replace('/^.+ni[, ]+([0-9\.]+) id,.+/', '$1', $output[11] ?? '0');
-        return 100 - (int)round((float)$idleValue);
+        
+        // vmstat retourne 3 lignes : header, première mesure, deuxième mesure
+        // On prend la deuxième mesure (dernière ligne) qui est plus précise
+        $lastLine = trim($output[count($output) - 2] ?? '');
+        
+        if (empty($lastLine)) {
+            return 0;
+        }
+
+        // Splitter par espaces et récupérer les colonnes us, sy, wa
+        $columns = preg_split('/\s+/', $lastLine);
+        
+        // vmstat: us, sy, id, wa, st
+        // Colonnes : 12=us, 13=sy, 14=id, 15=wa, 16=st (peut varier selon version)
+        if (count($columns) >= 16) {
+            $us = (int)$columns[12];  // user time
+            $sy = (int)$columns[13];  // system time
+            $wa = (int)$columns[15];  // wait time
+            
+            return $us + $sy + $wa;
+        }
+
+        return 0;
     }
 
     private function disk_usage(): int
@@ -150,10 +172,11 @@ class ResourcesCacheService
 
     private function lxcfs_load(): int|string
     {
-        $lxcfs = shell_exec("top -b -n2 -d0.2 -p `ps aux | grep -v \"grep\" | grep \"/usr/bin/lxcfs\" | awk '{print $2}'` | tail -1 | awk '{print $9}' | tr -d \"\n\"");
+        $command = "PID=\$(pgrep lxcfs) && ps -p \$PID -o %cpu --no-header";
+        $lxcfs = shell_exec($command);
         
-        if (!is_null($lxcfs) && $lxcfs) {
-            return (int)$lxcfs;
+        if (!is_null($lxcfs) && $lxcfs !== '') {
+            return (int)round((float)trim($lxcfs));
         }
         
         return "";
@@ -161,13 +184,14 @@ class ResourcesCacheService
 
     private function opened_file(): int
     {
-        $command = ['bash', '-c', 'sudo lsof -w | wc -l'];
-        $process = new Process($command);
-
         try {
-            $process->setTimeout(10);
-            $process->run();
-            return (int)trim($process->getOutput());
+            $content = file_get_contents('/proc/sys/fs/file-nr');
+            if ($content === false) {
+                return 0;
+            }
+            
+            $columns = preg_split('/\s+/', trim($content));
+            return (int)$columns[0];
         } catch (\Exception $e) {
             $this->logger->error('Erreur opened files : ' . $e->getMessage());
             return 0;
