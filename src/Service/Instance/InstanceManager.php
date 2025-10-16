@@ -1875,11 +1875,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         //$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
         //    'labInstance' => $labInstance
-        //]);
+        //  ]);
+
 
         // Network interfaces
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
-            return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] != 'stopped');
+            return ($deviceInstance['uuid'] === $uuid && $deviceInstance['state'] != 'stopped');
         });
 
         if (!count($deviceInstance)) {
@@ -1891,16 +1892,16 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $deviceInstance = $deviceInstance[$deviceIndex];
         }
 
-        if ($deviceInstance['device']['hypervisor']['name'] === 'qemu') {
+        if (strtolower($deviceInstance['device']['hypervisor']['name'] === 'qemu')) {
             $result=$this->stop_device_qemu($uuid,$deviceInstance,$labInstance);
-        } elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc') {
+        } elseif (strtolower($deviceInstance['device']['hypervisor']['name'] === 'lxc')) {
             $result=$this->stop_device_lxc($uuid,$deviceInstance,$labInstance);
         }
-        elseif ($deviceInstance['device']['hypervisor']['name'] === 'physical') {
+        elseif (strtolower($deviceInstance['device']['hypervisor']['name'] === 'physical')) {
             $result=$this->stop_device_physical($uuid,$deviceInstance,$labInstance);
         }
         elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
-            if (strtolower($deviceInstance['device']['type'] === "switch")) {
+            if (strtolower($deviceInstance['device']['name'] === "switch")) {
                 $bridgeName=$labInstance['bridgeName'];
                 OVS::shutdownAllPorts($bridgeName);
                 $result=array("state" => InstanceStateMessage::STATE_STOP,
