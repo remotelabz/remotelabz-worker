@@ -934,13 +934,8 @@ class InstanceManager extends AbstractController
             }
         }
         elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
-            if (strtolower($deviceInstance['device']['type'] === "switch")) {
-
+            if (strtolower($deviceInstance['device']['type']) === "switch") {
                 OVS::bringUpAllPorts($bridgeName);
-
-
-
-
                 $result=array("state" => InstanceStateMessage::STATE_STARTED,
                         "uuid"=>$deviceInstance['uuid'],
                         "options" => null);
@@ -1864,6 +1859,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
 
     public function stopDeviceInstance(string $descriptor, string $uuid) {
+        $result=null;
         $this->logger->setUuid($uuid);
 
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
@@ -1901,29 +1897,31 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $result=$this->stop_device_physical($uuid,$deviceInstance,$labInstance);
         }
         elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
-            if (strtolower($deviceInstance['device']['name'] === "switch")) {
+
+            $this->logger->debug("[InstanceManage:stopDeviceInstance]::Device instance stopped.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'name' => strtolower($deviceInstance['device']['name'])
+            
+            ]);
+            if (strtolower($deviceInstance['device']['name']) === "switch") {
+                
                 $bridgeName=$labInstance['bridgeName'];
                 OVS::shutdownAllPorts($bridgeName);
-                $result=array("state" => InstanceStateMessage::STATE_STOP,
+                $result=array(
+                        "state" => InstanceStateMessage::STATE_STOPPED,
+                        "uuid"=>$deviceInstance['uuid'],
+                        "options" => null
+                    );
+            }
+            else {
+                // Si ce n'est pas un switch mais un autre dispositif natif
+                $result=array("state" => InstanceStateMessage::STATE_STOPPED,
                         "uuid"=>$deviceInstance['uuid'],
                         "options" => null);
             }
         }
 
-        // OVS
-        /*
-        $activeDeviceCount = count(array_filter($labInstance['deviceInstances'], function ($deviceInstance) {
-            return $deviceInstance['state'] == InstanceStateMessage::STATE_STARTED;
-        })) - 1;
-
-        if ($activeDeviceCount <= 0) {
-            // OVS::bridgeDelete($bridgeName, true);
-        }*/
-
         return $result;
-
-        // $filesystem = new Filesystem();
-        // $filesystem->remove($this->workerDir . '/instances/' . $labUser . '/' . $labInstanceUuid . '/' . $uuid);
     }
     
 

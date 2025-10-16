@@ -274,7 +274,7 @@ class OVS extends Bridge
             throw new Exception("Bridge and port name cannot be empty.");
         }
 
-        $command = ['set', 'port', $port, 'admin_state=down'];
+        $command = ['set', 'interface', $port, 'admin_state=down'];
         
         return static::exec($command);
     }
@@ -294,7 +294,7 @@ class OVS extends Bridge
             throw new Exception("Bridge and port name cannot be empty.");
         }
 
-        $command = ['set', 'port', $port, 'admin_state=up'];
+        $command = ['set', 'interface', $port, 'admin_state=up'];
         
         return static::exec($command);
     }
