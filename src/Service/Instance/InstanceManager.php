@@ -451,7 +451,7 @@ class InstanceManager extends AbstractController
                 'instance' => $labInstance['uuid']
             ]);
         } else {
-            $this->logger->debug("Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PUBLIC, [
+            $this->logger->debug("[InstanceManager:startDeviceInstance]::Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PUBLIC, [
                 'bridgeName' => $bridgeName,
                 'instance' => $labInstance['uuid']
             ]);
@@ -553,7 +553,7 @@ class InstanceManager extends AbstractController
             );
         }
 
-        $this->logger->debug("OVS bridge set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:startDeviceInstance]::OVS bridge set up.", InstanceLogMessage::SCOPE_PRIVATE, [
             'bridge' => $bridgeName
         ]);
         IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
@@ -933,6 +933,20 @@ class InstanceManager extends AbstractController
                 }
             }
         }
+        elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
+            if (strtolower($deviceInstance['device']['type'] === "switch")) {
+
+                OVS::bringUpAllPorts($bridgeName);
+
+
+
+
+                $result=array("state" => InstanceStateMessage::STATE_STARTED,
+                        "uuid"=>$deviceInstance['uuid'],
+                        "options" => null);
+            }
+        }
+        
 
         if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
             $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -1859,9 +1873,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        /*$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
-            'labInstance' => $labInstance
-        ]);*/
+        //$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+        //    'labInstance' => $labInstance
+        //]);
 
         // Network interfaces
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
@@ -1884,6 +1898,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         elseif ($deviceInstance['device']['hypervisor']['name'] === 'physical') {
             $result=$this->stop_device_physical($uuid,$deviceInstance,$labInstance);
+        }
+        elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
+            if (strtolower($deviceInstance['device']['type'] === "switch")) {
+                $bridgeName=$labInstance['bridgeName'];
+                OVS::shutdownAllPorts($bridgeName);
+                $result=array("state" => InstanceStateMessage::STATE_STOP,
+                        "uuid"=>$deviceInstance['uuid'],
+                        "options" => null);
+            }
         }
 
         // OVS

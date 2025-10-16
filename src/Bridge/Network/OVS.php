@@ -198,4 +198,105 @@ class OVS extends Bridge
             OVS::portDelete($bridge, "Patch-ovs-".$bridge, true);
         }
     }
+
+    /**
+     * Shutdown all ports of an OVS bridge.
+     *
+     * @param string $bridge The bridge name.
+     * @throws Exception If the bridge name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return void
+     */
+    public static function shutdownAllPorts(string $bridge) : void
+    {
+        if (empty($bridge)) {
+            throw new Exception("Bridge name cannot be empty.");
+        }
+
+        $process = static::portList($bridge);
+        $output = trim($process->getOutput());
+        
+        if (empty($output)) {
+            return;
+        }
+
+        $ports = explode("\n", $output);
+        foreach ($ports as $port) {
+            $port = trim($port);
+            if (!empty($port)) {
+                static::portDown($bridge, $port);
+            }
+        }
+    }
+
+    /**
+     * Bring up all ports of an OVS bridge.
+     *
+     * @param string $bridge The bridge name.
+     * @throws Exception If the bridge name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return void
+     */
+    public static function bringUpAllPorts(string $bridge) : void
+    {
+        if (empty($bridge)) {
+            throw new Exception("Bridge name cannot be empty.");
+        }
+
+        $process = static::portList($bridge);
+        $output = trim($process->getOutput());
+        
+        if (empty($output)) {
+            return;
+        }
+
+        $ports = explode("\n", $output);
+        foreach ($ports as $port) {
+            $port = trim($port);
+            if (!empty($port)) {
+                static::portUp($bridge, $port);
+            }
+        }
+    }
+
+    /**
+     * Shutdown a specific port on an OVS bridge.
+     *
+     * @param string $bridge The bridge name.
+     * @param string $port The port name.
+     * @throws Exception If the bridge or port name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function portDown(string $bridge, string $port) : Process
+    {
+        if (empty($bridge) || empty($port)) {
+            throw new Exception("Bridge and port name cannot be empty.");
+        }
+
+        $command = ['set', 'port', $port, 'admin_state=down'];
+        
+        return static::exec($command);
+    }
+
+    /**
+     * Bring up a specific port on an OVS bridge.
+     *
+     * @param string $bridge The bridge name.
+     * @param string $port The port name.
+     * @throws Exception If the bridge or port name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function portUp(string $bridge, string $port) : Process
+    {
+        if (empty($bridge) || empty($port)) {
+            throw new Exception("Bridge and port name cannot be empty.");
+        }
+
+        $command = ['set', 'port', $port, 'admin_state=up'];
+        
+        return static::exec($command);
+    }
+
 }
