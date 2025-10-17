@@ -935,7 +935,7 @@ class InstanceManager extends AbstractController
         }
         elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
             if (strtolower($deviceInstance['device']['type']) === "switch") {
-                OVS::bringUpAllPorts($bridgeName);
+                OVS::bringUpAllPorts($bridgeName,$this->logger);
                 $result=array("state" => InstanceStateMessage::STATE_STARTED,
                         "uuid"=>$deviceInstance['uuid'],
                         "options" => null);
@@ -1906,7 +1906,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             if (strtolower($deviceInstance['device']['name']) === "switch") {
                 
                 $bridgeName=$labInstance['bridgeName'];
-                OVS::shutdownAllPorts($bridgeName);
+                OVS::shutdownAllPorts($bridgeName,$this->logger);
                 $result=array(
                         "state" => InstanceStateMessage::STATE_STOPPED,
                         "uuid"=>$deviceInstance['uuid'],

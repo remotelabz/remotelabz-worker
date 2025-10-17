@@ -5,8 +5,10 @@ namespace App\Bridge\Network;
 use \Exception;
 use App\Bridge\Bridge;
 use App\Bridge\Tools\ArrayTools;
+use App\Service\Instance\LogDispatcher;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\Exception\ProcessFailedException;
+
 
 /**
  * Wrapper for the `ovs-vsctl` command.
@@ -203,12 +205,17 @@ class OVS extends Bridge
      * Shutdown all ports of an OVS bridge.
      *
      * @param string $bridge The bridge name.
+     * @param LoggerInterface|null $logger Optional logger instance.
      * @throws Exception If the bridge name is empty.
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return void
      */
-    public static function shutdownAllPorts(string $bridge) : void
+    public static function shutdownAllPorts(string $bridge, ?LogDispatcher $logger = null) : void
     {
+        if ($logger) {
+            $logger->debug("[OVS:shutdownAllPorts]::shutdownAllPorts called for bridge: " . $bridge);
+        }
+
         if (empty($bridge)) {
             throw new Exception("Bridge name cannot be empty.");
         }
@@ -224,10 +231,86 @@ class OVS extends Bridge
         foreach ($ports as $port) {
             $port = trim($port);
             if (!empty($port)) {
-                static::portDown($bridge, $port);
+                static::portDown($bridge, $port, $logger);
             }
         }
     }
+
+    public static function portDown(string $bridge, string $port, ?LogDispatcher $logger = null) : Process
+    {
+        if ($logger) {
+            $logger->debug("[OVS:portDown]::Shutting down port: " . $port . " on bridge: " . $bridge);
+        }
+
+        if (empty($bridge) || empty($port)) {
+            throw new Exception("Bridge and port name cannot be empty.");
+        }
+
+        // Récupérer le numéro du port OpenFlow
+        $getPortNum = new Process(['ovs-ofctl', 'dump-ports-desc', $bridge]);
+        $getPortNum->run();
+        
+        if (!$getPortNum->isSuccessful()) {
+            if ($logger) {
+                $logger->error("[OVS:portDown]::Failed to get port number for: " . $port);
+            }
+            throw new ProcessFailedException($getPortNum);
+        }
+        
+        $output = $getPortNum->getOutput();
+        
+        if ($logger) {
+            $logger->debug("[OVS:portDown]::ovs-ofctl output", ["output" => $output, "port" => $port]);
+        }
+        
+        // Essayer plusieurs patterns possibles
+        // Pattern 1: "port_name(number)"
+        if (preg_match('/' . preg_quote($port, '/') . '\s*\((\d+)\)/', $output, $matches)) {
+            $portNum = $matches[1];
+        } 
+        // Pattern 2: "number(port_name)"
+        elseif (preg_match('/(\d+)\(' . preg_quote($port, '/') . '\)/', $output, $matches)) {
+            $portNum = $matches[1];
+        }
+        // Pattern 3: Chercher juste le port et extraire le numéro avant
+        elseif (preg_match('/(\d+).*' . preg_quote($port, '/') . '/', $output, $matches)) {
+            $portNum = $matches[1];
+        }
+        else {
+            if ($logger) {
+                $logger->error("[OVS:portDown]::Port number not found for port: " . $port . ". Output was: " . $output);
+            }
+            // Ne pas échouer complètement - le port peut avoir déjà été retiré
+            if ($logger) {
+                $logger->warning("[OVS:portDown]::Skipping port down for missing port: " . $port);
+            }
+            
+            // Retourner un process vide au lieu de lever une exception
+            $dummyProcess = new Process(['true']);
+            $dummyProcess->run();
+            return $dummyProcess;
+        }
+        
+        // Ajouter une règle pour drop tout le trafic
+        $command = ['ovs-ofctl', 'add-flow', $bridge, "priority=65535,in_port={$portNum},actions=drop"];
+        
+        if ($logger) {
+            $logger->debug("[OVS:portDown]::Command executed: " . implode(' ', $command), ["portNum" => $portNum]);
+        }
+        
+        $process = new Process($command);
+        $process->run();
+        
+        if (!$process->isSuccessful()) {
+            if ($logger) {
+                $logger->error("[OVS:portDown]::Command failed: " . $process->getErrorOutput());
+            }
+            throw new ProcessFailedException($process);
+        }
+        
+        return $process;
+    }
+
 
     /**
      * Bring up all ports of an OVS bridge.
@@ -237,8 +320,12 @@ class OVS extends Bridge
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return void
      */
-    public static function bringUpAllPorts(string $bridge) : void
+    public static function bringUpAllPorts(string $bridge, ?LogDispatcher $logger = null) : void
     {
+        if ($logger) {
+            $logger->debug("[OVS:bringUpAllPorts]::Up all ports called for bridge: " . $bridge);
+        }
+        
         if (empty($bridge)) {
             throw new Exception("Bridge name cannot be empty.");
         }
@@ -260,43 +347,115 @@ class OVS extends Bridge
     }
 
     /**
-     * Shutdown a specific port on an OVS bridge.
+     * Bring up a specific port on an OVS bridge by removing drop rules.
      *
      * @param string $bridge The bridge name.
      * @param string $port The port name.
+     * @param LogDispatcher|null $logger Optional logger instance.
      * @throws Exception If the bridge or port name is empty.
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function portDown(string $bridge, string $port) : Process
+    public static function portUp(string $bridge, string $port, ?LogDispatcher $logger = null) : Process
     {
+        if ($logger) {
+            $logger->debug("[OVS:portUp]::Up port: " . $port . " on bridge: " . $bridge);
+        }
+
         if (empty($bridge) || empty($port)) {
             throw new Exception("Bridge and port name cannot be empty.");
         }
 
-        $command = ['set', 'interface', $port, 'admin_state=down'];
+        // Récupérer le numéro du port OpenFlow
+        $getPortNum = new Process(['ovs-ofctl', 'dump-ports-desc', $bridge]);
+        $getPortNum->run();
         
-        return static::exec($command);
+        if (!$getPortNum->isSuccessful()) {
+            if ($logger) {
+                $logger->error("[OVS:portUp]::Failed to get port number for: " . $port);
+            }
+            throw new ProcessFailedException($getPortNum);
+        }
+        
+        $output = $getPortNum->getOutput();
+        
+        if ($logger) {
+            $logger->debug("[OVS:portUp]::ovs-ofctl output", ["output" => $output, "port" => $port]);
+        }
+        
+        // Essayer plusieurs patterns possibles
+        // Pattern 1: "port_name(number)"
+        if (preg_match('/' . preg_quote($port, '/') . '\s*\((\d+)\)/', $output, $matches)) {
+            $portNum = $matches[1];
+        } 
+        // Pattern 2: "number(port_name)"
+        elseif (preg_match('/(\d+)\(' . preg_quote($port, '/') . '\)/', $output, $matches)) {
+            $portNum = $matches[1];
+        }
+        // Pattern 3: Chercher juste le port et extraire le numéro avant
+        elseif (preg_match('/(\d+).*' . preg_quote($port, '/') . '/', $output, $matches)) {
+            $portNum = $matches[1];
+        }
+        else {
+            if ($logger) {
+                $logger->error("[OVS:portUp]::Port number not found for port: " . $port . ". Output was: " . $output);
+            }
+            // Ne pas échouer complètement - le port peut avoir déjà été retiré
+            if ($logger) {
+                $logger->warning("[OVS:portUp]::Skipping port up for missing port: " . $port);
+            }
+            
+            // Retourner un process vide au lieu de lever une exception
+            $dummyProcess = new Process(['true']);
+            $dummyProcess->run();
+            return $dummyProcess;
+        }
+        
+        // Supprimer les règles de drop pour ce port
+        $command = ['ovs-ofctl', 'del-flows', $bridge, "in_port={$portNum}"];
+        
+        if ($logger) {
+            $logger->debug("[OVS:portUp]::Command executed: " . implode(' ', $command), ["portNum" => $portNum]);
+        }
+        
+        $process = new Process($command);
+        $process->run();
+        
+        if (!$process->isSuccessful()) {
+            if ($logger) {
+                $logger->error("[OVS:portUp]::Command failed: " . $process->getErrorOutput());
+            }
+            throw new ProcessFailedException($process);
+        }
+        
+        return $process;
     }
 
     /**
-     * Bring up a specific port on an OVS bridge.
+     * Get the status of all ports on an OVS bridge.
      *
      * @param string $bridge The bridge name.
-     * @param string $port The port name.
-     * @throws Exception If the bridge or port name is empty.
+     * @throws Exception If the bridge name is empty.
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function portUp(string $bridge, string $port) : Process
+    public static function getPortsStatus(string $bridge) : Process
     {
-        if (empty($bridge) || empty($port)) {
-            throw new Exception("Bridge and port name cannot be empty.");
+        if (empty($bridge)) {
+            throw new Exception("Bridge name cannot be empty.");
         }
 
-        $command = ['set', 'interface', $port, 'admin_state=up'];
+        $command = ['dump-ports-desc', $bridge];
         
-        return static::exec($command);
+        // Note: cette commande utilise ovs-ofctl au lieu de ovs-vsctl
+        $process = new Process(array_merge(['ovs-ofctl'], $command));
+        $process->run();
+        
+        if (!$process->isSuccessful()) {
+            throw new ProcessFailedException($process);
+        }
+        
+        return $process;
     }
 
 }
