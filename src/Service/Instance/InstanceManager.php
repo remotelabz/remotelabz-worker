@@ -1369,9 +1369,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox,$memory) {
         if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
+            /*
             $this->logger->debug("[InstanceManager:build_template]::Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "networkinterfaceinstance" => $networkinterfaceinstance[0]
             ]);    
+            */
         $path=$instance_path."/".$filename;
         $command = [
                 'cp',
