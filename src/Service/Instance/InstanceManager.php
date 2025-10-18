@@ -723,7 +723,7 @@ class InstanceManager extends AbstractController
                         }
 
                         if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                            OVS::portAdd($bridgeName, $nicName, true, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                            OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
                             $ovs_options=array(
                                 linkk_speed => 100,
                                 duplex => "full"
@@ -894,9 +894,10 @@ class InstanceManager extends AbstractController
                 $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
                 
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-                    $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    $this->logger->info("LXC container started successfully".$bridgeName, InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
+                    OVS::portList($bridgeName,$this->logger);
                     if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
                         $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
@@ -1835,6 +1836,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "uuid" => $lxc_name,
                 "options" => null
             );
+
         }   catch (ProcessFailedException $exception) {
             $this->logger->error("LXC container started error ! ", InstanceLogMessage::SCOPE_PRIVATE,
                 ["instance" => $lxc_name]);

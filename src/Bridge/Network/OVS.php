@@ -6,6 +6,7 @@ use \Exception;
 use App\Bridge\Bridge;
 use App\Bridge\Tools\ArrayTools;
 use App\Service\Instance\LogDispatcher;
+use Remotelabz\Message\Message\InstanceLogMessage;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 
@@ -70,7 +71,7 @@ class OVS extends Bridge
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function portAdd(string $bridge, string $port, bool $mayExist = false, string ...$options) : Process
+    public static function portAdd(string $bridge, string $port,bool $mayExist = false, ?LogDispatcher $logger = null, string ...$options) : Process
     {
         if (empty($bridge) || empty($port)) {
             throw new Exception("Bridge and port name cannot be empty.");
@@ -82,6 +83,11 @@ class OVS extends Bridge
             array_push($command, ...$options);
         
         $command = ArrayTools::arrayFilterEmpty($command);
+
+        if ($logger) {
+            $logger->debug("[OVS:portAdd]::portAdd for bridge: " . $bridge);
+            $logger->debug("[OVS:portAdd]::command executedportAdd for bridge: " . $bridge);
+        }
 
         return static::exec($command);
     }
@@ -116,19 +122,22 @@ class OVS extends Bridge
      * List posts attached to an OVS bridge.
      *
      * @param string $bridge The bridge name.
+     * @param LogDispatcher|null $logger Optional logger instance.
      * @throws Exception If the bridge name is empty.
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function portList(string $bridge) : Process
+    public static function portList(string $bridge, ?LogDispatcher $logger = null) : Process
     {
         if (empty($bridge)) {
-            throw new Exception("Bridge and port name cannot be empty.");
+            throw new Exception("Bridge name cannot be empty.");
         }
 
         $command = [ 'list-ports', $bridge ];
-
-        return static::exec($command);
+        
+        $process = static::exec($command);
+        
+        return $process;
     }
 
     /**
@@ -140,7 +149,7 @@ class OVS extends Bridge
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function setInterface(string $name, array $options) : Process
+    public static function setInterface(string $name, array $options, ?LogDispatcher $logger = null) : Process
     {
         if (empty($options)) {
             throw new Exception("Options array cannot be empty.");
@@ -154,7 +163,7 @@ class OVS extends Bridge
         return static::exec($command);
     }
 
-    public static function ovsPortExists(string $bridge, string $port) : bool
+    public static function ovsPortExists(string $bridge, string $port,?LogDispatcher $logger = null) : bool
     {
         try {
             $process = static::portList($bridge);
@@ -260,7 +269,7 @@ class OVS extends Bridge
         $output = $getPortNum->getOutput();
         
         if ($logger) {
-            $logger->debug("[OVS:portDown]::ovs-ofctl output", ["output" => $output, "port" => $port]);
+            $logger->debug("[OVS:portDown]::ovs-ofctl output", InstanceLogMessage::SCOPE_PRIVATE, ["output" => $output, "port" => $port]);
         }
         
         // Essayer plusieurs patterns possibles
@@ -295,7 +304,7 @@ class OVS extends Bridge
         $command = ['ovs-ofctl', 'add-flow', $bridge, "priority=65535,in_port={$portNum},actions=drop"];
         
         if ($logger) {
-            $logger->debug("[OVS:portDown]::Command executed: " . implode(' ', $command), ["portNum" => $portNum]);
+            $logger->debug("[OVS:portDown]::Command executed: " . implode(' ', $command), InstanceLogMessage::SCOPE_PRIVATE, ["portNum" => $portNum]);
         }
         
         $process = new Process($command);
@@ -322,9 +331,6 @@ class OVS extends Bridge
      */
     public static function bringUpAllPorts(string $bridge, ?LogDispatcher $logger = null) : void
     {
-        if ($logger) {
-            $logger->debug("[OVS:bringUpAllPorts]::Up all ports called for bridge: " . $bridge);
-        }
         
         if (empty($bridge)) {
             throw new Exception("Bridge name cannot be empty.");
@@ -334,10 +340,15 @@ class OVS extends Bridge
         $output = trim($process->getOutput());
         
         if (empty($output)) {
+            $logger->debug("[OVS:bringUpAllPorts]::list of port is empty");
             return;
         }
 
         $ports = explode("\n", $output);
+        if ($logger) {
+            $logger->debug("[OVS:bringUpAllPorts]::list of ports of bridge ".$bridge, InstanceLogMessage::SCOPE_PRIVATE,["ports" => $ports]);
+        }
+
         foreach ($ports as $port) {
             $port = trim($port);
             if (!empty($port)) {
@@ -380,7 +391,7 @@ class OVS extends Bridge
         $output = $getPortNum->getOutput();
         
         if ($logger) {
-            $logger->debug("[OVS:portUp]::ovs-ofctl output", ["output" => $output, "port" => $port]);
+            $logger->debug("[OVS:portUp]::ovs-ofctl output", InstanceLogMessage::SCOPE_PRIVATE,["output" => $output, "port" => $port]);
         }
         
         // Essayer plusieurs patterns possibles
@@ -415,7 +426,7 @@ class OVS extends Bridge
         $command = ['ovs-ofctl', 'del-flows', $bridge, "in_port={$portNum}"];
         
         if ($logger) {
-            $logger->debug("[OVS:portUp]::Command executed: " . implode(' ', $command), ["portNum" => $portNum]);
+            $logger->debug("[OVS:portUp]::Command executed: " . implode(' ', $command), InstanceLogMessage::SCOPE_PRIVATE,["portNum" => $portNum]);
         }
         
         $process = new Process($command);
