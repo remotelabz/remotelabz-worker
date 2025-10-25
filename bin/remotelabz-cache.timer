@@ -4,7 +4,7 @@ Requires=remotelabz-cache.service
 
 [Timer]
 OnBootSec=5s
-OnUnitActiveSec=60s
+OnUnitActiveSec=600s
 Persistent=true
 
 [Install]

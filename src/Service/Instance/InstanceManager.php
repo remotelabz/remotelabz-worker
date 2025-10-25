@@ -421,12 +421,15 @@ class InstanceManager extends AbstractController
         $chaine_forward=null;
         $chaine_input=null;
         $chaine_output=null;
+        
 
         /** @var array $labInstance */
         $result=null;
         //$this->logger->setUuid($uuid);
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        //$this->logger->debug("JSON receive:".$descriptor)
+        
+        $this->logger->debug("[InstanceManager:startDeviceInstance]::Received JSON:".json_encode($labInstance, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)." []");
+
         if (!is_array($labInstance)) {
             // invalid json
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
@@ -434,129 +437,11 @@ class InstanceManager extends AbstractController
             throw new BadDescriptorException($labInstance);
         }
 
-        try {
-            $bridgeName = $labInstance['bridgeName'];
-        } catch (ErrorException $e) {
-            $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
-            throw new BadDescriptorException($labInstance, "", 0, $e);
-            $error=true;
-        }
-
-        // OVS
-
-        if (!IPTools::networkInterfaceExists($bridgeName)) {
-            OVS::bridgeAdd($bridgeName, true);
-            $this->logger->info("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'bridgeName' => $bridgeName,
-                'instance' => $labInstance['uuid']
-            ]);
-        } else {
-            $this->logger->debug("[InstanceManager:startDeviceInstance]::Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'bridgeName' => $bridgeName,
-                'instance' => $labInstance['uuid']
-            ]);
-        }
-        // Secure OVS
-        $InternetInterface=$this->getParameter('app.network.lab.internet_interface');
-        $VPNInterface=$this->getParameter('app.vpn.interface');
-        
-        $chaine_forward=$bridgeName."_forward";
-        IPTables::create_chain($chaine_forward);
-        
-        $rule=Rule::create()
-        ->setInInterface($bridgeName)
-        ->setOutInterface($InternetInterface)
-        ->setJump('ACCEPT');
-        if (!IPTables::exists($chaine_forward,$rule)) {
-            IPTables::append(
-                $chaine_forward,
-                $rule
-            );
-        }
-
-        if ($VPNInterface != "localhost") {
-            $rule=Rule::create()
-            ->setInInterface($bridgeName)
-            ->setOutInterface($VPNInterface)
-            ->setJump('ACCEPT');
-            if (!IPTables::exists($chaine_forward,$rule)) {
-                IPTables::append(
-                    $chaine_forward,
-                    $rule
-                );
-            }
-
-            $rule=Rule::create()
-            ->setOutInterface($bridgeName)
-            ->setInInterface($VPNInterface)
-            ->setJump('ACCEPT');
-            if (!IPTables::exists($chaine_forward,$rule)) {
-                IPTables::append(
-                    $chaine_forward,
-                    $rule
-                );
-            }
-        }
-        
-        $rule=Rule::create()
-                ->setJump($chaine_forward);
-        if (!IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {
-            IPTables::append(
-                IPTables::CHAIN_FORWARD,
-                $rule
-            );
-        }
-
-        $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  
+        $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
         $gateway = $labNetwork->getLastAddress();
+
+        $this->Create_And_Secure_OVS($labInstance);
         
-        if (!IPTools::networkIPExists($bridgeName, $gateway)) {
-            $this->logger->debug("Adding IP address to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
-                'bridge' => $bridgeName,
-                'ip' => $gateway
-            ]);
-            IPTools::addrAdd($bridgeName, $gateway."/".$labInstance['network']['netmask']['addr']);
-        }
-
-        // Add iptables rules to disallow connexion to the gateway
-        $chaine_input=$bridgeName."_input";
-        IPTables::create_chain($chaine_input);
-       
-        $rule = Rule::create()
-            ->setProtocol(Rule::PROTOCOL_TCP)
-            ->setInInterface($bridgeName)
-            ->setJump('DROP');
-        if (!IPTables::exists($chaine_input,$rule)) {
-            IPTables::append(
-                $chaine_input,
-                $rule
-            );
-        }
-
-        $rule = Rule::create()
-            ->setProtocol(Rule::PROTOCOL_UDP)
-            ->setInInterface($bridgeName)
-            ->setJump('DROP');
-        if (!IPTables::exists($chaine_input,$rule)) {
-            IPTables::append(
-                $chaine_input,
-                $rule
-            );
-        }
-
-        $rule=Rule::create()
-            ->setJump($chaine_input);
-        if (!IPTables::exists(IPTables::CHAIN_INPUT,$rule)) {
-            IPTables::append(
-                IPTables::CHAIN_INPUT,
-                $rule
-            );
-        }
-
-        $this->logger->debug("[InstanceManager:startDeviceInstance]::OVS bridge set up.", InstanceLogMessage::SCOPE_PRIVATE, [
-            'bridge' => $bridgeName
-        ]);
-        IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
 
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] != 'started');
@@ -581,9 +466,7 @@ class InstanceManager extends AbstractController
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
             $labInstanceUuid = $labInstance['uuid'];
-            $img = [
-                "source" => $deviceInstance['device']['operatingSystem']['image']
-            ];
+            $image_src=$deviceInstance['device']['operatingSystem']['image'];
         } catch (ErrorException $e) {
             throw new BadDescriptorException($labInstance, "", 0, $e);
             $error=true;
@@ -603,336 +486,15 @@ class InstanceManager extends AbstractController
         }
 
         if (strtolower($deviceInstance['device']['hypervisor']['name']) === 'qemu') {
-            $download_ok=true;
-            $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
-                "image" => $deviceInstance['device']['operatingSystem']['name'],
-                'instance' => $deviceInstance['uuid']
-            ]);
-            // Start qemu
-            $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($img["source"]);
-            if ( !$filesystem->exists($image_dst) ) {
-                $this->logger->info('Remote image is not in cache. Try to downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
-                    "image" => $img['source'],
-                    'instance' => $deviceInstance['uuid']
-                ]);
-
-                if (filter_var($img["source"], FILTER_VALIDATE_URL)) {
-                    $url=$img["source"];
-                  //  $context=null;
-                }
-                else {
-                    //The source uploaded on the front.
-                    $url="http://".$this->front_ip."/uploads/images/".basename($img["source"]);
-                    // Only to download from the front when self-signed certificate
-                    /*$context = stream_context_create( [
-                        'ssl' => [
-                            'verify_peer' => false,
-                            'verify_peer_name' => false,
-                            'allow_self_signed' => true,
-                        ],
-                    ]);*/
-                }
-                $this->logger->debug('Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
-                    "image" => $img['source'],
-                    'instance' => $deviceInstance['uuid']
-                ]);
-                $download_ok=$this->download_http_image($url,$deviceInstance['uuid']);
-            }
-
-            if ($download_ok) {
-                $img['destination'] = $instancePath . '/' . basename($img['source']);
-                $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($img['source']);
-
-                if (!$filesystem->exists($img['source'])) {
-                    $this->logger->info('VM image doesn\'t exist. Download image source...', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'source' => $img['source'],
+            $result=$this->create_qemu_device($deviceInstance,$instancePath,$sandbox);
+                if ($result["state"] === InstanceStateMessage::STATE_STARTED) {
+                    $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
-                    ]);
-                }
-
-                if (!$filesystem->exists($img['destination'])) {
-                    $this->logger->info('VM never started. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'source' => $img['source'],
-                        'destination' => $img['destination'],
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-
-                    if ($this->qemu_create_relative_img($img['source'], $img['destination'],$deviceInstance['uuid']))
-                        $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
-                            'path' => $img['destination'],
-                            'instance' => $deviceInstance['uuid']
-                        ]);
-                    else {
-                        $this->logger->error('VM image creation in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                            'path' => $img['destination'],
-                            'instance' => $deviceInstance['uuid']
-                        ]);
-                        $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                            "uuid"=>$uuid,
-                            "options" => null);
-                    }
-                }
-                // If no error in the previous process, when can continue
-                if ($result === null) {
-
-                    $parameters = [
-                        'system' => [
-                            '-m',
-                            $deviceInstance['device']['flavor']['memory'],
-                            '-drive',
-                            'file='.$img['destination'].',if=virtio',
-                        ],
-                        'smp' => ['-smp'],
-                        'network' => [],
-                        'local' => [],
-                        'usb' => [],
-                        'access' => [],
-                        'uefi' => [],
-                        'cdrom' => []
-                    ];
-
-                    $smp_parameters=$deviceInstance['device']['nbCpu'];
-                    
-                    if ( array_key_exists('nbCore',$deviceInstance['device']) )
-                        $smp_parameters=$smp_parameters.',cores='.$deviceInstance['device']['nbCore'];
-
-                    if ( array_key_exists('nbThread',$deviceInstance['device']) )
-                        $smp_parameters=$smp_parameters.',threads='.$deviceInstance['device']['nbThread'];
-                    
-                    if ( array_key_exists('nbSocket',$deviceInstance['device']) )
-                        $smp_parameters=$smp_parameters.',sockets='.$deviceInstance['device']['nbSocket'];
-                    
-                    array_push($parameters['smp'],$smp_parameters);
-
-                    if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
-                        $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
-
-                    foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
-                        $nicTemplate = $nic['networkInterface'];
-                        $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
-                        $nicVlan = null;
-                        if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
-                            $nicVlan = $nicTemplate['vlan'];
-                        }
-
-                        if (!IPTools::networkInterfaceExists($nicName)) {
-                            IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
-                            $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
-                                'NIC' => $nicName
-                            ]);
-                        }
-
-                        if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                            OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
-                            $ovs_options=array(
-                                linkk_speed => 100,
-                                duplex => "full"
-                            );
-                            OVS::setInterface($nicName, $ovs_options);
-                            $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
-                                'NIC' => $nicName,
-                                'bridge' => $bridgeName,
-                                'options' => $ovs_options
-                            ]);
-                        }
-                        IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
-                        $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'NIC' => $nicName
-                        ]);
-
-                        array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
-                            '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
-                    }
-                    
-                    array_push($parameters['local'], '-k', 'fr');
-                    array_push($parameters['local'],
-                        '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
-                        '-vga', 'qxl'
-                    );
-                    
-
-                    //Add usb support
-                    array_push($parameters['usb'],
-                        '-usb', '-device','usb-tablet,bus=usb-bus.0',
-                        '-device','usb-ehci,id=ehci'
-                    );
-                    
-                    $result=$this->remote_access_start($deviceInstance,$sandbox);
-                    $this->logger->debug("State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $deviceInstance['uuid'],
-                        'result-error' => $result["error"]
-                    ]);
-
-                    
-                    if ($result["error"]===false) {
-                    $access_param=$result["arg"];
-                        foreach ($access_param as $param) {
-                            array_push($parameters['access'],$param);
-                        //$this->logger->debug("param access:".$param);
-                        }
-
-                        if (!$this->qemu_start($parameters,$uuid)){
-                            $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
-                                    'instance' => $deviceInstance['uuid']
-                                ]);
-                            $result=array(
-                                "state" => InstanceStateMessage::STATE_STARTED,
-                                "uuid" => $deviceInstance['uuid'],
-                                "options" => null
-                                );
-                        }
-                        else {
-                            $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
-                                'instance' => $deviceInstance['uuid']
-                                ]);
-                            $result=array(
-                                "state" => InstanceStateMessage::STATE_ERROR,
-                                "uuid" => $deviceInstance['uuid'],
-                                "options" => null
-                            );
-                        }
-                    } else {
-                        $this->logger->error("Remote access process doesn't start correctly !", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                        ]);
-                        $result=array(
-                            "state" => InstanceStateMessage::STATE_ERROR,
-                            "uuid" => $deviceInstance['uuid'],
-                            "options" => null
-                    );
-                }
-                }
-            }
-            else {
-                $this->logger->error("Download QEMU image in error ! Perhaps, image file is too large", InstanceLogMessage::SCOPE_PUBLIC, [
-                    'instance' => $deviceInstance['uuid']
-                    ]);
-                $this->qemu_delete($deviceInstance['uuid'],$image_dst);
-                throw new \Exception("Qemu device download failed for UUID: " . $deviceInstance['uuid']);
-
-                $result=array(
-                    "state" => InstanceStateMessage::STATE_ERROR,
-                    "uuid" => $deviceInstance['uuid'],
-                    "options" => null
-                );
+                    ]);         
             }
         }
-        elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' ){//&& $deviceInstance['device']['name'] == 'Service') {
-            $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
-                "image" => $deviceInstance['device']['operatingSystem']['name'],
-                'instance' => $deviceInstance['uuid']
-            ]);
-            $error=false;
-            if (!$this->lxc_exist($uuid)) {
-                //$this->lxc_clone("Service",$uuid);
-                if (!$this->lxc_exist($deviceInstance['device']['operatingSystem']['image'])) {
-                    $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['release']), $deviceInstance['device']['operatingSystem']['version']);
-                }
-                if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
-                    $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_STARTED,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                    );
-                }
-                else {
-                    $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    throw new \Exception("Error in LXC clone process:" . $deviceInstance['uuid']);
-
-                    $result=array(
-                        "state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                    );
-                    $error=true;
-                }
-            }
-            if (!$error) {
-                //Return the last IP - 1 to address the LXC service container
-                //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
-                
-                //$this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$gateway);
-                /*$mask="24";
-                $this->lxc_create_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
-                */
-                $first_ip=$labNetwork->getFirstAddress();
-                $last_ip=long2ip(ip2long($labNetwork->getLastAddress())-1);
-                $end_range=long2ip(ip2long($labNetwork->getLastAddress())-2);
-                $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
-                    'instance' => $deviceInstance['uuid']
-                    ]);
-                $org_file='template.txt';
-                if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
-                    $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
-                    $org_file='template.txt';
-                    $netmask=$labNetwork->getNetmask();
-                    $this->lxc_add_dhcp_dnsmasq(basename($deviceInstance["device"]["operatingSystem"]["image"]),$uuid,$first_ip,$end_range,$netmask,$labNetwork->getLastAddress());
-                }
-                else {
-                    $ip_addr=$first_ip;
-                    $org_file='template-noip.txt';
-                }
-
-                if ($sandbox)
-                    $org_file='template.txt';
-
-                $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox,$deviceInstance['device']['flavor']['memory']);
-
-
-                foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
-                    //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
-                }
-
-                $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
-                
-                if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-                    $this->logger->info("LXC container started successfully".$bridgeName, InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                    OVS::portList($bridgeName,$this->logger);
-                    if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
-                        $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                    }
-
-                    if ($this->remote_access_start($deviceInstance,$sandbox)["error"]===false) {
-                        $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-
-                        } else {
-                        $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        throw new \Exception("Remote access process failed: " . $deviceInstance['uuid']);
-
-                        $result=array(
-                            "state" => InstanceStateMessage::STATE_ERROR,
-                            "uuid" => $deviceInstance['uuid'],
-                            "options" => null
-                        );
-                    }
-
-                } else { //LXC doesn't start
-                    $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
-                    throw new \Exception("LXC container not started: " . $deviceInstance['uuid']);
-
-                    $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid"=>$deviceInstance['uuid'],
-                        "options" => null);
-                }
-            }
+        elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' ){ //&& $deviceInstance['device']['name'] == 'Service') {
+            $result=$this->create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox);
         }
         elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
             if (strtolower($deviceInstance['device']['type']) === "switch") {
@@ -1368,13 +930,20 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param int $memory the memory in Byte for the container
      */
     public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox,$memory) {
-        if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0)
+        if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0) {
             /*
             $this->logger->debug("[InstanceManager:build_template]::Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "networkinterfaceinstance" => $networkinterfaceinstance[0]
             ]);    
             */
+        }
         $path=$instance_path."/".$filename;
+
+        $this->logger->debug("[InstanceManager:build_template]::Copying LXC template to instance path.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "instance_path" => $instance_path,
+                "filename" => $filename
+            ]);
+
         $command = [
                 'cp',
                 $this->kernel->getProjectDir().'/scripts/'.$filename,
@@ -2649,6 +2218,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     if ($filesystem->exists($img['destination'])) {
                         $this->qemu_delete($deviceInstance['uuid'],$img['destination']);
                     }
+
                     $this->logger->info('Resetting image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
                         'source' => $img['source'],
                         'destination' => $img['destination'],
@@ -3266,35 +2836,60 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     curl_exec($ch);
     
     if (curl_errno($ch)) {
-        $this->logger->error('[InstanceManager:get_filesize_download]::cURL error: ' . curl_error($ch), InstanceLogMessage::SCOPE_PRIVATE);
+        $error = curl_error($ch);
         curl_close($ch);
-        return 0.0;
+        throw new \RuntimeException('cURL error: ' . $error);
     }
     
     $fileSize = (float) curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    
+    curl_close($ch);
     
     $this->logger->debug('[InstanceManager:get_filesize_download]::File size retrieved', InstanceLogMessage::SCOPE_PRIVATE, [
         "url" => $url,
         "fileSize" => $fileSize,
         "httpCode" => $httpCode
     ]);
+
+    if ($httpCode != 200) {
+        throw new \RuntimeException('HTTP request failed. Http code: ' . $httpCode);
+    }
     
-    curl_close($ch);
+    if ($fileSize <= 0) {
+        throw new \RuntimeException('Unable to determine file size');
+    } 
     
-    return $fileSize > 0 ? $fileSize : 0.0;
+    return $fileSize;
+
+    $this->logger->debug('[InstanceManager:get_filesize_download]::File size retrieved', InstanceLogMessage::SCOPE_PRIVATE, [
+        "url" => $url,
+        "fileSize" => $fileSize,
+        "httpCode" => $httpCode
+    ]);
+    
+    
 }
 
 
     // $source : image source to download
     // $uuid : $uuid of the device that need this image
     private function download_http_image($source,$uuid){
-        $fileSize=$this->get_filesize_download($source);
-       
-        $this->logger->info('The image size to download is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
-            "image" => $source,
-            'instance' => $uuid
-        ]);
+        try {
+            $fileSize=$this->get_filesize_download($source);
+        
+            $this->logger->info('The image size to download is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "image" => $source,
+                'instance' => $uuid
+            ]);
+        } catch (\RuntimeException $e) {
+            $this->logger->error('Failed to get file size: ' . $e->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'image' => $source
+            ]);
+            return false;
+        }
+
         $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($source);
 
         $command = [
@@ -4147,69 +3742,639 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
     }
 
- /**
- * Fonction pour exécuter une commande sur un serveur distant via SSH en utilisant une clé privée.
- *
- * @param resource $connection    A connection authenticated
- * @param string $command         La commande à exécuter sur le serveur distant.
- * @return string|bool            Le résultat de la commande, ou false en cas d'échec.
- * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
- */
-function executeRemoteCommand($connection, $command) {  
+    /**
+     * Fonction pour exécuter une commande sur un serveur distant via SSH en utilisant une clé privée.
+     *
+     * @param resource $connection    A connection authenticated
+     * @param string $command         La commande à exécuter sur le serveur distant.
+     * @return string|bool            Le résultat de la commande, ou false en cas d'échec.
+     * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
+     */
+    function executeRemoteCommand($connection, $command) {  
 
-        // Exécution de la commande
-        $stream = ssh2_exec($connection, $command);
-        if (!$stream) {
-            throw new Exception('Command execution failed');
+            // Exécution de la commande
+            $stream = ssh2_exec($connection, $command);
+            if (!$stream) {
+                throw new Exception('Command execution failed');
+            }
+
+            // Gestion des flux de sortie
+            stream_set_blocking($stream, true);
+            $output = stream_get_contents($stream);
+            fclose($stream); // Fermer le flux après l'exécution
+            $this->logger->debug("[InstanceManager:executeRemoteCommand]::Remote execution of ".$command, InstanceLogMessage::SCOPE_PRIVATE);
+
+            return false;
+    }
+
+    /**
+     * Fonction pour exécuter une commande sur un serveur distant via SSH en utilisant une clé privée.
+     *
+     * @param resource $connexion
+     * @param string $localDir   Le chemin local du fichier
+     * @param string $remoteDir        Le chemin distant du fichier
+     * @return string|bool            Le résultat de la commande, ou false en cas de succes
+     * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
+     */
+    function scp($connection, $localFile, $remoteFile,$Worker_Dest_IP) {  
+        $this->logger->debug("Send file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->info("Send ".$localFile." file via scp to ".$Worker_Dest_IP.":".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE,
+            [
+                'instance' => $localFile,
+                'uuid' => $localFile,
+            ]);
+            
+        $success=ssh2_scp_send($connection, $localFile, $remoteFile,0660); //  Returns true on success or false on failure. 
+        
+        try { if (!$success)
+                throw new ErrorException('Send file impossible');
+        }
+        catch (ErrorException $e) {
+            $this->logger->debug("[InstanceManager:scp]::Send failed for file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
+            $this->logger->error("SCP Failed ".$localFile, InstanceLogMessage::SCOPE_PRIVATE,
+                ['instance' => $localFile,
+                'error' => true,
+                "options" => [
+                    "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                    'error' => $e->getMessage(),
+                    'worker_dest_ip' => $Worker_Dest_IP
+                    ]
+                ]);
+        $result=$e->getMessage();
+        }
+        if ($success)
+            return false;
+        else return $result;
+    }
+
+    private function Create_And_Secure_OVS($labInstance) {
+        try {
+                $bridgeName = $labInstance['bridgeName'];
+        } catch (ErrorException $e) {
+            $this->logger->error("Bridge name is missing!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
+            throw new BadDescriptorException($labInstance, "", 0, $e);
+            $error=true;
         }
 
-        // Gestion des flux de sortie
-        stream_set_blocking($stream, true);
-        $output = stream_get_contents($stream);
-        fclose($stream); // Fermer le flux après l'exécution
-        $this->logger->debug("[InstanceManager:executeRemoteCommand]::Remote execution of ".$command, InstanceLogMessage::SCOPE_PRIVATE);
+        // OVS
 
-        return false;
-}
-
-/**
- * Fonction pour exécuter une commande sur un serveur distant via SSH en utilisant une clé privée.
- *
- * @param resource $connexion
- * @param string $localDir   Le chemin local du fichier
- * @param string $remoteDir        Le chemin distant du fichier
- * @return string|bool            Le résultat de la commande, ou false en cas de succes
- * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
- */
-function scp($connection, $localFile, $remoteFile,$Worker_Dest_IP) {  
-    $this->logger->debug("Send file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
-    $this->logger->info("Send ".$localFile." file via scp to ".$Worker_Dest_IP.":".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE,
-        [
-            'instance' => $localFile,
-            'uuid' => $localFile,
-        ]);
-        
-    $success=ssh2_scp_send($connection, $localFile, $remoteFile,0660); //  Returns true on success or false on failure. 
-    
-    try { if (!$success)
-            throw new ErrorException('Send file impossible');
-    }
-    catch (ErrorException $e) {
-        $this->logger->debug("[InstanceManager:scp]::Send failed for file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
-        $this->logger->error("SCP Failed ".$localFile, InstanceLogMessage::SCOPE_PRIVATE,
-            ['instance' => $localFile,
-            'error' => true,
-            "options" => [
-                "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                'error' => $e->getMessage(),
-                'worker_dest_ip' => $Worker_Dest_IP
-                ]
+        if (!IPTools::networkInterfaceExists($bridgeName)) {
+            OVS::bridgeAdd($bridgeName, true);
+            $this->logger->info("Bridge doesn't exists. Creating bridge for lab instance.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'bridgeName' => $bridgeName,
+                'instance' => $labInstance['uuid']
             ]);
-    $result=$e->getMessage();
-    }
-    if ($success)
-        return false;
-    else return $result;
-}
+        } else {
+            $this->logger->debug("[InstanceManager:startDeviceInstance]::Bridge already exists. Skipping bridge creation for lab instance.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'bridgeName' => $bridgeName,
+                'instance' => $labInstance['uuid']
+            ]);
+        }
+        // Secure OVS
+        $InternetInterface=$this->getParameter('app.network.lab.internet_interface');
+        $VPNInterface=$this->getParameter('app.vpn.interface');
+        
+        $chaine_forward=$bridgeName."_forward";
+        IPTables::create_chain($chaine_forward);
+        
+        $rule=Rule::create()
+        ->setInInterface($bridgeName)
+        ->setOutInterface($InternetInterface)
+        ->setJump('ACCEPT');
+        if (!IPTables::exists($chaine_forward,$rule)) {
+            IPTables::append(
+                $chaine_forward,
+                $rule
+            );
+        }
 
+        if ($VPNInterface != "localhost") {
+            $rule=Rule::create()
+            ->setInInterface($bridgeName)
+            ->setOutInterface($VPNInterface)
+            ->setJump('ACCEPT');
+            if (!IPTables::exists($chaine_forward,$rule)) {
+                IPTables::append(
+                    $chaine_forward,
+                    $rule
+                );
+            }
+
+            $rule=Rule::create()
+            ->setOutInterface($bridgeName)
+            ->setInInterface($VPNInterface)
+            ->setJump('ACCEPT');
+            if (!IPTables::exists($chaine_forward,$rule)) {
+                IPTables::append(
+                    $chaine_forward,
+                    $rule
+                );
+            }
+        }
+        
+        $rule=Rule::create()
+                ->setJump($chaine_forward);
+        if (!IPTables::exists(IPTables::CHAIN_FORWARD,$rule)) {
+            IPTables::append(
+                IPTables::CHAIN_FORWARD,
+                $rule
+            );
+        }
+
+        $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);  
+        $gateway = $labNetwork->getLastAddress();
+        
+        if (!IPTools::networkIPExists($bridgeName, $gateway)) {
+            $this->logger->debug("Adding IP address to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'bridge' => $bridgeName,
+                'ip' => $gateway
+            ]);
+            IPTools::addrAdd($bridgeName, $gateway."/".$labInstance['network']['netmask']['addr']);
+        }
+
+        // Add iptables rules to disallow connexion to the gateway
+        $chaine_input=$bridgeName."_input";
+        IPTables::create_chain($chaine_input);
+    
+        $rule = Rule::create()
+            ->setProtocol(Rule::PROTOCOL_TCP)
+            ->setInInterface($bridgeName)
+            ->setJump('DROP');
+        if (!IPTables::exists($chaine_input,$rule)) {
+            IPTables::append(
+                $chaine_input,
+                $rule
+            );
+        }
+
+        $rule = Rule::create()
+            ->setProtocol(Rule::PROTOCOL_UDP)
+            ->setInInterface($bridgeName)
+            ->setJump('DROP');
+        if (!IPTables::exists($chaine_input,$rule)) {
+            IPTables::append(
+                $chaine_input,
+                $rule
+            );
+        }
+
+        $rule=Rule::create()
+            ->setJump($chaine_input);
+        if (!IPTables::exists(IPTables::CHAIN_INPUT,$rule)) {
+            IPTables::append(
+                IPTables::CHAIN_INPUT,
+                $rule
+            );
+        }
+
+        $this->logger->debug("[InstanceManager:startDeviceInstance]::OVS bridge set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+            'bridge' => $bridgeName
+        ]);
+        IPTools::linkSet($bridgeName, IPTools::LINK_SET_UP);
+    }
+
+    /**
+     * Create a blank QEMU disk image
+     * 
+     * @param string $imageName The name of the image file to create
+     * @param string $size The size of the disk (e.g., '10G', '500M')
+     * @throws ProcessFailedException When the process failed to run.
+     * @return bool True if the image was created successfully, false otherwise
+     */
+    public function create_Blank_Disk(string $imageName, string $size) {
+        $imagePath = $this->kernel->getProjectDir() . "/images/" . basename($imageName);
+        
+        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "imagePath" => $imagePath,
+            "size" => $size
+        ]);
+
+        $command = [
+            'qemu-img',
+            'create',
+            '-f',
+            'qcow2',
+            $imagePath,
+            $size
+        ];
+
+        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Executing command.", InstanceLogMessage::SCOPE_PRIVATE, [
+            "command" => implode(' ', $command)
+        ]);
+
+        $process = new Process($command);
+        $process->setTimeout(600);
+        
+        try {
+            $process->mustRun();
+            
+            $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
+                'image' => $imagePath,
+                'size' => $size
+            ]);
+            
+            return true;
+            
+        } catch (ProcessFailedException $exception) {
+            $this->logger->error("Failed to create blank disk image! " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                'image' => $imagePath,
+                'size' => $size,
+                'error' => $exception->getMessage()
+            ]);
+            
+            return false;
+        }
+    }
+
+    private function download_image($deviceInstance,$image_src,$image_dst,$instancePath) {
+        $download_ok = true;
+        $filesystem = new Filesystem();
+
+        // Check if image already exists in cache
+        if (!$filesystem->exists($image_dst)) {
+            $this->logger->info('Remote image is not in cache. Try to downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+                'image' => $image_src,
+                'instance' => $deviceInstance['uuid']
+            ]);
+
+            // Determine URL source
+            if (filter_var($image_src, FILTER_VALIDATE_URL)) {
+                $url = $image_src;
+            } else {
+                // Upload from front
+                $url = "http://" . $this->front_ip . "/uploads/images/" . basename($image_src);
+            }
+
+            $this->logger->debug('Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
+                'image' => $image_src,
+                'url' => $url,
+                'instance' => $deviceInstance['uuid']
+            ]);
+
+            // Download image
+            $download_ok = $this->download_http_image($url, $deviceInstance['uuid']);
+        }
+
+        if ($download_ok) {
+            $img['destination'] = $instancePath . '/' . basename($image_src);
+            $img['source'] = $this->kernel->getProjectDir() . "/images/" . basename($image_src);
+
+            // Check if destination image exists
+            if (!$filesystem->exists($img['destination'])) {
+                $this->logger->info('VM never started. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                    'source' => $img['source'],
+                    'destination' => $img['destination'],
+                    'instance' => $deviceInstance['uuid']
+                ]);
+
+                if ($this->qemu_create_relative_img($img['source'], $img['destination'], $deviceInstance['uuid'])) {
+                    $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'path' => $img['destination'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                } else {
+                    $this->logger->error('VM image creation in error.', InstanceLogMessage:: SCOPE_PUBLIC, [
+                        'path' => $img['destination'],
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    return array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
+            }
+        }
+
+        // Return result if download failed
+        if (!$download_ok) {
+            $this->logger->error("Download QEMU image in error !", InstanceLogMessage:: SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']
+            ]);
+            $this->qemu_delete($deviceInstance['uuid'], $image_dst);
+            throw new \Exception("Qemu device download failed for UUID: " . $deviceInstance['uuid']);
+        }
+
+        return null;
+    }
+
+    /**
+     * Return $result Example array(
+     *     "state" => InstanceStateMessage::STATE_ERROR ou STATE_STARTED,
+     *     "uuid" => $deviceInstance['uuid'],
+     *     "options" => null)
+     **/
+
+    private function create_qemu_device($deviceInstance,$instancePath,$sandbox) {
+        $result=null;
+        $image_src= $deviceInstance['device']['operatingSystem']['image'];
+        $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
+            "image" => $deviceInstance['device']['operatingSystem']['name'],
+            'instance' => $deviceInstance['uuid']
+        ]);
+        // Start qemu
+        $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($image_src);
+
+        if ( array_key_exists('bootWithIso',$deviceInstance) && $deviceInstance['bootWithIso'] ) {
+            //Case to boot on ISO
+            $this->logger->debug('Boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
+                'iso_image' => $deviceInstance['isoFilename'],
+                'instance' => $deviceInstance['uuid'],
+                'OS_image_disk' =>$deviceInstance['device']['operatingSystem']['image'],
+                'OS_image_disk_size' =>$deviceInstance['device']['operatingSystem']['flavorDisk']['disk']
+            ]);
+
+            try {
+                $this->create_Blank_Disk($deviceInstance['device']['operatingSystem']['image'],$deviceInstance['device']['operatingSystem']['flavorDisk']['disk']);
+            }
+            catch (ProcessFailedException $exception){
+                
+                $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid"=>$deviceInstance['uuid'],
+                        "options" => null);
+                
+                $this->logger->error("Creation new blank disk impossible !", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'exception' => $exception
+                ]);
+                $error=true;
+            }
+
+        } else {
+            //Case not to boot on ISO
+            $image_dst = $this->kernel->getProjectDir() . "/images/" . basename($image_src);
+            $this->logger->debug('Not boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'image_source' => $image_src,
+                'image_destination' => $image_dst
+            ]);
+            if ($this->download_image($deviceInstance,$image_src,$image_dst,$instancePath) === null) {
+                // no error
+                $parameters = [
+                    'system' => [
+                        '-m',
+                        $deviceInstance['device']['flavor']['memory'],
+                        '-drive',
+                        'file='.$image_dst.',if=virtio',
+                    ],
+                    'smp' => ['-smp'],
+                    'network' => [],
+                    'local' => [],
+                    'usb' => [],
+                    'access' => [],
+                    'uefi' => [],
+                    'cdrom' => []
+                ];
+
+                $smp_parameters=$deviceInstance['device']['nbCpu'];
+                
+                if ( array_key_exists('nbCore',$deviceInstance['device']) )
+                    $smp_parameters=$smp_parameters.',cores='.$deviceInstance['device']['nbCore'];
+
+                if ( array_key_exists('nbThread',$deviceInstance['device']) )
+                    $smp_parameters=$smp_parameters.',threads='.$deviceInstance['device']['nbThread'];
+                
+                if ( array_key_exists('nbSocket',$deviceInstance['device']) )
+                    $smp_parameters=$smp_parameters.',sockets='.$deviceInstance['device']['nbSocket'];
+                
+                array_push($parameters['smp'],$smp_parameters);
+
+                if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
+                    $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
+
+                foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+                    $nicTemplate = $nic['networkInterface'];
+                    $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
+                    $nicVlan = null;
+                    if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
+                        $nicVlan = $nicTemplate['vlan'];
+                    }
+
+                    if (!IPTools::networkInterfaceExists($nicName)) {
+                        IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
+                        $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'NIC' => $nicName
+                        ]);
+                    }
+
+                    if (!OVS::ovsPortExists($bridgeName, $nicName)) {
+                        OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                        $ovs_options=array(
+                            linkk_speed => 100,
+                            duplex => "full"
+                        );
+                        OVS::setInterface($nicName, $ovs_options);
+                        $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'NIC' => $nicName,
+                            'bridge' => $bridgeName,
+                            'options' => $ovs_options
+                        ]);
+                    }
+                    IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
+                    $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'NIC' => $nicName
+                    ]);
+
+                    array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
+                        '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
+                }
+                
+                array_push($parameters['local'], '-k', 'fr');
+                array_push($parameters['local'],
+                    '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
+                    '-vga', 'qxl'
+                );
+                
+
+                //Add usb support
+                array_push($parameters['usb'],
+                    '-usb', '-device','usb-tablet,bus=usb-bus.0',
+                    '-device','usb-ehci,id=ehci'
+                );
+                
+                $result=$this->remote_access_start($deviceInstance,$sandbox);
+                $this->logger->debug("State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'result-error' => $result["error"]
+                ]);
+
+                
+                if ($result["error"]===false) {
+                    $access_param=$result["arg"];
+                    foreach ($access_param as $param) {
+                        array_push($parameters['access'],$param);
+                    //$this->logger->debug("param access:".$param);
+                    }
+
+                    if (!$this->qemu_start($parameters,$deviceInstance['uuid'])){
+                        $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_STARTED,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                            );
+                    }
+                    else {
+                        $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                        $result=array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+                } else {
+                    $this->logger->error("Remote access process doesn't start correctly !", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
+            }
+            else {
+                $this->logger->error("Download QEMU image in error !", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                $this->qemu_delete($deviceInstance['uuid'],$image_dst);
+                throw new \Exception("Qemu device download failed for UUID: " . $deviceInstance['uuid']);
+
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Return $result Example array(
+     *     "state" => InstanceStateMessage::STATE_ERROR ou STATE_STARTED,
+     *     "uuid" => $deviceInstance['uuid'],
+     *     "options" => null)
+     **/
+    private function create_lxc_device($deviceInstace,$bridgeName,$labNetwork,$gateway,$sandbox){
+        $uuid=$deviceInstance['uuid'];
+        $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
+            "image" => $deviceInstance['device']['operatingSystem']['name'],
+            'instance' => $deviceInstance['uuid']
+        ]);
+        $error=false;
+        if (!$this->lxc_exist($uuid)) {
+            //$this->lxc_clone("Service",$uuid);
+            if (!$this->lxc_exist($deviceInstance['device']['operatingSystem']['image'])) {
+                $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['release']), $deviceInstance['device']['operatingSystem']['version']);
+            }
+            if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
+                $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
+                    'instance' => $deviceInstance['uuid']
+                ]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_STARTED,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+            }
+            else {
+                $this->logger->info("Error in LXC clone process",InstanceLogMessage::SCOPE_PUBLIC,[
+                    'instance' => $deviceInstance['uuid']
+                ]);
+                throw new \Exception("Error in LXC clone process:" . $deviceInstance['uuid']);
+
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+                $error=true;
+            }
+        }
+        if (!$error) {
+            //Return the last IP - 1 to address the LXC service container
+            //$ip_addr=new IP(long2ip(ip2long($labNetwork->getIp()) + (pow(2, 32 - $labNetwork->getCidrNetmask()) - 3)));
+            
+            //$this->build_template($uuid,$instancePath,'template.txt',$bridgeName,$ip_addr,$gateway);
+            /*$mask="24";
+            $this->lxc_create_network($uuid,$bridgeName,$ip_addr,$gateway,$mask);
+            */
+            $first_ip=$labNetwork->getFirstAddress();
+            $last_ip=long2ip(ip2long($labNetwork->getLastAddress())-1);
+            $end_range=long2ip(ip2long($labNetwork->getLastAddress())-2);
+            $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']
+                ]);
+            $org_file='template.txt';
+            if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
+                $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
+                $org_file='template.txt';
+                $netmask=$labNetwork->getNetmask();
+                $this->lxc_add_dhcp_dnsmasq(basename($deviceInstance["device"]["operatingSystem"]["image"]),$uuid,$first_ip,$end_range,$netmask,$labNetwork->getLastAddress());
+            }
+            else {
+                $ip_addr=$first_ip;
+                $org_file='template-noip.txt';
+            }
+
+            if ($sandbox)
+                $org_file='template.txt';
+
+            $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox,$deviceInstance['device']['flavor']['memory']);
+
+
+            foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+                //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
+            }
+
+            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
+            
+            if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
+                $this->logger->info("LXC container started successfully".$bridgeName, InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                OVS::portList($bridgeName,$this->logger);
+                if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
+                    $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+                }
+
+                if ($this->remote_access_start($deviceInstance,$sandbox)["error"]===false) {
+                    $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+
+                    } else {
+                    $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $deviceInstance['uuid']
+                        ]);
+                    throw new \Exception("Remote access process failed: " . $deviceInstance['uuid']);
+
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
+
+            } else { //LXC doesn't start
+                $this->logger->error("LXC container not started. Error", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                throw new \Exception("LXC container not started: " . $deviceInstance['uuid']);
+
+                $result=array("state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid"=>$deviceInstance['uuid'],
+                    "options" => null);
+            }
+        }
+        return $result;
+    }
 }

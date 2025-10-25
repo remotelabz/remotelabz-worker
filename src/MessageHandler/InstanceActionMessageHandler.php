@@ -30,9 +30,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
     public function __invoke(InstanceActionMessage $message)
     {
-       // The following generate an error on json param
-       $message_array=json_decode($message->getContent(), true);
-       //$this->logger->debug("[InstanceActionMessageHandler:__invoke]::Received \"".$message->getAction()."\" action message for instance with UUID ".$message->getUuid().".",$message_array);
+        // The following generate an error on json param
+        $message_array=json_decode($message->getContent(), true);
+        $this->logger->debug("[InstanceActionMessageHandler:__invoke]::Dispatching InstanceStateMessage ".json_encode($message_array, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)." []");
 
         $returnState = "";
         $instanceType = "";
