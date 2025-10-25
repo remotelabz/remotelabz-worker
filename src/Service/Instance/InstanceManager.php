@@ -439,6 +439,8 @@ class InstanceManager extends AbstractController
 
         $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
         $gateway = $labNetwork->getLastAddress();
+        $bridgeName=$labInstance['bridgeName'];
+
 
         $this->Create_And_Secure_OVS($labInstance);
         
@@ -494,7 +496,7 @@ class InstanceManager extends AbstractController
             }
         }
         elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' ){ //&& $deviceInstance['device']['name'] == 'Service') {
-            $result=$this->create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox);
+            $result=$this->create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox,$instancePath);
         }
         elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
             if (strtolower($deviceInstance['device']['type']) === "switch") {
@@ -4261,7 +4263,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      *     "uuid" => $deviceInstance['uuid'],
      *     "options" => null)
      **/
-    private function create_lxc_device($deviceInstace,$bridgeName,$labNetwork,$gateway,$sandbox){
+    private function create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox,$instancePath){
         $uuid=$deviceInstance['uuid'];
         $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
             "image" => $deviceInstance['device']['operatingSystem']['name'],
