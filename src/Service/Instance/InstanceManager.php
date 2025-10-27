@@ -488,7 +488,7 @@ class InstanceManager extends AbstractController
         }
 
         if (strtolower($deviceInstance['device']['hypervisor']['name']) === 'qemu') {
-            $result=$this->create_qemu_device($deviceInstance,$instancePath,$sandbox);
+            $result=$this->create_qemu_device($deviceInstance,$bridgeName,$instancePath,$sandbox);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED) {
                     $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
@@ -3943,36 +3943,30 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @throws ProcessFailedException When the process failed to run.
      * @return bool True if the image was created successfully, false otherwise
      */
-    public function create_Blank_Disk(string $imageName, string $size) {
+    public function create_Blank_Disk(string $imageName, string $size, $uuid) {
         $imagePath = $this->kernel->getProjectDir() . "/images/" . basename($imageName);
         
-        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "imagePath" => $imagePath,
-            "size" => $size
-        ]);
+        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.");
 
         $command = [
             'qemu-img',
             'create',
             '-f',
             'qcow2',
-            $imagePath,
+            $imagePath.".qcow2",
             $size
         ];
 
-        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Executing command.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ', $command)
-        ]);
+        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Executing command.", $command);
 
         $process = new Process($command);
         $process->setTimeout(600);
         
         try {
             $process->mustRun();
-            
+            //TODO Send an exception to return error in function that call this creation.
+            //throw processexception()
             $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'image' => $imagePath,
-                'size' => $size
             ]);
             
             return true;
@@ -3981,7 +3975,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->error("Failed to create blank disk image! " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
                 'image' => $imagePath,
                 'size' => $size,
-                'error' => $exception->getMessage()
+                'error' => $exception->getMessage(),
+                'instance' => $uuid
             ]);
             
             return false;
@@ -4067,7 +4062,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      *     "options" => null)
      **/
 
-    private function create_qemu_device($deviceInstance,$instancePath,$sandbox) {
+    private function create_qemu_device($deviceInstance,$bridgeName,$instancePath,$sandbox) {
+
+        $this->logger->debug("[InstanceManager:create_qemu_device]::Received deviceInstance parameter:".json_encode($deviceInstance, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)." []");
+
         $result=null;
         $image_src= $deviceInstance['device']['operatingSystem']['image'];
         $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4088,6 +4086,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
             try {
                 $this->create_Blank_Disk($deviceInstance['device']['operatingSystem']['image'],$deviceInstance['device']['operatingSystem']['flavorDisk']['disk']);
+
             }
             catch (ProcessFailedException $exception){
                 
@@ -4265,6 +4264,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      **/
     private function create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox,$instancePath){
         $uuid=$deviceInstance['uuid'];
+
         $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
             "image" => $deviceInstance['device']['operatingSystem']['name'],
             'instance' => $deviceInstance['uuid']
