@@ -190,6 +190,8 @@ fi
 
 mkdir -p "${REMOTELABZ_WORKER_PATH}/images"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/images"
+mkdir -p "${REMOTELABZ_WORKER_PATH}/iso"
+chmod g+rwx "${REMOTELABZ_WORKER_PATH}/iso"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/instances"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
