@@ -3955,8 +3955,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @throws ProcessFailedException When the process failed to run.
      * @return void
      */
-    public function create_Blank_Disk(string $imageName, string $size, string $uuid,string $instancePath): void {
-        $imagePath = $instancePath."/".basename($imageName);
+    public function create_Blank_Disk(string $imageName, string $size, string $uuid): void {
+        $imagePath = $this->kernel->getProjectDir() . "/images/" .basename($imageName);
         
         $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
             'imagePath' => $imagePath,
@@ -4121,7 +4121,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 'OS_image_disk_size' => $deviceInstance['device']['operatingSystem']['flavorDisk']['disk']
             ]);
             
-            $isoDst = $this->kernel->getProjectDir() . "/iso/" . $deviceInstance['isoFilename'];
+            $isoDst = $this->kernel->getProjectDir() . "/iso/" . basename($deviceInstance['isoFilename']);
                 
             try {
 
@@ -4149,8 +4149,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $this->create_Blank_Disk(
                     $deviceInstance['device']['operatingSystem']['image'],
                     $deviceInstance['device']['operatingSystem']['flavorDisk']['disk'],
-                    $deviceInstance['uuid'],
-                    $instancePath
+                    $deviceInstance['uuid']
                 );
                 
                 $this->logger->debug('[InstanceManager:create_qemu_device]::Disk created', InstanceLogMessage::SCOPE_PRIVATE, [
@@ -4454,19 +4453,18 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * 
      * @param string $uuid of the instance for log and message
      * @param string $isoFilename the filename of the iso (no path)
-     * @param string $destination the destination path for the ISO file
-     * @throws \Exception When download fails
+     * @param string $destination the ISO file with is full path
+     * * @throws \Exception When download fails
      * @return void
      */
-    private function download_iso($uuid,$isoFilename, $destination) {
+    private function download_iso($uuid,$isoSource, $destination) {
         $filesystem = new Filesystem();
                
          // Determine the filename from source (URL or filename)
         $isoFilename = basename($isoSource);
-        $destinationFile = $destination . "/" . $isoFilename;
-        
+
         // Check if ISO already exists in cache
-        if ($filesystem->exists($destinationFile)) {
+        if ($filesystem->exists($destination)) {
             $this->logger->debug('ISO file already exists in cache.', InstanceLogMessage::SCOPE_PRIVATE, [
                 'iso' => $isoFilename,
                 'path' => $destination,
@@ -4477,6 +4475,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         
         $this->logger->info('ISO file is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
             'iso' => $isoFilename,
+            'path' => $destination,
             "instance" => $uuid
         ]);
         
@@ -4484,7 +4483,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if (filter_var($isoSource, FILTER_VALIDATE_URL)) {
             $url = $isoSource;
             $this->logger->debug('[InstanceManager:download_iso]::Download ISO from external URL: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
-                'destination' => $destinationFile,
+                'destination' => $destination,
                 "instance" => $uuid
             ]);
         } else {
