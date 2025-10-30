@@ -2813,15 +2813,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
     // param string : type : must be image or iso
-    private function get_filesize_download($source,$type) {
-        if (filter_var($source, FILTER_VALIDATE_URL)) {
-            $url = $source;
-            // Vérifier si l'URL pointe vers le front
-            $verify_ssl = (strpos($url, $this->front_ip) === false);
-        } else {
-            $url = "http://".$this->front_ip."/uploads/".$type."/".basename($source);
-            $verify_ssl = false;
-        }
+    private function get_filesize_download($url,$type) {
+        
+        $verify_ssl = (strpos($url, $this->front_ip) === false);
         
         $this->logger->debug('[InstanceManager:get_filesize_download]::Verify SSL ?', InstanceLogMessage::SCOPE_PRIVATE, [
             "url" => $url,
@@ -2879,11 +2873,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         
         return $fileSize;
 
-        $this->logger->debug('[InstanceManager:get_filesize_download]::File size retrieved', InstanceLogMessage::SCOPE_PRIVATE, [
-            "url" => $url,
-            "fileSize" => $fileSize,
-            "httpCode" => $httpCode
-        ]);
     }
 
 
@@ -2891,8 +2880,17 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     // $uuid : $uuid of the device that need this image
     // $type : string, must be "images" or "iso"
     private function download_http_image($source,$uuid,$type){
+        $isUrl = filter_var($source, FILTER_VALIDATE_URL);
+
+         if ($isUrl) {
+            $url = $source;
+        } else {
+            // Build URL from front server
+            $url = "http://" . $this->front_ip . "/uploads/" . $type . "/" . basename($source);
+        }
+
         try {
-            $fileSize=$this->get_filesize_download($source,$type);
+            $fileSize=$this->get_filesize_download($url,$type);
         
             $this->logger->info('The image size to download is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $source,
@@ -2910,7 +2908,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         $command = [
             'curl','-s',
-            $source,
+            $url,
             '--output',
             $image_dst
         ];
@@ -2921,7 +2919,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $process->mustRun();
             $fileSize_downloaded=filesize($image_dst);
             $this->logger->info('Image download in progress: '.$process->getOutput(), InstanceLogMessage::SCOPE_PUBLIC, [
-                "image" => $source,
+                "source" => $source,
                 'instance' => $uuid,
                 'size_downloaded' => $fileSize_downloaded,
                 'size_origin' => $fileSize
@@ -2929,14 +2927,13 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         catch (ProcessFailedException $exception) {
             $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                "image" => $source,
+                "source" => $source,
                 'instance' => $uuid,
                 'size_downloaded' => $exception->getMessage(),
                 'size_origin' => $fileSize
             ]);
             return false;
-        }
-      
+        }     
 
         return true;
     }
@@ -3958,8 +3955,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @throws ProcessFailedException When the process failed to run.
      * @return void
      */
-    public function create_Blank_Disk(string $imageName, string $size, string $uuid): void {
-        $imagePath = $this->kernel->getProjectDir() . "/images/" . basename($imageName);
+    public function create_Blank_Disk(string $imageName, string $size, string $uuid,string $instancePath): void {
+        $imagePath = $instancePath."/".basename($imageName);
         
         $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
             'imagePath' => $imagePath,
@@ -3972,7 +3969,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'create',
             '-f',
             'qcow2',
-            $imagePath . ".qcow2",
+            $imagePath,
             $size . "G"
         ];
 
@@ -4089,8 +4086,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         $this->logger->debug("[InstanceManager:create_qemu_device]::Received deviceInstance parameter:".json_encode($deviceInstance, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)." []");
 
-        
-
         $result=null;
         $image_src= $deviceInstance['device']['operatingSystem']['image'];
         $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4131,8 +4126,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             try {
 
                 $this->download_iso($deviceInstance['uuid'], $deviceInstance['isoFilename'], $isoDst);
-                                
-                array_push($parameters["cdrom"],'-boot','d','-drive','file='.$isoDst.',if='.strtolower($deviceInstance['device']['cdrom_bus_type']).',index=0,media=cdrom');                
+                if (array_key_exists('cdrom_bus_type',$deviceInstance['device']) && $deviceInstance['device']['cdrom_bus_type'])
+                    $cdrom_bus_type=strtolower($deviceInstance['device']['cdrom_bus_type']);
+                else
+                    $cdrom_bus_type='ide';
+
+                array_push($parameters["cdrom"],'-boot','d','-drive','file='.$isoDst.',if='.$cdrom_bus_type.',media=cdrom');                
             } catch (\Exception $exception) {
                 $this->logger->error("Cannot start device without ISO file!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid'],
@@ -4150,7 +4149,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $this->create_Blank_Disk(
                     $deviceInstance['device']['operatingSystem']['image'],
                     $deviceInstance['device']['operatingSystem']['flavorDisk']['disk'],
-                    $deviceInstance['uuid']
+                    $deviceInstance['uuid'],
+                    $instancePath
                 );
                 
                 $this->logger->debug('[InstanceManager:create_qemu_device]::Disk created', InstanceLogMessage::SCOPE_PRIVATE, [
@@ -4461,8 +4461,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     private function download_iso($uuid,$isoFilename, $destination) {
         $filesystem = new Filesystem();
                
+         // Determine the filename from source (URL or filename)
+        $isoFilename = basename($isoSource);
+        $destinationFile = $destination . "/" . $isoFilename;
+        
         // Check if ISO already exists in cache
-        if ($filesystem->exists($destination."/".$isoFilename)) {
+        if ($filesystem->exists($destinationFile)) {
             $this->logger->debug('ISO file already exists in cache.', InstanceLogMessage::SCOPE_PRIVATE, [
                 'iso' => $isoFilename,
                 'path' => $destination,
@@ -4476,13 +4480,20 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             "instance" => $uuid
         ]);
         
-        // Build URL for ISO from front server
-        $url = "http://" . $this->front_ip . "/uploads/iso/" . $isoFilename;
-        
-        $this->logger->debug('[InstanceManager:download_iso]::Download ISO from URL: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
-            'destination' => $destination,
-            "instance" => $uuid
-        ]);
+
+        if (filter_var($isoSource, FILTER_VALIDATE_URL)) {
+            $url = $isoSource;
+            $this->logger->debug('[InstanceManager:download_iso]::Download ISO from external URL: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
+                'destination' => $destinationFile,
+                "instance" => $uuid
+            ]);
+        } else {
+            $url = "http://" . $this->front_ip . "/uploads/iso/" . $isoFilename;
+            $this->logger->debug('[InstanceManager:download_iso]::Download ISO from front server: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
+                'destination' => $destinationFile,
+                "instance" => $uuid
+            ]);
+        }
         
         // Download ISO file
         $download_ok = $this->download_http_image($url, $uuid,"iso");
