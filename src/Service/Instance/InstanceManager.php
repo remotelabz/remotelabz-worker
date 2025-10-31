@@ -4172,6 +4172,29 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "options" => null
                 );
             }
+
+            
+            $img_rel__dst=$instancePath."/".$deviceInstance['device']['operatingSystem']['image'];
+            if ($this->qemu_create_relative_img(
+                    $image_dst,
+                    $img_rel__dst,
+                    $deviceInstance['uuid'])
+                ) {
+                $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'path' => $img_rel__dst,
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                } else {
+                    $this->logger->error('VM image creation in error.', InstanceLogMessage:: SCOPE_PUBLIC, [
+                        'path' => $instancePath,
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    return array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                }
         } else {
             //Case not to boot on ISO
             $image_dst = $this->kernel->getProjectDir() . "/images/" . basename($image_src);
