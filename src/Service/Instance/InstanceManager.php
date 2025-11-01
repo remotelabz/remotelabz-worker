@@ -1189,7 +1189,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             }
         }
 
-        $this->logger->debug("Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:qemu_start]::Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',preg_replace('/\s+/', ' ', $command))
         ]);
         $process = new Process($command);
@@ -1201,7 +1201,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'message' => $message]);
             if (str_contains($message,"lock\nIs another process using the image")) {
                 //$this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
-                $this->logger->debug("QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
+                $this->logger->debug("[InstanceManager:qemu_start]::QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
                 $error=false;
             } else {
                 $this->logger->error("Starting QEMU virtual machine error! ".$message, InstanceLogMessage::SCOPE_PUBLIC,
@@ -4198,7 +4198,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         } else {
             //Case not to boot on ISO
             $image_dst = $this->kernel->getProjectDir() . "/images/" . basename($image_src);
-            $this->logger->debug('Not boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug('[InstanceManager:create_qemu_device]::Not boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $deviceInstance['uuid'],
                 'image_source' => $image_src,
                 'image_destination' => $image_dst
@@ -4218,7 +4218,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
                 return $result;
             } else {
-                $this->logger->debug('Download ok. Image presents', InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug('[InstanceManager:create_qemu_device]::Download ok. Image presents', InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid']
                 ]);
             }
@@ -4257,7 +4257,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
             if (!IPTools::networkInterfaceExists($nicName)) {
                 IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
-                $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
                     'NIC' => $nicName
                 ]);
             }
@@ -4269,14 +4269,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     duplex => "full"
                 );
                 OVS::setInterface($nicName, $ovs_options);
-                $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
                     'NIC' => $nicName,
                     'bridge' => $bridgeName,
                     'options' => $ovs_options
                 ]);
             }
             IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
-            $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
                 'NIC' => $nicName
             ]);
 
@@ -4298,7 +4298,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         );
         
         $result=$this->remote_access_start($deviceInstance,$sandbox);
-        $this->logger->debug("State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:create_qemu_device]::State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
