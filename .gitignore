@@ -21,3 +21,4 @@ symfony.lock
 config/certs/*
 .env.local.bak
 config/packages/messenger.yaml
+/iso/*
