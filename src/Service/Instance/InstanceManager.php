@@ -488,7 +488,7 @@ class InstanceManager extends AbstractController
         }
 
         if (strtolower($deviceInstance['device']['hypervisor']['name']) === 'qemu') {
-            $result=$this->create_qemu_device($deviceInstance,$instancePath,$sandbox);
+            $result=$this->create_qemu_device($deviceInstance,$bridgeName,$instancePath,$sandbox);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED) {
                     $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
@@ -1189,7 +1189,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             }
         }
 
-        $this->logger->debug("Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:qemu_start]::Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',preg_replace('/\s+/', ' ', $command))
         ]);
         $process = new Process($command);
@@ -1201,7 +1201,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'message' => $message]);
             if (str_contains($message,"lock\nIs another process using the image")) {
                 //$this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
-                $this->logger->debug("QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
+                $this->logger->debug("[InstanceManager:qemu_start]::QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
                 $error=false;
             } else {
                 $this->logger->error("Starting QEMU virtual machine error! ".$message, InstanceLogMessage::SCOPE_PUBLIC,
@@ -2199,7 +2199,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "image" => $img['source'],
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    $download_ok=$this->download_http_image($url,$deviceInstance['uuid']);
+                    $download_ok=$this->download_http_image($url,$deviceInstance['uuid'],"images");
                 }
     
                 if ($download_ok) {
@@ -2812,73 +2812,91 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         return $adress;
     }
 
-    private function get_filesize_download($source) {
-    if (filter_var($source, FILTER_VALIDATE_URL)) {
-        $url = $source;
-        $verify_ssl = true;  // Par défaut, on vérifie les certificats
-    } else {
-        // The source uploaded on the front.
-        $url = "http://".$this->front_ip."/uploads/images/".basename($source);
-        $verify_ssl = false;  // Certificat auto-signé sur le front
-    }
-    
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HEADER, true);
-    curl_setopt($ch, CURLOPT_NOBODY, true);  // HEAD request uniquement
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);  // Suit les redirections automatiquement
-    curl_setopt($ch, CURLOPT_MAXREDIRS, 5);  // Limite le nombre de redirections
-    
-    // Gestion SSL
-    if (!$verify_ssl) {
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-    }
-    
-    curl_exec($ch);
-    
-    if (curl_errno($ch)) {
-        $error = curl_error($ch);
+    // param string : type : must be image or iso
+    private function get_filesize_download($url,$type) {
+        
+        $verify_ssl = (strpos($url, $this->front_ip) === false);
+        
+        $this->logger->debug('[InstanceManager:get_filesize_download]::Verify SSL ?', InstanceLogMessage::SCOPE_PRIVATE, [
+            "url" => $url,
+            "Verify_ssl" => $verify_ssl
+        ]);
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        curl_setopt($ch, CURLOPT_NOBODY, true);  // HEAD request uniquement
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);  // Suit les redirections automatiquement
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 5);  // Limite le nombre de redirections
+        
+        // Gestion SSL
+        if (!$verify_ssl) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        }
+        
+        curl_exec($ch);
+        
+        if (curl_errno($ch)) {
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            $this->logger->error('cURL error: ' . $error, InstanceLogMessage::SCOPE_PRIVATE, [
+                "url" => $url,
+                "verify_ssl" => $verify_ssl
+            ]);
+
+            throw new \RuntimeException('cURL error: ' . $error);
+        }
+        
+        $fileSize = (float) curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        
         curl_close($ch);
-        throw new \RuntimeException('cURL error: ' . $error);
-    }
-    
-    $fileSize = (float) curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    
-    curl_close($ch);
-    
-    $this->logger->debug('[InstanceManager:get_filesize_download]::File size retrieved', InstanceLogMessage::SCOPE_PRIVATE, [
-        "url" => $url,
-        "fileSize" => $fileSize,
-        "httpCode" => $httpCode
-    ]);
+        
+        $this->logger->debug('[InstanceManager:get_filesize_download]::File size retrieved', InstanceLogMessage::SCOPE_PRIVATE, [
+            "url" => $url,
+            "fileSize" => $fileSize,
+            "httpCode" => $httpCode
+        ]);
 
-    if ($httpCode != 200) {
-        throw new \RuntimeException('HTTP request failed. Http code: ' . $httpCode);
-    }
-    
-    if ($fileSize <= 0) {
-        throw new \RuntimeException('Unable to determine file size');
-    } 
-    
-    return $fileSize;
+        if ($httpCode != 200) {
+            throw new \RuntimeException('HTTP request failed. Http code: ' . $httpCode);
+        }
+        
+        if ($fileSize <= 0) {
+            throw new \RuntimeException('Unable to determine file size');
+        } 
+        
+        return $fileSize;
 
-    $this->logger->debug('[InstanceManager:get_filesize_download]::File size retrieved', InstanceLogMessage::SCOPE_PRIVATE, [
-        "url" => $url,
-        "fileSize" => $fileSize,
-        "httpCode" => $httpCode
-    ]);
-    
-    
-}
+    }
 
 
     // $source : image source to download
     // $uuid : $uuid of the device that need this image
-    private function download_http_image($source,$uuid){
+    // $type : string, must be "images" or "iso"
+    private function download_http_image($source,$uuid,$type){
+        $isUrl = filter_var($source, FILTER_VALIDATE_URL);
+
+         if ($isUrl) {
+            $url = $source;
+        } else {
+            // Build URL from front server
+            $url = "http://" . $this->front_ip . "/uploads/" . $type . "/" . basename($source);
+        }
+
         try {
-            $fileSize=$this->get_filesize_download($source);
+            $this->logger->debug('[InstanceManager:download_http_image]::Get size of the file : ', InstanceLogMessage::SCOPE_PRIVATE, [
+                "url" => $url,
+                'instance' => $uuid,
+                "type" => $type
+            ]);
+
+            $fileSize=$this->get_filesize_download($url,$type);
         
             $this->logger->info('The image size to download is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
                 "image" => $source,
@@ -2892,38 +2910,79 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             return false;
         }
 
-        $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($source);
+        $image_dst=$this->kernel->getProjectDir() . "/".$type."/" . basename($source);
 
-        $command = [
-            'curl','-s',
-            $source,
-            '--output',
-            $image_dst
-        ];
+        // Initialisation de curl
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);  // Suit les redirections automatiquement
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 5);  // Limite le nombre de redirections
+        curl_setopt($ch, CURLOPT_TIMEOUT, 12000);  // Équivalent du setTimeout
 
-        $process = new Process($command);
-        $process->setTimeout(12000);
-        try {
-            $process->mustRun();
-            $fileSize_downloaded=filesize($image_dst);
-            $this->logger->info('Image download in progress: '.$process->getOutput(), InstanceLogMessage::SCOPE_PUBLIC, [
-                "image" => $source,
-                'instance' => $uuid,
-                'size_downloaded' => $fileSize_downloaded,
-                'size_origin' => $fileSize
-            ]);
+        $verify_ssl = (strpos($url, $this->front_ip) === false);
+
+        // Gestion SSL (adaptez selon votre variable $verify_ssl si elle existe)
+        if (!$verify_ssl) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         }
-        catch (ProcessFailedException $exception) {
-            $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                "image" => $source,
+        
+        // Exécution du téléchargement
+        $fileContent = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        // Vérification des erreurs
+        if ($fileContent === false || $httpCode >= 400) {
+            $this->logger->error('Image download failed.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "source" => $source,
                 'instance' => $uuid,
-                'size_downloaded' => $exception->getMessage(),
-                'size_origin' => $fileSize
+                'http_code' => $httpCode,
+                'error' => $curlError
             ]);
             return false;
         }
-      
-
+        
+        // Sauvegarde du fichier
+        $bytesWritten = file_put_contents($image_dst, $fileContent);
+        
+        if ($bytesWritten === false) {
+            $this->logger->error('Failed to write downloaded file.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "source" => $source,
+                'instance' => $uuid,
+                'destination' => $image_dst
+            ]);
+            return false;
+        }
+        
+        $fileSize_downloaded = filesize($image_dst);
+        
+        // Vérification de la taille téléchargée
+        if ($fileSize_downloaded != $fileSize) {
+            $this->logger->error('Downloaded file size mismatch.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "source" => $source,
+                'instance' => $uuid,
+                'size_downloaded' => $fileSize_downloaded,
+                'size_expected' => $fileSize
+            ]);
+            // Nettoyer le fichier partiellement téléchargé
+            if (file_exists($image_dst)) {
+                unlink($image_dst);
+            }
+            return false;
+        }
+        
+        $this->logger->info('Image downloaded successfully.', InstanceLogMessage::SCOPE_PUBLIC, [
+            "source" => $source,
+            'instance' => $uuid,
+            'size_downloaded' => $fileSize_downloaded,
+            'size_origin' => $fileSize
+        ]);
+        
         return true;
     }
 
@@ -2931,12 +2990,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     // $uuid : $uuid of the device that need this image
     private function download_http_image_old_version($source,$uuid,$context){
     // check image size
-    $this->logger->debug('download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
+    $this->logger->debug('[InstanceManager:download_http_image_old_version]::download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
         "image" => $source,
         'instance' => $uuid
     ]);
     $headers = get_headers($source, 1,$context);
-    $this->logger->debug('headers in download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
+    $this->logger->debug('[InstanceManager:download_http_image_old_version]::headers in download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
         "headers" => $headers
     ]);
     $headers = array_change_key_case($headers);
@@ -3940,15 +3999,17 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * 
      * @param string $imageName The name of the image file to create
      * @param string $size The size of the disk (e.g., '10G', '500M')
+     * @param string $uuid The UUID of the device instance
      * @throws ProcessFailedException When the process failed to run.
-     * @return bool True if the image was created successfully, false otherwise
+     * @return void
      */
-    public function create_Blank_Disk(string $imageName, string $size) {
-        $imagePath = $this->kernel->getProjectDir() . "/images/" . basename($imageName);
+    public function create_Blank_Disk(string $imageName, string $size, string $uuid): void {
+        $imagePath = $this->kernel->getProjectDir() . "/images/" .basename($imageName);
         
         $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "imagePath" => $imagePath,
-            "size" => $size
+            'imagePath' => $imagePath,
+            'size' => $size . 'G',
+            'instance' => $uuid
         ]);
 
         $command = [
@@ -3957,11 +4018,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             '-f',
             'qcow2',
             $imagePath,
-            $size
+            $size . "G"
         ];
 
         $this->logger->debug("[InstanceManager:create_Blank_Disk]::Executing command.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ', $command)
+            'command' => implode(' ', $command),
+            'instance' => $uuid
         ]);
 
         $process = new Process($command);
@@ -3971,20 +4033,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $process->mustRun();
             
             $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'image' => $imagePath,
-                'size' => $size
+                'image' => $imagePath . ".qcow2",
+                'size' => $size . 'G',
+                'instance' => $uuid
             ]);
-            
-            return true;
             
         } catch (ProcessFailedException $exception) {
             $this->logger->error("Failed to create blank disk image! " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
                 'image' => $imagePath,
                 'size' => $size,
-                'error' => $exception->getMessage()
+                'error' => $exception->getMessage(),
+                'instance' => $uuid
             ]);
             
-            return false;
+            // Rethrow the exception pour que la fonction appelante la gère
+            throw $exception;
         }
     }
 
@@ -4007,14 +4070,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $url = "http://" . $this->front_ip . "/uploads/images/" . basename($image_src);
             }
 
-            $this->logger->debug('Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug('[InstanceManager:download_image]::Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
                 'image' => $image_src,
                 'url' => $url,
                 'instance' => $deviceInstance['uuid']
             ]);
 
             // Download image
-            $download_ok = $this->download_http_image($url, $deviceInstance['uuid']);
+            $download_ok = $this->download_http_image($url, $deviceInstance['uuid'],"images");
         }
 
         if ($download_ok) {
@@ -4067,7 +4130,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      *     "options" => null)
      **/
 
-    private function create_qemu_device($deviceInstance,$instancePath,$sandbox) {
+    private function create_qemu_device($deviceInstance,$bridgeName,$instancePath,$sandbox) {
+
+        $this->logger->debug("[InstanceManager:create_qemu_device]::Received deviceInstance parameter:".json_encode($deviceInstance, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)." []");
+
         $result=null;
         $image_src= $deviceInstance['device']['operatingSystem']['image'];
         $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4076,171 +4142,117 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
         // Start qemu
         $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($image_src);
+        $iso_directory=$this->kernel->getProjectDir() . "/iso/";
 
-        if ( array_key_exists('bootWithIso',$deviceInstance) && $deviceInstance['bootWithIso'] ) {
-            //Case to boot on ISO
-            $this->logger->debug('Boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
+        $parameters = [
+            'system' => [
+                '-m',
+                $deviceInstance['device']['flavor']['memory'],
+                '-drive',
+                'file='.$image_dst.',if=virtio',
+            ],
+            'smp' => ['-smp'],
+            'network' => [],
+            'local' => [],
+            'usb' => [],
+            'access' => [],
+            'uefi' => [],
+            'cdrom' => []
+        ];
+
+        if (array_key_exists('bootWithIso', $deviceInstance) && $deviceInstance['bootWithIso']) {
+            // Case to boot on ISO
+            $this->logger->debug('[InstanceManager:create_qemu_device]::Boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
                 'iso_image' => $deviceInstance['isoFilename'],
                 'instance' => $deviceInstance['uuid'],
-                'OS_image_disk' =>$deviceInstance['device']['operatingSystem']['image'],
-                'OS_image_disk_size' =>$deviceInstance['device']['operatingSystem']['flavorDisk']['disk']
+                'OS_image_disk' => $deviceInstance['device']['operatingSystem']['image'],
+                'OS_image_disk_size' => $deviceInstance['device']['operatingSystem']['flavorDisk']['disk']
             ]);
+            
+            $isoDst = $this->kernel->getProjectDir() . "/iso/" . basename($deviceInstance['isoFilename']);
+                
+            try {
+
+                $this->download_iso($deviceInstance['uuid'], $deviceInstance['isoFilename'], $isoDst);
+                if (array_key_exists('cdrom_bus_type',$deviceInstance['device']) && $deviceInstance['device']['cdrom_bus_type'])
+                    $cdrom_bus_type=strtolower($deviceInstance['device']['cdrom_bus_type']);
+                else
+                    $cdrom_bus_type='ide';
+
+                array_push($parameters["cdrom"],'-boot','d','-drive','file='.$isoDst.',if='.$cdrom_bus_type.',media=cdrom');                
+            } catch (\Exception $exception) {
+                $this->logger->error("Cannot start device without ISO file!", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid'],
+                    'error' => $exception->getMessage()
+                ]);
+                
+                return array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+            }
 
             try {
-                $this->create_Blank_Disk($deviceInstance['device']['operatingSystem']['image'],$deviceInstance['device']['operatingSystem']['flavorDisk']['disk']);
-            }
-            catch (ProcessFailedException $exception){
-                
-                $result=array("state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid"=>$deviceInstance['uuid'],
-                        "options" => null);
-                
-                $this->logger->error("Creation new blank disk impossible !", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $deviceInstance['uuid'],
-                    'exception' => $exception
-                ]);
-                $error=true;
-            }
-
-        } else {
-            //Case not to boot on ISO
-            $image_dst = $this->kernel->getProjectDir() . "/images/" . basename($image_src);
-            $this->logger->debug('Not boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
-                'instance' => $deviceInstance['uuid'],
-                'image_source' => $image_src,
-                'image_destination' => $image_dst
-            ]);
-            if ($this->download_image($deviceInstance,$image_src,$image_dst,$instancePath) === null) {
-                // no error
-                $parameters = [
-                    'system' => [
-                        '-m',
-                        $deviceInstance['device']['flavor']['memory'],
-                        '-drive',
-                        'file='.$image_dst.',if=virtio',
-                    ],
-                    'smp' => ['-smp'],
-                    'network' => [],
-                    'local' => [],
-                    'usb' => [],
-                    'access' => [],
-                    'uefi' => [],
-                    'cdrom' => []
-                ];
-
-                $smp_parameters=$deviceInstance['device']['nbCpu'];
-                
-                if ( array_key_exists('nbCore',$deviceInstance['device']) )
-                    $smp_parameters=$smp_parameters.',cores='.$deviceInstance['device']['nbCore'];
-
-                if ( array_key_exists('nbThread',$deviceInstance['device']) )
-                    $smp_parameters=$smp_parameters.',threads='.$deviceInstance['device']['nbThread'];
-                
-                if ( array_key_exists('nbSocket',$deviceInstance['device']) )
-                    $smp_parameters=$smp_parameters.',sockets='.$deviceInstance['device']['nbSocket'];
-                
-                array_push($parameters['smp'],$smp_parameters);
-
-                if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
-                    $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
-
-                foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
-                    $nicTemplate = $nic['networkInterface'];
-                    $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
-                    $nicVlan = null;
-                    if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
-                        $nicVlan = $nicTemplate['vlan'];
-                    }
-
-                    if (!IPTools::networkInterfaceExists($nicName)) {
-                        IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
-                        $this->logger->debug("Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'NIC' => $nicName
-                        ]);
-                    }
-
-                    if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                        OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
-                        $ovs_options=array(
-                            linkk_speed => 100,
-                            duplex => "full"
-                        );
-                        OVS::setInterface($nicName, $ovs_options);
-                        $this->logger->debug("Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'NIC' => $nicName,
-                            'bridge' => $bridgeName,
-                            'options' => $ovs_options
-                        ]);
-                    }
-                    IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
-                    $this->logger->debug("Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'NIC' => $nicName
-                    ]);
-
-                    array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
-                        '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
-                }
-                
-                array_push($parameters['local'], '-k', 'fr');
-                array_push($parameters['local'],
-                    '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
-                    '-vga', 'qxl'
+                $this->create_Blank_Disk(
+                    $deviceInstance['device']['operatingSystem']['image'],
+                    $deviceInstance['device']['operatingSystem']['flavorDisk']['disk'],
+                    $deviceInstance['uuid']
                 );
                 
-
-                //Add usb support
-                array_push($parameters['usb'],
-                    '-usb', '-device','usb-tablet,bus=usb-bus.0',
-                    '-device','usb-ehci,id=ehci'
-                );
-                
-                $result=$this->remote_access_start($deviceInstance,$sandbox);
-                $this->logger->debug("State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug('[InstanceManager:create_qemu_device]::Disk created', InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso_image' => $deviceInstance['isoFilename'],
                     'instance' => $deviceInstance['uuid'],
-                    'result-error' => $result["error"]
+                    'OS_image_disk' => $deviceInstance['device']['operatingSystem']['image'],
+                    'OS_image_disk_size' => $deviceInstance['device']['operatingSystem']['flavorDisk']['disk']
                 ]);
 
                 
-                if ($result["error"]===false) {
-                    $access_param=$result["arg"];
-                    foreach ($access_param as $param) {
-                        array_push($parameters['access'],$param);
-                    //$this->logger->debug("param access:".$param);
-                    }
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("Creation new blank disk impossible!", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid'],
+                    'exception' => $exception->getMessage()
+                ]);
+                
+                return array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+            }
 
-                    if (!$this->qemu_start($parameters,$deviceInstance['uuid'])){
-                        $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        
-                        $result=array(
-                            "state" => InstanceStateMessage::STATE_STARTED,
-                            "uuid" => $deviceInstance['uuid'],
-                            "options" => null
-                            );
-                    }
-                    else {
-                        $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $deviceInstance['uuid']
-                            ]);
-                        $result=array(
-                            "state" => InstanceStateMessage::STATE_ERROR,
-                            "uuid" => $deviceInstance['uuid'],
-                            "options" => null
-                        );
-                    }
-                } else {
-                    $this->logger->error("Remote access process doesn't start correctly !", InstanceLogMessage::SCOPE_PUBLIC, [
+            
+            $img_rel__dst=$instancePath."/".$deviceInstance['device']['operatingSystem']['image'];
+            if ($this->qemu_create_relative_img(
+                    $image_dst,
+                    $img_rel__dst,
+                    $deviceInstance['uuid'])
+                ) {
+                $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'path' => $img_rel__dst,
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    $result=array(
+                } else {
+                    $this->logger->error('VM image creation in error.', InstanceLogMessage:: SCOPE_PUBLIC, [
+                        'path' => $instancePath,
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    return array(
                         "state" => InstanceStateMessage::STATE_ERROR,
                         "uuid" => $deviceInstance['uuid'],
                         "options" => null
                     );
                 }
-            }
-            else {
+        } else {
+            //Case not to boot on ISO
+            $image_dst = $this->kernel->getProjectDir() . "/images/" . basename($image_src);
+            $this->logger->debug('[InstanceManager:create_qemu_device]::Not boot on ISO', InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'image_source' => $image_src,
+                'image_destination' => $image_dst
+            ]);
+
+            if (!is_null($this->download_image($deviceInstance,$image_src,$image_dst,$instancePath))) {
                 $this->logger->error("Download QEMU image in error !", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
@@ -4249,11 +4261,136 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
                 $result=array(
                     "state" => InstanceStateMessage::STATE_ERROR,
+                    "instance" => $deviceInstance['uuid'],
+                    "options" => null
+                );
+                return $result;
+            } else {
+                $this->logger->debug('[InstanceManager:create_qemu_device]::Download ok. Image presents', InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid']
+                ]);
+            }
+        }
+
+        $this->logger->debug('[InstanceManager:create_qemu_device]::Will start qemu device', InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid'],
+                        'OS_image_disk' =>$deviceInstance['device']['operatingSystem']['image']
+                    ]);
+        // no error
+        
+
+        $smp_parameters=$deviceInstance['device']['nbCpu'];
+        
+        if ( array_key_exists('nbCore',$deviceInstance['device']) )
+            $smp_parameters=$smp_parameters.',cores='.$deviceInstance['device']['nbCore'];
+
+        if ( array_key_exists('nbThread',$deviceInstance['device']) )
+            $smp_parameters=$smp_parameters.',threads='.$deviceInstance['device']['nbThread'];
+        
+        if ( array_key_exists('nbSocket',$deviceInstance['device']) )
+            $smp_parameters=$smp_parameters.',sockets='.$deviceInstance['device']['nbSocket'];
+        
+        array_push($parameters['smp'],$smp_parameters);
+
+        if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
+            $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
+
+        foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+            $nicTemplate = $nic['networkInterface'];
+            $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
+            $nicVlan = null;
+            if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
+                $nicVlan = $nicTemplate['vlan'];
+            }
+
+            if (!IPTools::networkInterfaceExists($nicName)) {
+                IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
+                $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'NIC' => $nicName
+                ]);
+            }
+
+            if (!OVS::ovsPortExists($bridgeName, $nicName)) {
+                OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                $ovs_options=array(
+                    linkk_speed => 100,
+                    duplex => "full"
+                );
+                OVS::setInterface($nicName, $ovs_options);
+                $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'NIC' => $nicName,
+                    'bridge' => $bridgeName,
+                    'options' => $ovs_options
+                ]);
+            }
+            IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
+            $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'NIC' => $nicName
+            ]);
+
+            array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
+                '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
+        }
+        
+        array_push($parameters['local'], '-k', 'fr');
+        array_push($parameters['local'],
+            '-rtc', 'base=localtime,clock=host', // For qemu 3 compatible
+            '-vga', 'qxl'
+        );
+        
+
+        //Add usb support
+        array_push($parameters['usb'],
+            '-usb', '-device','usb-tablet,bus=usb-bus.0',
+            '-device','usb-ehci,id=ehci'
+        );
+        
+        $result=$this->remote_access_start($deviceInstance,$sandbox);
+        $this->logger->debug("[InstanceManager:create_qemu_device]::State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance['uuid'],
+            'result-error' => $result["error"]
+        ]);
+
+        
+        if ($result["error"]===false) {
+            $access_param=$result["arg"];
+            foreach ($access_param as $param) {
+                array_push($parameters['access'],$param);
+            //$this->logger->debug("param access:".$param);
+            }
+
+            if (!$this->qemu_start($parameters,$deviceInstance['uuid'])){
+                $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_STARTED,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => null
+                    );
+            }
+            else {
+                $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_ERROR,
                     "uuid" => $deviceInstance['uuid'],
                     "options" => null
                 );
             }
+        } else {
+            $this->logger->error("Remote access process doesn't start correctly !", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $deviceInstance['uuid']
+            ]);
+            $result=array(
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $deviceInstance['uuid'],
+                "options" => null
+            );
         }
+
         return $result;
     }
 
@@ -4265,6 +4402,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      **/
     private function create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox,$instancePath){
         $uuid=$deviceInstance['uuid'];
+
         $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
             "image" => $deviceInstance['device']['operatingSystem']['name'],
             'instance' => $deviceInstance['uuid']
@@ -4378,5 +4516,82 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             }
         }
         return $result;
+    }
+
+
+    /**
+     * Download an ISO file from the front server
+     * 
+     * @param string $uuid of the instance for log and message
+     * @param string $isoFilename the filename of the iso (no path)
+     * @param string $destination the ISO file with is full path
+     * * @throws \Exception When download fails
+     * @return void
+     */
+    private function download_iso($uuid,$isoSource, $destination) {
+        $filesystem = new Filesystem();
+               
+         // Determine the filename from source (URL or filename)
+        $isoFilename = basename($isoSource);
+
+        // Check if ISO already exists in cache
+        if ($filesystem->exists($destination)) {
+            $this->logger->debug('ISO file already exists in cache.', InstanceLogMessage::SCOPE_PRIVATE, [
+                'iso' => $isoFilename,
+                'path' => $destination,
+                "instance" => $uuid
+            ]);
+            return;
+        }
+        
+        $this->logger->info('ISO file is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+            'iso' => $isoFilename,
+            'isoSource' => $isoSource,
+            'path' => $destination,
+            "instance" => $uuid
+        ]);
+        
+
+        if (filter_var($isoSource, FILTER_VALIDATE_URL)) {
+            $url = $isoSource;
+            $this->logger->debug('[InstanceManager:download_iso]::Download ISO from external URL: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
+                'destination' => $destination,
+                "instance" => $uuid
+            ]);
+        } else {
+            $url = "http://" . $this->front_ip . "/uploads/iso/" . $isoFilename;
+            $this->logger->debug('[InstanceManager:download_iso]::Download ISO from front server: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
+                'destination' => $destination,
+                "instance" => $uuid
+            ]);
+        }
+        
+        // Download ISO file
+        $download_ok = $this->download_http_image($url, $uuid,"iso");
+        
+        if (!$download_ok) {
+            $this->logger->error("Download ISO file failed!", InstanceLogMessage::SCOPE_PUBLIC, [
+                'iso' => $isoFilename,
+                'url' => $url,
+                "instance" => $uuid
+            ]);
+            
+            // Clean up partial download if exists
+            if ($filesystem->exists($destination."/".$isoFilename)) {
+                $filesystem->remove($destination."/".$isoFilename);
+                $this->logger->debug('[InstanceManager:download_iso]::Partial ISO file removed.', InstanceLogMessage::SCOPE_PRIVATE, [
+                    'path' => $destination,
+                    'instance' => $uuid
+                ]);
+            }
+            
+            throw new \Exception("ISO download failed for device: " . $uuid);
+        }
+        
+        $this->logger->info('ISO file downloaded successfully.', InstanceLogMessage::SCOPE_PUBLIC, [
+            'iso' => $isoFilename,
+            'path' => $destination,
+            'instance' => $uuid
+        ]);
     }
 }
