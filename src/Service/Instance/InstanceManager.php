@@ -2890,6 +2890,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
 
         try {
+            $this->logger->debug('[InstanceManager:download_http_image]::Get size of the file : ', InstanceLogMessage::SCOPE_PRIVATE, [
+                "url" => $url,
+                'instance' => $uuid,
+                "type" => $type
+            ]);
+
             $fileSize=$this->get_filesize_download($url,$type);
         
             $this->logger->info('The image size to download is '.round($fileSize*1e-6, 2).'MB.', InstanceLogMessage::SCOPE_PUBLIC, [
@@ -2906,35 +2912,77 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         $image_dst=$this->kernel->getProjectDir() . "/".$type."/" . basename($source);
 
-        $command = [
-            'curl','-s',
-            $url,
-            '--output',
-            $image_dst
-        ];
+        // Initialisation de curl
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);  // Suit les redirections automatiquement
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 5);  // Limite le nombre de redirections
+        curl_setopt($ch, CURLOPT_TIMEOUT, 12000);  // Équivalent du setTimeout
 
-        $process = new Process($command);
-        $process->setTimeout(12000);
-        try {
-            $process->mustRun();
-            $fileSize_downloaded=filesize($image_dst);
-            $this->logger->info('Image download in progress: '.$process->getOutput(), InstanceLogMessage::SCOPE_PUBLIC, [
+        $verify_ssl = (strpos($url, $this->front_ip) === false);
+
+        // Gestion SSL (adaptez selon votre variable $verify_ssl si elle existe)
+        if (!$verify_ssl) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        } else {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+        }
+        
+        // Exécution du téléchargement
+        $fileContent = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        // Vérification des erreurs
+        if ($fileContent === false || $httpCode >= 400) {
+            $this->logger->error('Image download failed.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "source" => $source,
+                'instance' => $uuid,
+                'http_code' => $httpCode,
+                'error' => $curlError
+            ]);
+            return false;
+        }
+        
+        // Sauvegarde du fichier
+        $bytesWritten = file_put_contents($image_dst, $fileContent);
+        
+        if ($bytesWritten === false) {
+            $this->logger->error('Failed to write downloaded file.', InstanceLogMessage::SCOPE_PUBLIC, [
+                "source" => $source,
+                'instance' => $uuid,
+                'destination' => $image_dst
+            ]);
+            return false;
+        }
+        
+        $fileSize_downloaded = filesize($image_dst);
+        
+        // Vérification de la taille téléchargée
+        if ($fileSize_downloaded != $fileSize) {
+            $this->logger->error('Downloaded file size mismatch.', InstanceLogMessage::SCOPE_PUBLIC, [
                 "source" => $source,
                 'instance' => $uuid,
                 'size_downloaded' => $fileSize_downloaded,
-                'size_origin' => $fileSize
+                'size_expected' => $fileSize
             ]);
-        }
-        catch (ProcessFailedException $exception) {
-            $this->logger->error('Image download in error.', InstanceLogMessage::SCOPE_PUBLIC, [
-                "source" => $source,
-                'instance' => $uuid,
-                'size_downloaded' => $exception->getMessage(),
-                'size_origin' => $fileSize
-            ]);
+            // Nettoyer le fichier partiellement téléchargé
+            if (file_exists($image_dst)) {
+                unlink($image_dst);
+            }
             return false;
-        }     
-
+        }
+        
+        $this->logger->info('Image downloaded successfully.', InstanceLogMessage::SCOPE_PUBLIC, [
+            "source" => $source,
+            'instance' => $uuid,
+            'size_downloaded' => $fileSize_downloaded,
+            'size_origin' => $fileSize
+        ]);
+        
         return true;
     }
 
@@ -2942,12 +2990,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     // $uuid : $uuid of the device that need this image
     private function download_http_image_old_version($source,$uuid,$context){
     // check image size
-    $this->logger->debug('download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
+    $this->logger->debug('[InstanceManager:download_http_image_old_version]::download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
         "image" => $source,
         'instance' => $uuid
     ]);
     $headers = get_headers($source, 1,$context);
-    $this->logger->debug('headers in download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
+    $this->logger->debug('[InstanceManager:download_http_image_old_version]::headers in download process : ', InstanceLogMessage::SCOPE_PRIVATE, [
         "headers" => $headers
     ]);
     $headers = array_change_key_case($headers);
@@ -4498,6 +4546,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         
         $this->logger->info('ISO file is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
             'iso' => $isoFilename,
+            'isoSource' => $isoSource,
             'path' => $destination,
             "instance" => $uuid
         ]);
@@ -4512,7 +4561,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         } else {
             $url = "http://" . $this->front_ip . "/uploads/iso/" . $isoFilename;
             $this->logger->debug('[InstanceManager:download_iso]::Download ISO from front server: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
-                'destination' => $destinationFile,
+                'destination' => $destination,
                 "instance" => $uuid
             ]);
         }
