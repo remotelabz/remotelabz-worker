@@ -287,7 +287,7 @@ class InstanceManager extends AbstractController
                         'instance' => $deviceInstance['uuid']
                         ]);
 
-                    $command = "screen -S ".$uuid." -dm ttyd -p ".$port." -b /device/".$uuid." sshpass -f ".$this->kernel->getProjectDir()."/config/ssh/pass_server_ssh.txt ssh -t ".$this->server_ssh." 'telnet ".$deviceInstance["device"]["ip"]." ".$deviceInstance["device"]["port"]."'";                    
+                    $command = "screen -S ".$uuid." -dm ttyd -W -p ".$port." -b /device/".$uuid." sshpass -f ".$this->kernel->getProjectDir()."/config/ssh/pass_server_ssh.txt ssh -t ".$this->server_ssh." 'telnet ".$deviceInstance["device"]["ip"]." ".$deviceInstance["device"]["port"]."'";                    
                     $process = Process::fromShellCommandline($command);
                     try {
                         $this->logger->debug("real device starting command: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
@@ -732,7 +732,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $this->logger->debug("Start device from Sandbox detected and login");
                 #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'";  
                 #$process = Process::fromShellCommandline($commandTmux);
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
+                array_push($command, '-W', '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
             }
             else {
                 $this->logger->debug("Start device from lab detected and login");
@@ -741,13 +741,13 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 #$process = Process::fromShellCommandline($commandTmux);
                 #$process2 = Process::fromShellCommandline($commandTmux2);
                 $command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','/bin/login');
-                array_push($command2, '-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
+                array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','/bin/login');
+                array_push($command2, '-W','-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
             }
         }
         elseif ($remote_protocol === "serial") {
                 $this->logger->debug("Start serial detected");
-                array_push($command, '-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
+                array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
                 #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'telnet localhost ".$device_remote_port."'";  
                 #$process = Process::fromShellCommandline($commandTmux);
         }
