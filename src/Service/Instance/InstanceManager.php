@@ -6,6 +6,7 @@ use App\Bridge\Network\IPTables\IPTables;
 use App\Bridge\Network\IPTables\Rule;
 use App\Bridge\Network\IPTools;
 use App\Bridge\Network\OVS;
+use App\Bridge\Network\TCTools;
 use App\Exception\BadDescriptorException;
 use ErrorException;
 use App\Service\Instance\LogDispatcher;
@@ -4309,9 +4310,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
             if (!OVS::ovsPortExists($bridgeName, $nicName)) {
                 OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                //TCTools::addPacketLoss($nicName, 50.0,$this->logger);                
+                /*
                 $ovs_options=array(
-                    link_speed => 100,
-                    duplex => "full"
+                    "link_speed" => 100,
+                    "duplex" => "full"
                 );
                 OVS::setInterface($nicName, $ovs_options);
                 $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -4319,6 +4322,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     'bridge' => $bridgeName,
                     'options' => $ovs_options
                 ]);
+                */
             }
             IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
             $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
