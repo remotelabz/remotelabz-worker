@@ -1009,9 +1009,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $command="";
                 $file=$path."-new";
                 $i=0;
-                $vlan=$networkinterfaceinstance[$i]["networkInterface"]["vlan"];
-                $this->logger->debug("Detect vlan ".$vlan, InstanceLogMessage::SCOPE_PRIVATE);
-
+                if (!is_null($networkinterfaceinstance[$i]["networkInterface"]["vlan"])) {
+                    $vlan=$networkinterfaceinstance[$i]["networkInterface"]["vlan"];
+                    $this->logger->debug("Detect vlan ".$vlan, InstanceLogMessage::SCOPE_PRIVATE);
+                }
+             
                     if ($vlan>0) {
                         $command="echo \"lxc.net.".$i.".script.up = ".$instance_path."/set_vlan".$i."\" >> ".$file.";";
                         $process = Process::fromShellCommandline($command);
@@ -1094,11 +1096,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 }   catch (ProcessFailedException $exception) {
                     $this->logger->error("echo exec to add more network interfaces to the template error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
                 }
-
-
-                            #Add in the templace for each interface 
-
-            
             }
 
     }
@@ -4476,7 +4473,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
             
             if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-                $this->logger->info("LXC container started successfully".$bridgeName, InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 OVS::portList($bridgeName,$this->logger);
