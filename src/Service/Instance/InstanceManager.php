@@ -4310,7 +4310,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             if (!OVS::ovsPortExists($bridgeName, $nicName)) {
                 OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
                 $ovs_options=array(
-                    linkk_speed => 100,
+                    link_speed => 100,
                     duplex => "full"
                 );
                 OVS::setInterface($nicName, $ovs_options);
