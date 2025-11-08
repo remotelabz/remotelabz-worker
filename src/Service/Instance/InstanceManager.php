@@ -4293,44 +4293,48 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
             $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
 
-        foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
-            $nicTemplate = $nic['networkInterface'];
-            $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
-            $nicVlan = null;
-            if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
-                $nicVlan = $nicTemplate['vlan'];
-            }
+        if (empty($deviceInstance['networkInterfaceInstances']>0)) {
+            foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
+                $nicTemplate = $nic['networkInterface'];
+                $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
+                $nicVlan = null;
+                if (array_key_exists('vlan', $nicTemplate) && $nicTemplate['vlan'] > 0) {
+                    $nicVlan = $nicTemplate['vlan'];
+                }
 
-            if (!IPTools::networkInterfaceExists($nicName)) {
-                IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
-                $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                if (!IPTools::networkInterfaceExists($nicName)) {
+                    IPTools::tuntapAdd($nicName, IPTools::TUNTAP_MODE_TAP);
+                    $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface created.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'NIC' => $nicName
+                    ]);
+                }
+
+                if (!OVS::ovsPortExists($bridgeName, $nicName)) {
+                    OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                    //TCTools::addPacketLoss($nicName, 50.0,$this->logger);                
+                    /*
+                    $ovs_options=array(
+                        "link_speed" => 100,
+                        "duplex" => "full"
+                    );
+                    OVS::setInterface($nicName, $ovs_options);
+                    $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'NIC' => $nicName,
+                        'bridge' => $bridgeName,
+                        'options' => $ovs_options
+                    ]);
+                    */
+                }
+                IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
+                $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
                     'NIC' => $nicName
                 ]);
-            }
 
-            if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
-                //TCTools::addPacketLoss($nicName, 50.0,$this->logger);                
-                /*
-                $ovs_options=array(
-                    "link_speed" => 100,
-                    "duplex" => "full"
-                );
-                OVS::setInterface($nicName, $ovs_options);
-                $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface added to OVS bridge.", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'NIC' => $nicName,
-                    'bridge' => $bridgeName,
-                    'options' => $ovs_options
-                ]);
-                */
+                array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
+                    '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
             }
-            IPTools::linkSet($nicName, IPTools::LINK_SET_UP);
-            $this->logger->debug("[InstanceManager:create_qemu_device]::Network interface set up.", InstanceLogMessage::SCOPE_PRIVATE, [
-                'NIC' => $nicName
-            ]);
-
-            array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
-                '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
+        } else {
+            array_push($parameters['network'],'-net','none');
         }
         
         array_push($parameters['local'], '-k', 'fr');
