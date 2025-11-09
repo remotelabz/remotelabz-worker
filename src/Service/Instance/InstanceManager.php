@@ -4416,7 +4416,22 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if (!$this->lxc_exist($uuid)) {
             //$this->lxc_clone("Service",$uuid);
             if (!$this->lxc_exist($deviceInstance['device']['operatingSystem']['image'])) {
-                $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['release']), $deviceInstance['device']['operatingSystem']['version']);
+                if ( array_key_exists("release",$deviceInstance['device']['operatingSystem']) && array_key_exists("version",$deviceInstance['device']['operatingSystem'])) {
+                    $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['release']), $deviceInstance['device']['operatingSystem']['version']);
+                }
+                else {     
+                    $this->logger->info("Error in LXC creation, no release and version defined",InstanceLogMessage::SCOPE_PUBLIC,[
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                    throw new \Exception("Error in LXC creation; no release and version defined" . $deviceInstance['uuid']);
+
+                    $result=array(
+                        "state" => InstanceStateMessage::STATE_ERROR,
+                        "uuid" => $deviceInstance['uuid'],
+                        "options" => null
+                    );
+                    $error=true;
+                }
             }
             if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
                 $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
