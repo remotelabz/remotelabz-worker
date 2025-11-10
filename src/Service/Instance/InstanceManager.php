@@ -4293,7 +4293,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
             $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
 
-        if (empty($deviceInstance['networkInterfaceInstances']>0)) {
+        if (!empty($deviceInstance['networkInterfaceInstances'])) {
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                 $nicTemplate = $nic['networkInterface'];
                 $nicName = substr(str_replace(' ', '_', $nicTemplate['name']), 0, 6) . '-' . substr($nic['uuid'], 0, 8);
