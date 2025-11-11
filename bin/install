@@ -275,7 +275,7 @@ echo "OK ✔️"
 LXC=`lxc-ls -name "Migration"`;
 if [ "${LXC}" == "" ] ; then
   echo "Creation of the container to prepare the DHCP service"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Migration -- -d debian -r bullseye -a amd64
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Migration -- -d debian -r trixie -a amd64
   echo "nameserver 1.1.1.3" > "/var/lib/lxc/Migration/rootfs/etc/resolv.conf"
   echo "OK ✔️"
 fi;
@@ -283,7 +283,7 @@ fi;
 LXC=`lxc-ls -name "Debian"`;
 if [ "${LXC}" == "" ] ; then
   echo "Creation of the container to prepare the DHCP service"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Debian -- -d debian -r bullseye -a amd64
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Debian -- -d debian -r trixie -a amd64
   echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Debian/rootfs/etc/issue"
   echo "nameserver 1.1.1.3" > "/var/lib/lxc/Debian/rootfs/etc/resolv.conf"
   echo "OK ✔️"
@@ -292,7 +292,7 @@ fi;
 LXC=`lxc-ls -name "Ubuntu24LTS"`;
 if [ "${LXC}" == "" ] ; then
   echo "Creation of a container Ubuntu 24 LTS"
-  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu24LTS -- -d ubuntu -r focal -a amd64
+  DOWNLOAD_KEYSERVER="keyserver.ubuntu.com" lxc-create -t download -n Ubuntu24LTS -- -d ubuntu -r noble -a amd64
   echo "No default login, please use Sandbox to configure a new OS from this" >> "/var/lib/lxc/Ubuntu24LTS/rootfs/etc/issue"
   echo "OK ✔️"
 fi;
