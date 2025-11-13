@@ -868,10 +868,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     return $error;
 }
 
-
-
-
-
     /**
      * Create a qemu image file
      * @param string $img_base The base of the image
@@ -932,7 +928,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param boolean $from_sandbox true if this function is called from a sandbox
      * @param int $memory the memory in Byte for the container
      */
-    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox,$memory) {
+    public function build_template($uuid,$instance_path,$filename,string $bridgeName,string $network_addr,array $networkinterfaceinstance,string $gateway_IP,$from_sandbox,$memory,$cpu_number) {
         if (!is_null($networkinterfaceinstance) && count($networkinterfaceinstance)>0) {
             /*
             $this->logger->debug("[InstanceManager:build_template]::Build template networkinterfaceinstance.", InstanceLogMessage::SCOPE_PRIVATE, [
@@ -985,6 +981,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
             $memory=$memory*1024*1024;
 
+            $cpuset=$this->SetCPU($cpu_number);
+
             $command="sed \
             -e \"s/NAME-CONT/".$uuid."/g\" \
             -e \"s/INTERFACE/".$INTERFACE."/g\" \
@@ -993,6 +991,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             -e \"s/IP/".$IP."\/".$MASK."/g\" \
             -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
             -e \"s/MEM-MAX/".$memory."/g\" \
+            -e \"s/NUM-CPU/".$cpuset."/g\" \
             -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
             
             $process = Process::fromShellCommandline($command);
@@ -1100,6 +1099,19 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             }
 
     }
+
+    private function SetCPU(int $cpu_number): string {
+        if ($cpu_number < 1 || $cpu_number > 9) {
+            throw new InvalidArgumentException("n must be between 1 and 9");
+        }
+
+        if ($cpu_number === 1) {
+            return "0";
+        }
+
+        return "0-" . ($cpu_number - 1);
+    }
+
     /**
      * Test if the LXC container with name $name exists
      * @param string $name : the name of the LXC container to test
@@ -4486,7 +4498,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             if ($sandbox)
                 $org_file='template.txt';
 
-            $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox,$deviceInstance['device']['flavor']['memory']);
+            $cpu_number=$deviceInstance["device"]["nbCpu"];
+            $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox,$deviceInstance['device']['flavor']['memory'],$cpu_number);
 
 
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
