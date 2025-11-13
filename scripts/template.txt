@@ -22,7 +22,8 @@ lxc.cgroup2.memory.max = MEM-MAX
 lxc.cgroup2.memory.swap.max = 0
 
 # Limite CPU (optionnel - 1 CPU)
-lxc.cgroup2.cpu.max = 100000 100000
+lxc.cgroup2.cpuset.cpus = NUM-CPU
+lxc.cgroup2.cpu.max = 900000 1000000
 
 # Configuration supplémentaire
 lxc.mount.auto = cgroup:rw proc:rw sys:rw
