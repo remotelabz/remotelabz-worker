@@ -85,7 +85,7 @@ if [ ${ADM_INTERFACE} = "ensX" ]; then
 fi
 
 # ----------------------------------
-export SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
+export SCRIPTPATH="$( cd "$(dirname "$0")/.." ; pwd -P )"
 export DEBIAN_FRONTEND=noninteractive
 export COMPOSER_ALLOW_SUPERUSER=1
 export PIP_ROOT_USER_ACTION=ignore # PPRI0603 : ignorer les avertissements liés à l'exécution de pip avec root
@@ -98,8 +98,8 @@ apt-get update
 apt-get install -y software-properties-common
 add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php8.4 php8.4-ssh2 zip unzip qemu-system-x86 qemu-system-arm qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.1-xml php8.1-curl php8.1-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect
-a2dismod php8.1 php8.2 php8.3
+apt-get install -y ntp apache2 php8.4 php8.4-ssh2 zip unzip qemu-system-x86 qemu-system-arm qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.4-xml php8.4-curl php8.4-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect
+a2dismod php8.1 php8.2 php8.3 || true
 
 phpenmod -v 8.4 dom
 update-alternatives --set php /usr/bin/php8.4 # PPRI0603 : Ajout des 4 lignes suivantes pour forcer l'utilisation de php8.1
