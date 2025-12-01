@@ -4157,14 +4157,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         // Start qemu
         $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($image_src);
         $iso_directory=$this->kernel->getProjectDir() . "/iso/";
+        $img_rel_dst="";
 
+        // TODO change the $image_dst 
         $parameters = [
-            'system' => [
-                '-m',
-                $deviceInstance['device']['flavor']['memory'],
-                '-drive',
-                'file='.$image_dst.',if=virtio',
-            ],
+            'system' => [],
             'smp' => ['-smp'],
             'network' => [],
             'local' => [],
@@ -4220,7 +4217,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     'OS_image_disk' => $deviceInstance['device']['operatingSystem']['image'],
                     'OS_image_disk_size' => $deviceInstance['device']['operatingSystem']['flavorDisk']['disk']
                 ]);
-
                 
             } catch (ProcessFailedException $exception) {
                 $this->logger->error("Creation new blank disk impossible!", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4234,12 +4230,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "options" => null
                 );
             }
-
-            
-            $img_rel__dst=$instancePath."/".$deviceInstance['device']['operatingSystem']['image'];
+            //TODO Verify this $img_rel because it seems to be the blank original
+            $img_rel_dst=$instancePath."/".$deviceInstance['device']['operatingSystem']['image'];
             if ($this->qemu_create_relative_img(
                     $image_dst,
-                    $img_rel__dst,
+                    $img_rel_dst,
                     $deviceInstance['uuid'])
                 ) {
                 $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4283,12 +4278,24 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $this->logger->debug('[InstanceManager:create_qemu_device]::Download ok. Image presents', InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid']
                 ]);
+                $img_rel_dst=$instancePath."/".basename($image_src);
+                $this->qemu_create_relative_img(
+                    $image_dst,
+                    $img_rel_dst,
+                    $deviceInstance['uuid']);
             }
         }
 
+        array_push($parameters['system'],
+                '-m',
+                $deviceInstance['device']['flavor']['memory'],
+                '-drive',
+                'file='.$img_rel_dst.',if=virtio'
+        );
+
         $this->logger->debug('[InstanceManager:create_qemu_device]::Will start qemu device', InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $deviceInstance['uuid'],
-                        'OS_image_disk' =>$deviceInstance['device']['operatingSystem']['image']
+                        'OS_image_disk' => $parameters['system']
                     ]);
         // no error
         
