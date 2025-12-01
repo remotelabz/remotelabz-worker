@@ -1212,14 +1212,18 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             if (str_contains($message,"lock\nIs another process using the image")) {
                 //$this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
                 $this->logger->debug("[InstanceManager:qemu_start]::QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
-                $error=false;
+                $error=true;
             } else {
                 $this->logger->error("Starting QEMU virtual machine error! ".$message, InstanceLogMessage::SCOPE_PUBLIC,
                 [ 'instance' => $uuid]);
                 //$this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
-                $error=true;
+                $error=false;
             }
         }
+        $this->logger->debug("[InstanceManager:qemu_start]::Value of error at the end of the qemu_start ".$error, InstanceLogMessage::SCOPE_PUBLIC,
+                [ 'instance' => $uuid,
+                  'error'=> $error]);
+
         return $error;
     }
 
