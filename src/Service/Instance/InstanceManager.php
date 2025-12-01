@@ -4159,7 +4159,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $iso_directory=$this->kernel->getProjectDir() . "/iso/";
         $img_rel_dst="";
 
-        // TODO change the $image_dst 
         $parameters = [
             'system' => [],
             'smp' => ['-smp'],
@@ -4230,7 +4229,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "options" => null
                 );
             }
-            //TODO Verify this $img_rel because it seems to be the blank original
+        
             $img_rel_dst=$instancePath."/".$deviceInstance['device']['operatingSystem']['image'];
             if ($this->qemu_create_relative_img(
                     $image_dst,
