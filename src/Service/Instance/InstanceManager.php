@@ -4237,7 +4237,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     $deviceInstance['uuid'])
                 ) {
                 $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'path' => $img_rel__dst,
+                        'path' => $img_rel_dst,
                         'instance' => $deviceInstance['uuid']
                     ]);
                 } else {
@@ -4385,6 +4385,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 array_push($parameters['access'],$param);
             //$this->logger->debug("param access:".$param);
             }
+    
+            $this->logger->debug("Virtual machine will be start with these parameters", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'parameters' => $parameters
+                    ]);
 
             if (!$this->qemu_start($parameters,$deviceInstance['uuid'])){
                 $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
