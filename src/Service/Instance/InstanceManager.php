@@ -4019,49 +4019,60 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function create_Blank_Disk(string $imageName, string $size, string $uuid): void {
         $imagePath = $this->kernel->getProjectDir() . "/images/" .basename($imageName);
-        
-        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
-            'imagePath' => $imagePath,
-            'size' => $size . 'G',
-            'instance' => $uuid
-        ]);
+        $filesystem = new Filesystem();
 
-        $command = [
-            'qemu-img',
-            'create',
-            '-f',
-            'qcow2',
-            $imagePath,
-            $size . "G"
-        ];
+        if (!$filesystem->exists($imagePath)) {
 
-        $this->logger->debug("[InstanceManager:create_Blank_Disk]::Executing command.", InstanceLogMessage::SCOPE_PRIVATE, [
-            'command' => implode(' ', $command),
-            'instance' => $uuid
-        ]);
-
-        $process = new Process($command);
-        $process->setTimeout(600);
-        
-        try {
-            $process->mustRun();
-            
-            $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'image' => $imagePath . ".qcow2",
+            $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'imagePath' => $imagePath,
                 'size' => $size . 'G',
                 'instance' => $uuid
             ]);
-            
-        } catch (ProcessFailedException $exception) {
-            $this->logger->error("Failed to create blank disk image! " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
-                'image' => $imagePath,
-                'size' => $size,
-                'error' => $exception->getMessage(),
+
+            $command = [
+                'qemu-img',
+                'create',
+                '-f',
+                'qcow2',
+                $imagePath,
+                $size . "G"
+            ];
+
+            $this->logger->debug("[InstanceManager:create_Blank_Disk]::Executing command.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'command' => implode(' ', $command),
                 'instance' => $uuid
             ]);
+
+            $process = new Process($command);
+            $process->setTimeout(600);
             
-            // Rethrow the exception pour que la fonction appelante la gère
-            throw $exception;
+            try {
+                $process->mustRun();
+                
+                $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'image' => $imagePath . ".qcow2",
+                    'size' => $size . 'G',
+                    'instance' => $uuid
+                ]);
+                
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("Failed to create blank disk image! " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                    'image' => $imagePath,
+                    'size' => $size,
+                    'error' => $exception->getMessage(),
+                    'instance' => $uuid
+                ]);
+                
+                // Rethrow the exception pour que la fonction appelante la gère
+                throw $exception;
+            }
+        }
+        else {
+            $this->logger->debug("Blank disk already exist", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'image' => $imagePath . ".qcow2",
+                    'size' => $size . 'G',
+                    'instance' => $uuid
+                ]);
         }
     }
 
