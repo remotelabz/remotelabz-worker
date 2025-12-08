@@ -4289,10 +4289,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     'instance' => $deviceInstance['uuid']
                 ]);
                 $img_rel_dst=$instancePath."/".basename($image_src);
-                $this->qemu_create_relative_img(
-                    $image_dst,
-                    $img_rel_dst,
-                    $deviceInstance['uuid']);
+                $filesystem = new Filesystem();
+                if (!$filesystem->exists($img_rel_dst)) {
+                    $this->qemu_create_relative_img(
+                        $image_dst,
+                        $img_rel_dst,
+                        $deviceInstance['uuid']);
+                    $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                        'path' => $img_rel_dst,
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                } else {
+                    $this->logger->debug('[InstanceManager:create_qemu_device]::Relative image already exists', InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $deviceInstance['uuid']
+                    ]);
+                }
             }
         }
 
