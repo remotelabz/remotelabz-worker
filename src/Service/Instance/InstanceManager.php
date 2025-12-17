@@ -1190,7 +1190,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         foreach ($parameters as $parametersType) {
             foreach ($parametersType as $parameter) {
                 if (!is_null($parameter) && $parameter != "") {
-/*                    if (gettype($parameter)==="string")
+                /*    if (gettype($parameter)==="string")
                         $this->logger->debug('parameters string:'.$parameter);
                     if (gettype($parameter)==="array")
                         $this->logger->debug('parameters array:',$parameter);*/
@@ -1217,7 +1217,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $this->logger->error("Starting QEMU virtual machine error! ".$message, InstanceLogMessage::SCOPE_PUBLIC,
                 [ 'instance' => $uuid]);
                 //$this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
-                $error=false;
+                $error=true;
             }
         }
         $this->logger->debug("[InstanceManager:qemu_start]::Value of error at the end of the qemu_start ".$error, InstanceLogMessage::SCOPE_PUBLIC,
@@ -4178,7 +4178,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'usb' => [],
             'access' => [],
             'uefi' => [],
-            'cdrom' => []
+            'cdrom' => [],
+            'other_options' => []
         ];
 
         if (array_key_exists('bootWithIso', $deviceInstance) && $deviceInstance['bootWithIso']) {
@@ -4337,6 +4338,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if ((array_key_exists('bios_type',$deviceInstance['device']) && strtolower($deviceInstance['device']['bios_type']) === 'uefi'))
             $parameters['uefi']=["-bios","/usr/share/ovmf/OVMF.fd"]; 
 
+        if ((array_key_exists('other_options',$deviceInstance['device']))) {
+            $parameters['other_options']=array($deviceInstance['device']['other_options']);
+        }
+        
         if (!empty($deviceInstance['networkInterfaceInstances'])) {
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                 $nicTemplate = $nic['networkInterface'];
