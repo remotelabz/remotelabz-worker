@@ -742,7 +742,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 #$process = Process::fromShellCommandline($commandTmux);
                 #$process2 = Process::fromShellCommandline($commandTmux2);
                 $command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
-                array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','/bin/login');
+                # login is not compatible with ttyd. We have to change it.
+                //array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','/bin/login');
+                array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'/opt/remotelabz-worker/bin/ttyd-auth-wrapper.sh',$uuid);              
+
                 array_push($command2, '-W','-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
             }
         }
