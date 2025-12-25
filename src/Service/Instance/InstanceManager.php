@@ -23,6 +23,7 @@ use Symfony\Component\Process\Process;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
+use App\Service\SshService;
 
 class InstanceManager extends AbstractController
 {
@@ -33,15 +34,26 @@ class InstanceManager extends AbstractController
     protected $server_ssh;
     protected $pdu_api_login;
     protected $pdu_api_password;
+    private $sshPublicKey;
+    private $sshPrivateKey;
+    private $sshUser;
+    private $sshPasswd;
+    private SshService $sshService;
 
     public function __construct(
         LogDispatcher $logger,
         KernelInterface $kernel,
         ParameterBagInterface $params,
+        SshService $sshService,
         string $front_ip,
         string $server_ssh,
         string $pdu_api_login,
-        string $pdu_api_password
+        string $pdu_api_password,
+        string $sshPublicKey,
+        string $sshPrivateKey,
+        string $sshUser,
+        string $sshPasswd,
+        
     ) {
         $this->kernel = $kernel;
         $this->logger = $logger;
@@ -50,6 +62,11 @@ class InstanceManager extends AbstractController
         $this->server_ssh = $server_ssh;
         $this->pdu_api_login = $pdu_api_login;
         $this->pdu_api_password = $pdu_api_password;
+        $this->sshPublicKey=$sshPublicKey;
+        $this->sshPrivateKey=$sshPrivateKey;
+        $this->sshUser=$sshUser;
+        $this->sshPasswd=$sshPasswd;
+        $this->sshService=$sshService;
     }
 
     public function createLabInstance(string $descriptor, string $uuid) {
@@ -3449,7 +3466,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         switch (strtolower($os_to_copy["hypervisor"])) {
             case "qemu":
                 $result_scp="";
-                $connection=$this->ssh($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
+                $connection=$this->sshService->connect($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
                 $local_file="/opt/remotelabz-worker/images/".$os_to_copy["os_imagename"];
                 $remote_file=$local_file;
                
@@ -3507,7 +3524,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 ssh remotelabz-worker@$deviceInstance["worker_dest"] "sudo lxc-create -n '$deviceInstance['os_imagename']' -t none"
                 scp -r "/var/lib/lxc/".$deviceInstance["os_imagename"] remotelabz-worker@$deviceInstance["worker_dest"]:"/var/lib/lxc/".$deviceInstance["os_imagename"]
                 */
-                $connection=$this->ssh($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
+                $connection=$this->sshService->connect($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
 
                 $result_lxc=$this->Destroy_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename']);
                               
@@ -3587,6 +3604,153 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         $this->logger->debug("[InstanceManager:copy2worker]::Return value at end of this function:", InstanceLogMessage::SCOPE_PRIVATE,$result);
 
+        return $result;
+    }
+
+    /**
+     * Copy a file from the front server to this worker via SSH
+     * The worker initiates the SSH connection to the front and retrieves the file
+     * 
+     * @param string $descriptor JSON containing file information
+     * @return array Result array with state, uuid, and options
+     */
+    public function copyFromFront(string $descriptor): array
+    {
+        $result = "";
+        $message_array = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $state = InstanceStateMessage::STATE_FILE_COPIED;
+             
+        $this->logger->debug(
+            "[InstanceManager:copyFromFront]::Copy process from front: " . $descriptor,
+            InstanceLogMessage::SCOPE_PRIVATE
+        );
+        
+        $this->logger->info(
+            "Receive request to copy file " . $message_array["filename"] . 
+            " from front " . $this->front_ip . " to worker ".$message_array['worker_ip'],
+            InstanceLogMessage::SCOPE_PUBLIC,
+            [
+                'instance' => $message_array["filename"],
+                "uuid" => $message_array['filename'],
+                "options" => [
+                    "state" => InstanceActionMessage::ACTION_COPYFROMFRONT,
+                    "front_ip" => $this->front_ip,
+                    "worker_ip" => $message_array['worker_ip']
+                ]
+            ]
+        );
+
+        $this->logger->debug(
+            "[InstanceManager:copyFromFront]::Try to connect to front : ",
+            InstanceLogMessage::SCOPE_PRIVATE,
+            [
+                'user' => $this->sshUser,
+                "password" => $this->sshPasswd,
+                "pubkey" => $this->sshPublicKey,
+                "privkey" => $this->sshPrivateKey
+            ]
+        );
+
+        try {
+            // Connexion SSH au front
+            $connection = $this->sshService->connect(
+                $this->front_ip,
+                "22",
+                $this->sshUser,
+                $this->sshPasswd,
+                $this->sshPublicKey,
+                $this->sshPrivateKey
+            );
+            
+            // Détermination des chemins selon le type de fichier
+            $file_type = $message_array["file_type"] ?? "image"; // "image", "iso", etc.
+            
+            switch (strtolower($file_type)) {
+                case "image":
+                    $remote_file = "/opt/remotelabz/public/uploads/images/" . $message_array["filename"];
+                    $local_file = "/opt/remotelabz-worker/images/" . $message_array["filename"];
+                    break;
+                    
+                case "iso":
+                    $remote_file = "/opt/remotelabz/public/uploads/iso/" . $message_array["filename"];
+                    $local_file = "/opt/remotelabz-worker/iso/" . $message_array["filename"];
+                    break;
+                    
+                default:
+                    $remote_file = $file_to_copy["remote_path"];
+                    $local_file = $file_to_copy["local_path"];
+            }
+            
+            $this->logger->debug(
+                "[InstanceManager:copyFromFront]::Copying from " . $remote_file . 
+                " to " . $local_file,
+                InstanceLogMessage::SCOPE_PRIVATE
+            );
+            
+            // Utilisation de ssh2_scp_recv pour récupérer le fichier
+            $success = ssh2_scp_recv($connection, $remote_file, $local_file);
+            
+            if (!$success) {
+                throw new ErrorException('Failed to retrieve file from front server');
+            }
+            
+            $this->logger->info(
+                "File successfully copied from front to worker",
+                InstanceLogMessage::SCOPE_PUBLIC,
+                [
+                    'instance' => $message_array["filename"],
+                    "uuid" => $message_array['filename']
+                ]
+            );
+            
+            $result = [
+                "state" => InstanceStateMessage::STATE_FILE_COPIED,
+                "uuid" => $message_array["filename"],
+                "error" => false,
+                "message" => "File copied successfully",
+                "options" => [
+                    "state" => InstanceActionMessage::ACTION_COPYFROMFRONT,
+                    'worker_ip' => $message_array['worker_ip'],
+                    'user_id' => $message_array['user_id'],
+                    'local_path' => $local_file
+                ]
+            ];
+            
+        } catch (ErrorException $e) {
+            $this->logger->error(
+                "Failed to copy file from front",
+                InstanceLogMessage::SCOPE_PUBLIC,
+                [
+                    'error' => $e->getMessage(),
+                    'instance' => $message_array["filename"]
+                ]
+            );
+            
+            $result = [
+                "state" => InstanceStateMessage::STATE_ERROR,
+                "uuid" => $message_array["filename"],
+                "error" => true,
+                "message" => $e->getMessage(),
+                "options" => [
+                    "state" => InstanceActionMessage::ACTION_COPYFROMFRONT,
+                    'worker_ip' => $message_array['worker_ip'],
+                    'user_id' => $message_array['user_id'],
+                    'error' => $e->getMessage()
+                ]
+            ];
+            
+        } finally {
+            if (isset($connection)) {
+                ssh2_disconnect($connection);
+            }
+        }
+        
+        $this->logger->debug(
+            "[InstanceManager:copyFromFront]::Return value at end of this function:",
+            InstanceLogMessage::SCOPE_PRIVATE,
+            $result
+        );
+        
         return $result;
     }
 

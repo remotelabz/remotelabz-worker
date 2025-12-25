@@ -129,8 +129,19 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                         $ReturnArray=$this->instanceManager->copy2worker($message->getContent());
                         $returnState = $ReturnArray['state'];
                         break;
+
+                case InstanceActionMessage::ACTION_COPYFROMFRONT:
+                        $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                        $ReturnArray = $this->instanceManager->copyFromFront($message->getContent());
+                        $returnState = $ReturnArray['state'];
+                        break;
+
+                case InstanceActionMessage::ACTION_DELETEISO:
+                        $instanceType = InstanceStateMessage::TYPE_DEVICE;
+                        $ReturnArray = $this->instanceManager->deleteiso($message->getContent());
+                        $returnState = $ReturnArray['state'];
+                        break;
             }
-            
         } catch (ProcessFailedException $e) {
             $this->logger->critical(
                 "Action \"" . $message->getAction() . "\" throwed an exception while executing a process.", [

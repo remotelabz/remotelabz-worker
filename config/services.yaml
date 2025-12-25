@@ -20,10 +20,12 @@ parameters:
     app.vpn.interface: '%env(string:VPN_CONCENTRATOR_INTERFACE)%'
     app.network.front.ip: '%env(string:FRONT_SERVER_IP)%'
     app.general.contact_mail: '%env(resolve:CONTACT_MAIL)%'
-    app.ssh.worker.user : '%env(string:SSH_USER_WORKER)%'
-    app.ssh.worker.passwd : '%env(string:SSH_USER_PASSWD)%'
-    app.ssh.worker.privatekey : '%env(string:SSH_USER_PRIVATEKEY_FILE)%'
-    app.ssh.worker.publickey : '%env(string:SSH_USER_PUBLICKEY_FILE)%'
+    app.ssh.worker.user : '%env(resolve:SSH_USER_WORKER)%'
+    app.ssh.worker.passwd : '%env(resolve:SSH_USER_WORKER_PASSWD)%'
+    app.ssh.worker.privatekey : '%env(resolve:SSH_USER_PRIVATEKEY_FILE)%'
+    app.ssh.worker.publickey : '%env(resolve:SSH_USER_PUBLICKEY_FILE)%'
+    app.ssh.front.user: '%env(resolve:SSH_USER_FRONT)%'
+    app.ssh.front.passwd: '%env(resolve:SSH_USER_FRONT_PASSWD)%'
 
 services:
     _defaults:
@@ -44,6 +46,10 @@ services:
             $server_ssh: '%app.serverssh%'
             $pdu_api_login: '%app.pdu.api.login%'
             $pdu_api_password: '%app.pdu.api.password%'
+            $sshPublicKey: '%app.ssh.worker.publickey%'
+            $sshPrivateKey: '%app.ssh.worker.privatekey%'
+            $sshUser: '%app.ssh.front.user%'
+            $sshPasswd: '%app.ssh.front.passwd%'       
 
     App\Service\ResourcesCacheService:
         arguments:
