@@ -4,6 +4,7 @@
 # Put parameters here that don't need to change on each machine where the app is deployed
 # https://symfony.com/doc/current/best_practices/configuration.html#application-related-configuration
 parameters:
+    app.install.directory: '%kernel.project_dir%'
     app.network.lab.interface: '%env(resolve:ADM_INTERFACE)%'
     app.network.lab.cidr: '%env(resolve:LAB_NETWORK)%'
     app.network.data.interface: '%env(resolve:DATA_INTERFACE)%'
@@ -27,6 +28,7 @@ parameters:
     app.ssh.front.user: '%env(resolve:SSH_USER_FRONT)%'
     app.ssh.front.passwd: '%env(resolve:SSH_USER_FRONT_PASSWD)%'
 
+
 services:
     _defaults:
         autowire: true      # Automatically injects dependencies in your services.
@@ -49,7 +51,8 @@ services:
             $sshPublicKey: '%app.ssh.worker.publickey%'
             $sshPrivateKey: '%app.ssh.worker.privatekey%'
             $sshUser: '%app.ssh.front.user%'
-            $sshPasswd: '%app.ssh.front.passwd%'       
+            $sshPasswd: '%app.ssh.front.passwd%'
+            $install_directory: '%app.install.directory%'       
 
     App\Service\ResourcesCacheService:
         arguments:

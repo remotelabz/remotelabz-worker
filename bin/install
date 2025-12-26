@@ -73,7 +73,7 @@ done
 
 # Environment variables
 if [ -z "$REMOTELABZ_WORKER_PATH" ]; then
-    export REMOTELABZ_WORKER_PATH=/opt/remotelabz-worker
+    export REMOTELABZ_WORKER_PATH="/opt/remotelabz-worker"
 fi
 if [ -z "$REMOTELABZ_WORKER_PORT" ]; then
     export REMOTELABZ_WORKER_PORT=8080

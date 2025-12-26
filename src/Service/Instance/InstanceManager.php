@@ -39,6 +39,7 @@ class InstanceManager extends AbstractController
     private $sshUser;
     private $sshPasswd;
     private SshService $sshService;
+    private $install_directory;
 
     public function __construct(
         LogDispatcher $logger,
@@ -53,6 +54,7 @@ class InstanceManager extends AbstractController
         string $sshPrivateKey,
         string $sshUser,
         string $sshPasswd,
+        string $install_directory
         
     ) {
         $this->kernel = $kernel;
@@ -67,6 +69,7 @@ class InstanceManager extends AbstractController
         $this->sshUser=$sshUser;
         $this->sshPasswd=$sshPasswd;
         $this->sshService=$sshService;
+        $this->install_directory=$install_directory;
     }
 
     public function createLabInstance(string $descriptor, string $uuid) {
@@ -2227,7 +2230,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     }
                     else {
                         //The source uploaded on the front.
-                        $url="http://".$this->front_ip."/uploads/images/".basename($img["source"]);
+                        $url="https://".$this->front_ip."/uploads/images/".basename($img["source"]);
                     }
                     $this->logger->debug('Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
                         "image" => $img['source'],
@@ -2710,7 +2713,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function deleteOS(string $descriptor){
         $operatingSystem = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $this->logger->debug("JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
+        $this->logger->debug("[instanceManager:deleteOS]::JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
         
         switch(strtolower($operatingSystem["hypervisor"])){
             case "qemu":
@@ -2920,7 +2923,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $url = $source;
         } else {
             // Build URL from front server
-            $url = "http://" . $this->front_ip . "/uploads/" . $type . "/" . basename($source);
+            // Change to https with HAProxy because the 80 is used by OpenVPN
+            $url = "https://" . $this->front_ip . "/uploads/" . $type . "/" . basename($source);
         }
 
         try {
@@ -4259,7 +4263,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $url = $image_src;
             } else {
                 // Upload from front
-                $url = "http://" . $this->front_ip . "/uploads/images/" . basename($image_src);
+                $url = "https://" . $this->front_ip . "/uploads/images/" . basename($image_src);
             }
 
             $this->logger->debug('[InstanceManager:download_image]::Download image from url : ', InstanceLogMessage::SCOPE_PRIVATE, [
@@ -4801,7 +4805,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "instance" => $uuid
             ]);
         } else {
-            $url = "http://" . $this->front_ip . "/uploads/iso/" . $isoFilename;
+            $url = "https://" . $this->front_ip . "/uploads/iso/" . $isoFilename;
             $this->logger->debug('[InstanceManager:download_iso]::Download ISO from front server: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
                 'destination' => $destination,
                 "instance" => $uuid
@@ -4835,5 +4839,27 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'path' => $destination,
             'instance' => $uuid
         ]);
+    }
+
+    public function deleteISO(string $descriptor){
+        $iso = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
+        $this->logger->debug("[InstanceManager:deleteISO]::JSON received in deleteISO", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $iso]);
+        
+        $filename_fullpath=$this->install_directory.'/iso/'.$iso["filename"];
+        $this->logger->debug("[InstanceManager:deleteISO]::Delete ISO file ", InstanceLogMessage::SCOPE_PRIVATE, ["filename" => $filename_fullpath]);
+        if (file_exists($filename_fullpath)) {
+            unlink($filename_fullpath);
+        }
+
+        //No uuid because we have no instance in this function
+        return array("uuid"=>$iso["filename"],"state"=>InstanceStateMessage::STATE_ISO_DELETED ,
+        "options" => array(
+                    "iso_filename" => $iso["filename"],
+                    "state" => InstanceActionMessage::ACTION_DELETEISO,
+                    "workerIP" => $iso["worker_ip"],
+                    "user_id" => $iso["user_id"]
+                    )
+            
+            );
     }
 }

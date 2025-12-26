@@ -138,7 +138,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
 
                 case InstanceActionMessage::ACTION_DELETEISO:
                         $instanceType = InstanceStateMessage::TYPE_DEVICE;
-                        $ReturnArray = $this->instanceManager->deleteiso($message->getContent());
+                        $ReturnArray = $this->instanceManager->deleteISO($message->getContent());
                         $returnState = $ReturnArray['state'];
                         break;
             }
