@@ -2662,7 +2662,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         'rm',
         $file
     ];
-    $this->logger->debug("Delete image.", InstanceLogMessage::SCOPE_PRIVATE, [
+    $this->logger->debug("[InstanceManager:qemu_delete]::Delete image.", InstanceLogMessage::SCOPE_PRIVATE, [
         "command" => implode(' ',$command)
     ]);
 
@@ -2671,7 +2671,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $process->mustRun();
     }   catch (ProcessFailedException $exception) {
         if (str_contains($exception->getMessage(),"No such file or directory")) {
-            $this->logger->debug("QEMU image is already deleted", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
+            $this->logger->debug("[InstanceManager:qemu_delete]::QEMU image is already deleted", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
         }
         else {
             $this->logger->error("QEMU delete image in error", InstanceLogMessage::SCOPE_PRIVATE,[
@@ -2713,7 +2713,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function deleteOS(string $descriptor){
         $operatingSystem = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $this->logger->debug("[instanceManager:deleteOS]::JSON received in deleteOS", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $operatingSystem]);
+        $this->logger->debug("[instanceManager:deleteOS]::JSON received in deleteOS", 
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ["instance" => $operatingSystem]
+        );
         
         switch(strtolower($operatingSystem["hypervisor"])){
             case "qemu":
@@ -2724,16 +2727,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 break;
         }
         //No uuid because we have no instance in this function
-        return array("uuid"=>"","state"=>InstanceStateMessage::STATE_OS_DELETED ,
-        "options" => array(
+        return array("uuid"=>$operatingSystem["os_imagename"],"state"=>InstanceStateMessage::STATE_OS_DELETED ,
+            "options" => array(
                     "os_imagename" => $operatingSystem["os_imagename"],
                     "state" => InstanceActionMessage::ACTION_DELETEOS,
                     "workerIP" => $operatingSystem["Worker_Dest_IP"],
-                    "hypervisor" => $operatingSystem["hypervisor"]
+                    "hypervisor" => $operatingSystem["hypervisor"],
+                    "user_id" => $operatingSystem["user_id"],
                     )
-            
             );
-
     }
 
     /**
