@@ -8,6 +8,7 @@ CONTAINER="$1"
   exit 1
 }
 
+printf "Instance %s \n" $CONTAINER
 printf "Login: "
 IFS= read -r USER
 USER=$(printf "%s" "$USER" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
