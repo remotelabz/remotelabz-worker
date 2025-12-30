@@ -4847,18 +4847,18 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $iso = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         $this->logger->debug("[InstanceManager:deleteISO]::JSON received in deleteISO", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $iso]);
         
-        $filename_fullpath=$this->install_directory.'/iso/'.$iso["filename"];
+        $filename_fullpath=$this->install_directory.'/iso/'.$iso["os_imagename"];
         $this->logger->debug("[InstanceManager:deleteISO]::Delete ISO file ", InstanceLogMessage::SCOPE_PRIVATE, ["filename" => $filename_fullpath]);
         if (file_exists($filename_fullpath)) {
             unlink($filename_fullpath);
         }
 
         //No uuid because we have no instance in this function
-        return array("uuid"=>$iso["filename"],"state"=>InstanceStateMessage::STATE_ISO_DELETED ,
+        return array("uuid"=>$iso["os_imagename"],"state"=>InstanceStateMessage::STATE_ISO_DELETED ,
         "options" => array(
-                    "iso_filename" => $iso["filename"],
+                    "iso_filename" => $iso["os_imagename"],
                     "state" => InstanceActionMessage::ACTION_DELETEISO,
-                    "workerIP" => $iso["worker_ip"],
+                    "workerIP" => $iso["Worker_Dest_IP"],
                     "user_id" => $iso["user_id"]
                     )
             
