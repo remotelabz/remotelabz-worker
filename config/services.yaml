@@ -5,6 +5,7 @@
 # https://symfony.com/doc/current/best_practices/configuration.html#application-related-configuration
 parameters:
     app.install.directory: '%kernel.project_dir%'
+    app.worker.ip: '%env(resolve:WORKER_IP)%'
     app.network.lab.interface: '%env(resolve:ADM_INTERFACE)%'
     app.network.lab.cidr: '%env(resolve:LAB_NETWORK)%'
     app.network.data.interface: '%env(resolve:DATA_INTERFACE)%'
@@ -61,3 +62,7 @@ services:
     App\Controller\CachedStateController:
         arguments:
             $projectDir: '%kernel.project_dir%'
+
+    App\EventSubscriber\WorkerStartedEventSubscriber:
+        arguments:
+            $worker_ip: '%app.worker.ip%'

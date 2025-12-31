@@ -12,13 +12,16 @@ class WorkerStartedEventSubscriber implements EventSubscriberInterface
 {
     private $bus;
     private $logger;
+    private $worker_ip;
 
     public function __construct(
         MessageBusInterface $bus,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        string $worker_ip
     ) {
         $this->bus = $bus;
         $this->logger = $logger;
+        $this->worker_ip=$worker_ip;
     }
     public static function getSubscribedEvents(): array
     {
@@ -30,7 +33,7 @@ class WorkerStartedEventSubscriber implements EventSubscriberInterface
 
     public function dispatchHandshake()
     {
-        $message = new WorkerHandshakeMessage('id');
+        $message = new WorkerHandshakeMessage($this->worker_ip);
         $this->logger->info('Dispatching handshake message', [
             'id' => $message->getId()
         ]);
