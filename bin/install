@@ -3,7 +3,7 @@
 set -e
 
 ENV_FILE=".env.local"
-ENV_TEMPLATE="_env"
+ENV_TEMPLATE=".env"
 SYMLINK="N"
 
 # Colors for display
@@ -96,7 +96,7 @@ function configure_env_local() {
   
   # Display available interfaces
   echo "Available network interfaces:"
-  ip -brief link show | grep -v "lo" | awk '{print "  - " $1}' | sed 's/@.*//'
+  ip -brief address show | grep -v "^lo" | awk '{print "  - " $1 ": " $3}'
   echo ""
   
   local current_adm=$(grep "^ADM_INTERFACE=" "${env_file}" | cut -d'"' -f2)
@@ -215,6 +215,7 @@ function configure_env_local() {
   echo "─────────────────────────────────────────"
   echo "7. VPN Configuration"
   echo "─────────────────────────────────────────"
+  echo "If you deploy a worker on the same server than your front, you have to answer yes to this question
   
   read -p "Is the VPN hosted on this worker? (y/n) [y]: " vpn_local
   vpn_local=${vpn_local:-y}
