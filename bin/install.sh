@@ -951,6 +951,24 @@ else
   debug "Composer is already installed! Skipping."
 fi
 
+debug "Downloading bundles"
+
+mkdir -p "$SCRIPTPATH/lib"
+
+if [ ! -d "$SCRIPTPATH/lib/network-bundle" ]; then
+  git clone https://github.com/remotelabz/network-bundle.git --branch Upgrade-2.5 "$SCRIPTPATH/lib/network-bundle"
+else 
+  cd "$SCRIPTPATH/lib/network-bundle" && git pull
+  cd "$SCRIPTPATH"
+fi
+
+if [ ! -d "$SCRIPTPATH/lib/remotelabz-message-bundle" ]; then
+  git clone https://github.com/remotelabz/remotelabz-message-bundle.git --branch Upgrade-2.5  "$SCRIPTPATH/lib/remotelabz-message-bundle"
+else 
+  cd "$SCRIPTPATH/lib/network-bundle" && git pull
+  cd "$SCRIPTPATH"
+fi
+
 debug "Downloading Composer packages"
 (cd "${SCRIPTPATH}" && composer install)
 chown -R remotelabz-worker:remotelabz-worker "${SCRIPTPATH}"/vendor
