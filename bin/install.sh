@@ -992,6 +992,7 @@ mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/instances"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
+sudo chown -R remotelabz-worker:www-data "${REMOTELABZ_WORKER_PATH}/var/"
 
 # Websockify
 debug "Installing WebSockify"
