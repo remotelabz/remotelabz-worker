@@ -475,6 +475,13 @@ function setup_container_pamtester() {
       else
         warning "⚠ Failed to install pamtester in ${container_name} - manual installation needed"
       fi
+
+      # Stop container if not stopped
+      if ! lxc-info -n "$container_name" | grep -q "STOPPED"; then
+        lxc-stop -n "$container_name"
+        sleep 3
+      fi
+
       ;;
       
     alpine)
@@ -498,6 +505,13 @@ function setup_container_pamtester() {
       else
         warning "⚠ Failed to install pamtester in ${container_name} - manual installation needed"
       fi
+
+      # Stop container if not stopped
+      if ! lxc-info -n "$container_name" | grep -q "STOPPED"; then
+        lxc-stop -n "$container_name"
+        sleep 3
+      fi
+
       ;;
   esac
 }
