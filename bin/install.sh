@@ -447,6 +447,9 @@ function setup_container_pamtester() {
     return 1
   fi
   
+  sudo iptables -A FORWARD -i lxcbr0 -j ACCEPT
+  sudo iptables -A FORWARD -o lxcbr0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
   debug "Checking pamtester in ${container_name}..."
   
   # Check if pamtester is already installed
