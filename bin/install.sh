@@ -915,12 +915,13 @@ if [ -d "/home/remotelabz-worker" ]; then
         
         debug "Generating SSH key: myremotelabzkey"
         sudo -u remotelabz-worker ssh-keygen -m PEM -t rsa -b 4096 -f /home/remotelabz-worker/.ssh/myremotelabzkey -N ""
-        chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
         chmod 600 /home/remotelabz-worker/.ssh/myremotelabzkey
         
         cat /home/remotelabz-worker/.ssh/myremotelabzkey.pub | sudo tee -a /home/remotelabz-worker/.ssh/authorized_keys
         chmod 600 /home/remotelabz-worker/.ssh/authorized_keys
         
+        chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
+
         success "SSH keys created: myremotelabzkey"
         
         sed -i 's|SSH_USER_PRIVATEKEY_FILE=.*|SSH_USER_PRIVATEKEY_FILE="/home/remotelabz-worker/.ssh/myremotelabzkey"|' "${ENV_FILE}"
