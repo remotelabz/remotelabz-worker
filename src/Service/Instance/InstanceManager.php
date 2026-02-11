@@ -1048,7 +1048,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         }
                         $command="";
                         $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
-                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} vlan_mode=dot1q-tunnel tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
 
                        // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
 
@@ -1092,7 +1092,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         }
                         $command="";
                         $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
-                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} vlan_mode=dot1q-tunnel tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
 
                        // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
 
@@ -4532,7 +4532,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 }
 
                 if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                    OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                    $options = $nicVlan !== null 
+                        ? ['vlan_mode=dot1q-tunnel', 'tag='.$nicVlan] 
+                        : [];
+
+                    OVS::portAdd($bridgeName, $nicName, true, $this->logger, ...$options);
+
                     //TCTools::addPacketLoss($nicName, 50.0,$this->logger);                
                     /*
                     $ovs_options=array(
@@ -4647,10 +4652,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['release']), $deviceInstance['device']['operatingSystem']['version']);
                 }
                 else {     
-                    $this->logger->info("Error in LXC creation, no release and version defined",InstanceLogMessage::SCOPE_PUBLIC,[
+                    $this->logger->info("Error in LXC creation, no release and version defined ",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    throw new \Exception("Error in LXC creation; no release and version defined" . $deviceInstance['uuid']);
+                    throw new \Exception("Error in LXC creation, no release and version defined " . $deviceInstance['uuid']);
 
                     $result=array(
                         "state" => InstanceStateMessage::STATE_ERROR,
