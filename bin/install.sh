@@ -891,6 +891,7 @@ success "Packages installed ✔️"
 if [ ! $(getent passwd remotelabz-worker) ]; then
   debug "Creating remotelabz-worker user"
   useradd -N -m remotelabz-worker
+  usermod --password $(echo remotelabz-worker_pass | openssl passwd -1 -stdin) remotelabz-worker
 fi
 if [ ! $(getent group remotelabz-worker) ]; then
   debug "Creating remotelabz-worker group"
