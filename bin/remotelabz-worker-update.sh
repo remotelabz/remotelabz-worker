@@ -13,5 +13,5 @@ php bin/console cache:clear
 chown remotelabz-worker:www-data * -R
 chmod g+w /opt/remotelabz-worker/var -R
 systemctl daemon-reload
-systemctl restart remotelabz-cache
-systemctl restart remotelabz-worker
+systemctl reload remotelabz-cache || systemctl restart remotelabz-cache
+systemctl reload remotelabz-worker || systemctl restart remotelabz-worker

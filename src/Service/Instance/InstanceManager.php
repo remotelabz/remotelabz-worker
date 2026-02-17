@@ -675,19 +675,38 @@ class InstanceManager extends AbstractController
  */
 public function websockify_start($uuid,$IpAddress,$Port){
     $error=false;
-    $command = ['websockify', '-D'];
+    $websockifyCommand = ['websockify'];
+    
     if ($this->getParameter('app.services.proxy.wss')) {
         $this->logger->debug("Websocket use wss", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
-        array_push($command,'--cert='.$this->getParameter('app.services.proxy.cert'),'--key='.$this->getParameter('app.services.proxy.key'));
+        array_push($websockifyCommand,
+            '--cert='.$this->getParameter('app.services.proxy.cert'),
+            '--key='.$this->getParameter('app.services.proxy.key')
+        );
     } else
         $this->logger->debug("Websocket doesn't use wss", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
-            ]);
-    array_push($command, $IpAddress.':' . ($Port + 1000), $IpAddress.':'.$Port);
+        ]);
+    array_push($websockifyCommand, 
+        $IpAddress . ':' . ($Port + 1000), 
+        $IpAddress . ':' . $Port
+    );    
+    // Wrapper avec systemd-run
+    $command = [
+        'systemd-run',
+        '--scope',
+        '--unit=websockify-' . $uuid,
+        '--description=Websockify_for_' . $uuid,
+        '--slice=remotelabz-worker-services.slice',
+        '--'
+    ];
     
-    $process = new Process($command);
+    $fullCommand = array_merge($command, $websockifyCommand);
+    
+    $process = new Process($fullCommand);
+
     try {
         $this->logger->debug("Websockify starting command: ".implode(" ",$command), InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
@@ -728,165 +747,73 @@ public function websockify_start($uuid,$IpAddress,$Port){
  * @param string $remote_protocol : serial or login
  */
 public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$device_remote_port=null){
+    $ttydCommand = ['ttyd'];
+    $ttydCommand2 = null;
     $error=false;
-    $command = ['screen','-S',$uuid,'-dm','ttyd'];
     
+    //$command = ['screen','-S',$uuid,'-dm','ttyd'];
+        
     if ($sandbox)
-        $this->logger->debug("Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
         ]);
     else
-        $this->logger->debug("Ttyd called from lab", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd called from lab", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
         ]);
+
     if ($this->getParameter('app.services.proxy.wss')) {
-        $this->logger->debug("Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
         //array_push($command,'-S','-C',$this->getParameter('app.services.proxy.cert'),'-K',$this->getParameter('app.services.proxy.key'));
     } else
-        $this->logger->debug("Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
-        if ($remote_protocol === "login") {
-            if ($sandbox) {
-                $this->logger->debug("Start device from Sandbox detected and login");
-                #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'";  
-                #$process = Process::fromShellCommandline($commandTmux);
-                array_push($command, '-W', '-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid);
-            }
-            else {
-                $this->logger->debug("Start device from lab detected and login");
-                #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid." -- login'";  
-                #$commandTmux2 = "tmux -S /tmp/tmux-remotelabz new -d -s admin-".$uuid. " 'lxc-attach -n ".$uuid."'";  
-                #$process = Process::fromShellCommandline($commandTmux);
-                #$process2 = Process::fromShellCommandline($commandTmux2);
-                $command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
-                # login is not compatible with ttyd. We have to change it.
-                //array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','/bin/login');
-                array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'/opt/remotelabz-worker/bin/ttyd-auth-wrapper.sh',$uuid);              
 
-                array_push($command2, '-W','-p',$port+1,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid); 
-            }
+    if ($remote_protocol === "login") {
+        if ($sandbox) {
+            $this->logger->debug("[InstanceManager:ttyd_start]::Start device from Sandbox detected and login");
+            #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid."'";  
+            #$process = Process::fromShellCommandline($commandTmux);
+            array_push($ttydCommand, '-W', '-p', (string)$port, '-b', '/device/' . $uuid, 
+                'lxc-attach', '-n', $uuid);
         }
-        elseif ($remote_protocol === "serial") {
-                $this->logger->debug("Start serial detected");
-                array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'telnet','localhost',$device_remote_port);
-                #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'telnet localhost ".$device_remote_port."'";  
-                #$process = Process::fromShellCommandline($commandTmux);
-        }
+        else {
+            $this->logger->debug("[InstanceManager:ttyd_start]::Start device from lab detected and login");
+            #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'lxc-attach -n ".$uuid." -- login'";  
+            #$commandTmux2 = "tmux -S /tmp/tmux-remotelabz new -d -s admin-".$uuid. " 'lxc-attach -n ".$uuid."'";  
+            #$process = Process::fromShellCommandline($commandTmux);
+            #$process2 = Process::fromShellCommandline($commandTmux2);
+            //$command2 = ['screen','-S','admin-'.$uuid,'-dm','ttyd'];
+            # login is not compatible with ttyd. We have to change it.
+            //array_push($command, '-W','-p',$port,'-b','/device/'.$uuid,'lxc-attach','-n',$uuid,'--','/bin/login');
+            array_push($ttydCommand, '-W', '-p', (string)$port, '-b', '/device/' . $uuid, 
+                '/opt/remotelabz-worker/bin/ttyd-auth-wrapper.sh', $uuid);
 
-//        try {
-//            $process->start();
-            /*$this->logger->debug("tmux command", InstanceLogMessage::SCOPE_PRIVATE, [
-                'instance' => $uuid,
-                'command' => $commandTmux
-                    ]);  */
-//            $this->logger->debug("ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
-//                'instance' => $uuid,
-//                'command' => $command
-//            ]);
-
-//        }   catch (ProcessFailedException $exception) {
-//            $error=true;
-            /*$this->logger->debug("tmux error command", InstanceLogMessage::SCOPE_PRIVATE, [
-                'instance' => $uuid,
-                'exception' => $exception
-            ]);*/
-//           $this->logger->debug("ttyd error command", InstanceLogMessage::SCOPE_PRIVATE, [
-//                'instance' => $uuid,
-//                'command' => $command
-//            ]);
-//        }
-    
-        //$command = ['ttyd'];
-        //array_push($command, '-p',$port,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', $uuid);
-        //array_push($command, '-p',$port,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', $uuid);
-
-        /*
-        if (isset($process2)) {
-            try {
-                $process2->start();
-                $this->logger->debug("tmux command2", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $uuid,
-                    'command' => $commandTmux2
-                        ]);  
-            }   catch (ProcessFailedException $exception) {
-                $error=true;
-                $this->logger->debug("tmux error command", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $uuid,
-                    'exception' => $exception
-                        ]);
-            }
-            $command2 = ['ttyd'];
-            array_push($command2, '-p',$port+1,'-b','/device/'.$uuid, 'tmux','-S', '/tmp/tmux-remotelabz', 'attach', '-t', 'admin-'.$uuid);
-        }
-        */
-        
-
-    $this->logger->debug("Ttyd command", InstanceLogMessage::SCOPE_PRIVATE, [
-        'instance' => $uuid,
-        'command' => $command
-            ]);
-
-    $process = new Process($command);
-    try {
-        $process->start();
-    }   catch (ProcessFailedException $exception) {
-        $error=true;
-        $this->logger->debug("Ttyd error command", InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid,
-            'exception' => $exception
-                ]);
-    }
-  
-    if (isset($command2)) {
-        $this->logger->debug("Ttyd command2", InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid,
-            'command2' => $command2
-                ]);
-        $process2 = new Process($command2);
-        try {
-            $process2->start();
-        }   catch (ProcessFailedException $exception) {
-            $error=true;
-            $this->logger->debug("Ttyd error command2", InstanceLogMessage::SCOPE_PRIVATE, [
-                'instance' => $uuid,
-                'exception' => $exception
-                    ]);
+            // Commande pour admin ttyd
+            $ttydCommand2 = ['ttyd', '-W', '-p', (string)($port + 1), '-b', '/device/' . $uuid, 
+                'lxc-attach', '-n', $uuid];
         }
     }
+    elseif ($remote_protocol === "serial") {
+            $this->logger->debug("[InstanceManager:ttyd_start]::Start serial detected");
+            array_push($ttydCommand, '-W', '-p', (string)$port, '-b', '/device/' . $uuid, 
+                'telnet', 'localhost', (string)$device_remote_port);
+            #$commandTmux = "tmux -S /tmp/tmux-remotelabz new -d -s ".$uuid. " 'telnet localhost ".$device_remote_port."'";  
+            #$process = Process::fromShellCommandline($commandTmux);
+    }
 
-    $command="ps aux | grep ". $uuid . " | grep ttyd | grep -v grep | awk '{print $2}'";
-    $this->logger->debug("List ttyd:".$command, InstanceLogMessage::SCOPE_PRIVATE, [
-        'instance' => $uuid
-        ]);
-        
-    $process = Process::fromShellCommandline($command);
-    try { 
-        $process->mustRun();
-        $pidInstance = $process->getOutput();
-        $this->logger->debug("pid process list of ttyd started ", InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid,
-            'pid' => $pidInstance,
-            'error' => $error
-            ]);
-    }   catch (ProcessFailedException $exception) {
-        $error=true;
-        $this->logger->error("Listing process to find ttyd process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid
-            ]);
+    $unitName='ttyd-' . $uuid;
+    $this->start_systemd_ttyd($uuid,$unitName,$ttydCommand);
+
+    // Si ttyd admin est nécessaire
+    if (isset($ttydCommand2)) {
+        $unitName='ttyd-admin-' . $uuid;
+
+        $this->start_systemd_ttyd($uuid,$unitName,$ttydCommand2);
     }
-    if ($pidInstance==""){
-        $error=true;
-        $this->logger->error("ttyd not started !", InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid
-            ]);    
-    }
-    $this->logger->debug("error state at end of tty_start process", InstanceLogMessage::SCOPE_PRIVATE, [
-        'instance' => $uuid,
-        'error' => $error
-        ]);
 
     return $error;
 }
@@ -1048,7 +975,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         }
                         $command="";
                         $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
-                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} vlan_mode=dot1q-tunnel tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
 
                        // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
 
@@ -1092,7 +1019,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         }
                         $command="";
                         $command=$command."echo \"#!/bin/sh\" > ".$instance_path."/set_vlan".$i.";";
-                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
+                        $command=$command.'echo "/usr/bin/ovs-vsctl set port \${LXC_NET_PEER} vlan_mode=dot1q-tunnel tag='.$vlan.'" >> '.$instance_path.'/set_vlan'.$i.';';
 
                        // $command="sed -e \"s/VLAN/".$networkinterfaceinstance[$i]["networkInterface"]["vlan"]."/g\" ".$this->kernel->getProjectDir()."/scripts/set_vlan >> ".$instance_path."/set_vlan";
 
@@ -1200,6 +1127,33 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     public function qemu_start(array $parameters,string $uuid ){
         $arch = posix_uname()['machine'];
         $error=false;
+        $scopeName = 'qemu-' . $uuid . '.scope';
+
+        // ---------------------------------------------------------------
+        // Vérifier si le scope systemd de cette VM est déjà actif.
+        // Cela arrive typiquement lors d'un redémarrage du worker :
+        // la VM tourne toujours dans son scope isolé même si le service
+        // remotelabz-worker a redémarré.
+        // ---------------------------------------------------------------
+        $checkProcess = new Process(['systemctl', 'is-active', $scopeName]);
+        $checkProcess->run(); // run() et non mustRun() : is-active retourne 3 si inactif
+        $status = trim($checkProcess->getOutput());
+
+        $this->logger->debug("[InstanceManager:qemu_start]::QEMU scope pre-check", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid,
+            'scope'    => $scopeName,
+            'status'   => $status
+        ]);
+
+        if ($status === 'active') {
+            $this->logger->info(
+                "QEMU scope already active, VM is already running. Skipping start.",
+                InstanceLogMessage::SCOPE_PUBLIC,
+                ['instance' => $uuid, 'scope' => $scopeName]
+            );
+            return false; // false = pas d'erreur, cohérent avec le reste de la fonction
+        }
+
         $command = [
             'qemu-system-' . $arch,
             '-enable-kvm',
@@ -1222,10 +1176,23 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             }
         }
 
+        // Wrapper avec systemd-run pour isoler complètement du service
+        $systemdCommand = [
+            'systemd-run',
+            '--scope',                    // Crée un scope au lieu d'un service
+            '--unit=qemu-' . $uuid,      // Nom unique pour l'unité
+            '--description=QEMU_VM_' . $uuid,
+            '--slice=remotelabz-worker-vms.slice', // Grouper dans un slice dédié
+            '--'
+        ];
+    
+    $fullCommand = array_merge($systemdCommand, $command);
+
         $this->logger->debug("[InstanceManager:qemu_start]::Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',preg_replace('/\s+/', ' ', $command))
         ]);
-        $process = new Process($command);
+
+        $process = new Process($fullCommand);
         try {
             $process->mustRun();
         }   catch (ProcessFailedException $exception) {
@@ -1351,7 +1318,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->info("Creating LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $lxc_name]
         );
-        $this->logger->debug("[InstanceManage:lxc_create]::Creating LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:lxc_create]::Creating LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
 
@@ -1387,7 +1354,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             "$uuid"
         ];
 
-        $this->logger->debug("[InstanceManage:lxc_delete]::Deleting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:lxc_delete]::Deleting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',$command)
         ]);
 
@@ -1425,40 +1392,85 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $template the absolute path to the template file of the LXC container
      * @return array $result is an array("state","uuid")
      */
-    public function lxc_start(string $lxc_name,string $template){
-        $result=null;
-        $command = [
-            'lxc-start',
-            '-n', $lxc_name,
-            '-f', $template
-        ];
+    public function lxc_start(string $lxc_name, string $template): ?array
+    {
+        $checkCommand = ['lxc-info', '-n', $lxc_name, '-s'];
+        $checkProcess = new Process($checkCommand);
+        $checkProcess->run();
 
-        $this->logger->debug("[InstanceManage:lxc_start]::Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
-        ]);
-
-        $process = new Process($command);
-        $process->setTimeout(600);
-        try {
-            $process->mustRun();
-            $result=array(
+        if (strpos($checkProcess->getOutput(), 'RUNNING') !== false) {
+            $this->logger->info("LXC container is already running.", 
+                InstanceLogMessage::SCOPE_PRIVATE, [
+                    "lxc_name" => $lxc_name,
+                    "instance" => $lxc_name
+                ]);
+            
+            return [
                 "state" => InstanceStateMessage::STATE_STARTED,
                 "uuid" => $lxc_name,
                 "options" => null
-            );
+            ];
+        } else {
 
-        }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container started error ! ", InstanceLogMessage::SCOPE_PRIVATE,
-                ["instance" => $lxc_name]);
-            $result=array(
-                "state" => InstanceStateMessage::STATE_ERROR,
-                "uuid" => $lxc_name,
-                "options" => null
-            );
+
+            $result = null;
+
+            // Commande originale
+            $lxcCommand = [
+                'lxc-start',
+                '-n', $lxc_name,
+                '-f', $template
+            ];
+
+            // Wrapper avec systemd-run pour isoler complètement
+            $command = [
+                'systemd-run',
+                '--scope',
+                '--unit=lxc-' . $lxc_name,
+                '--description=LXC_Container_' . $lxc_name.'"',
+                '--slice=remotelabz-worker-containers.slice',
+                '--'
+            ];
+            
+            $fullCommand = array_merge($command, $lxcCommand);
+
+            $this->logger->debug("[InstanceManager:lxc_start]::Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "command" => implode(' ', $fullCommand),
+                "instance" => $lxc_name
+            ]);
+
+            $process = new Process($fullCommand);
+            $process->setTimeout(600);
+
+            try {
+                $process->mustRun();
+                
+                $this->logger->info("LXC container started successfully.", 
+                    InstanceLogMessage::SCOPE_PRIVATE, [
+                        "lxc_name" => $lxc_name,
+                        "instance" => $lxc_name
+                    ]);
+
+                $result = [
+                    "state" => InstanceStateMessage::STATE_STARTED,
+                    "uuid" => $lxc_name,
+                    "options" => null
+                ];
+
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("LXC container start error !", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "instance" => $lxc_name,
+                    "error" => $exception->getMessage()
+                ]);
+                $result = [
+                    "state" => InstanceStateMessage::STATE_ERROR,
+                    "uuid" => $lxc_name,
+                    "options" => null
+                ];
+            }
         }
 
         return $result;
-
     }
 
     /**
@@ -1492,7 +1504,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         });
 
         if (!count($deviceInstance)) {
-            $this->logger->debug("[InstanceManage:stopDeviceInstance]::Device instance is already stopped.", InstanceLogMessage::SCOPE_PUBLIC, [
+            $this->logger->debug("[InstanceManager:stopDeviceInstance]::Device instance is already stopped.", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']]);
             // instance is already stopped or whatever
         } else {
@@ -1510,7 +1522,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
         elseif (strtolower($deviceInstance['device']['hypervisor']['name']) === 'natif'){
 
-            $this->logger->debug("[InstanceManage:stopDeviceInstance]::Device instance stopped.", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:stopDeviceInstance]::Device instance stopped.", InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $deviceInstance['uuid'],
                 'name' => strtolower($deviceInstance['device']['name'])
             
@@ -1541,34 +1553,78 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     * @return true if no error, false if error
     */
     public function qemu_stop($uuid) {
-        $result=true;
-        $process = Process::fromShellCommandline("ps aux | grep -e " . $uuid . " | grep -e qemu | grep -v grep | awk '{print $2}'");
-        try {
-            $process->mustRun();
-        }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Process listing error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,[
-                'instance' => $uuid]);
-                $result=false;
-        }
+        $result = true;
+        $scopeName = 'qemu-' . $uuid . '.scope';
 
-        $pidInstance = $process->getOutput();
+        // Vérifier si le scope systemd existe et est actif
+        $checkProcess = new Process(['systemctl', 'is-active', $scopeName]);
+        $checkProcess->run();
+        $status = trim($checkProcess->getOutput());
 
-        if ($pidInstance != "") {
-            $pidInstance = explode("\n", $pidInstance);
+        $this->logger->debug("[InstanceManager:qemu_stop]::QEMU scope status", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $uuid,
+            'scope'    => $scopeName,
+            'status'   => $status
+        ]);
 
-            foreach ($pidInstance as $pid) {
-                if ($pid != "") {
-                    $process = new Process(['kill', '-9', $pid]);
-                    try {
-                        $process->mustRun();
-                    }   catch (ProcessFailedException $exception) {
-                        $this->logger->error("Killing exec error ! ".$exception, InstanceLogMessage::SCOPE_PRIVATE,[
-                            'instance' => $uuid]);
-                        $result=false;
+        if (in_array($status, ['active', 'activating', 'deactivating', 'failed'])) {
+            // Arrêt propre via systemd (SIGTERM puis SIGKILL si nécessaire)
+            $stopProcess = new Process(['systemctl', 'stop', $scopeName]);
+            try {
+                $stopProcess->setTimeout(30);
+                $stopProcess->mustRun();
+                $this->logger->info("[InstanceManager:qemu_stop]::QEMU scope stopped successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'scope'    => $scopeName
+                ]);
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("[InstanceManager:qemu_stop]::Failed to stop QEMU scope: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'scope'    => $scopeName
+                ]);
+                $result = false;
+            }
+        } else {
+            // Le scope n'existe pas ou est déjà inactif
+            // Fallback : chercher un éventuel processus qemu orphelin
+            $this->logger->debug("[InstanceManager:qemu_stop]::Scope not active, checking for orphan QEMU process", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid
+            ]);
+
+            $psProcess = Process::fromShellCommandline("ps aux | grep -e " . $uuid . " | grep -e qemu | grep -v grep | awk '{print $2}'");
+            try {
+                $psProcess->mustRun();
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("[InstanceManager:qemu_stop]::Process listing error: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid
+                ]);
+                return false;
+            }
+
+            $pidInstance = trim($psProcess->getOutput());
+            if ($pidInstance !== "") {
+                foreach (explode("\n", $pidInstance) as $pid) {
+                    $pid = trim($pid);
+                    if ($pid !== "") {
+                        $killProcess = new Process(['kill', '-15', $pid]); // SIGTERM d'abord
+                        try {
+                            $killProcess->mustRun();
+                        } catch (ProcessFailedException $exception) {
+                            $this->logger->error("[InstanceManager:qemu_stop]::Kill error: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $uuid,
+                                'pid'      => $pid
+                            ]);
+                            $result = false;
+                        }
                     }
                 }
+            } else {
+                $this->logger->debug("[InstanceManager:qemu_stop]::No QEMU process found for instance", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid
+                ]);
             }
         }
+
         return $result;
     }
 
@@ -1582,6 +1638,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_stop(string $lxc_name){
         $result=null;
+        $this->stop_systemd_ttyd($lxc_name,'ttyd-'.$lxc_name);
+        $this->stop_systemd_ttyd($lxc_name,'ttyd-admin-'.$lxc_name);
+
         $command = [
             'lxc-info',
             '-n',
@@ -1589,11 +1648,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             "-s"
         ];
 
+        
         $process = new Process($command);
         try {
             $process->mustRun();
             if (str_contains($process->getOutput(),"STOPPED")) {
-                $this->logger->debug("[InstanceManage:lxc_stop]::LXC container already stopped.", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                $this->logger->debug("[InstanceManager:lxc_stop]::LXC container already stopped.", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
                 $result=array(
                     "state" => InstanceStateMessage::STATE_STOPPED,
                     "uuid" => $lxc_name,
@@ -1601,14 +1661,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             }
             else {
-                $this->logger->debug("[InstanceManage:lxc_stop]::LXC container is running.", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                $this->logger->debug("[InstanceManager:lxc_stop]::LXC container is running.", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
                 $command = [
                     'lxc-stop',
                     '-n',
                     "$lxc_name"
                 ];
 
-                $this->logger->debug("[InstanceManage:lxc_stop]::Stopping LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug("[InstanceManager:lxc_stop]::Stopping LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
                     "command" => implode(' ',$command)
                 ]);
 
@@ -1630,7 +1690,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         );
                     }
                     else {
-                        $this->logger->debug("[InstanceManage:lxc_stop]::LXC container did'nt run :".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
+                        $this->logger->debug("[InstanceManager:lxc_stop]::LXC container didn't run :".$exception, InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $lxc_name]);
                         $result=array(
                             "state" => InstanceStateMessage::STATE_STOPPED,
                             "uuid" => $lxc_name,
@@ -1647,10 +1707,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                             "uuid" => $lxc_name,
                             "options" => null
                         );
-
         }     
-        
-        
         
         return $result;
     }
@@ -3135,7 +3192,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $result=($result || true);
             }
         }
-        $this->logger->debug('login detected by isLogin function ?', InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug('[InstanceManager:isLogin]::Login detected by isLogin function ?', InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance["uuid"],
             'result' => $result
             ]);
@@ -3181,6 +3238,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "uuid" => $uuid,
                         "options" => null
                     );
+                if ($this->isSerial($deviceInstance))
+                    $this->ttyd_stop($uuid);
                 }
             else {
                 $this->logger->info("QEMU VM doesn't stop - Error !", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -3192,6 +3251,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
                 
                 }
+
 
                 if ($vncPort=$this->isVNC($deviceInstance)) {
                     $vncAddress = "0.0.0.0";
@@ -3274,7 +3334,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         "options" => null);
             }
 
-            if ($vncPort=$this->isLogin($deviceInstance)) {
+/*            if ($vncPort=$this->isLogin($deviceInstance)) {
                 $vncAddress = "0.0.0.0";
                 $cmd="ps aux | grep -i screen | grep ".$deviceInstance['uuid']." | grep -v grep | awk '{print $2}'";
 
@@ -3325,6 +3385,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 }
                 
             }
+                */
 
            /* $cmd = "tmux -S /tmp/tmux-remotelabz has-session -t admin-".$deviceInstance['uuid'];
             $process = Process::fromShellCommandline($cmd);
@@ -3436,6 +3497,14 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         }
 
         return $result;
+    }
+
+    public function ttyd_stop(string $instance): void
+    {
+        $unit = "ttyd-$instance";
+
+        $this->stop_systemd_ttyd($instance,$unit);      
+
     }
 
     /**
@@ -4532,7 +4601,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 }
 
                 if (!OVS::ovsPortExists($bridgeName, $nicName)) {
-                    OVS::portAdd($bridgeName, $nicName, true, $this->logger, ($nicVlan !== null ? 'tag='.$nicVlan : ''));
+                    $options = $nicVlan !== null 
+                        ? ['vlan_mode=dot1q-tunnel', 'tag='.$nicVlan] 
+                        : [];
+
+                    OVS::portAdd($bridgeName, $nicName, true, $this->logger, ...$options);
+
                     //TCTools::addPacketLoss($nicName, 50.0,$this->logger);                
                     /*
                     $ovs_options=array(
@@ -4647,10 +4721,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     $this->lxc_create($deviceInstance['device']['operatingSystem']['image'], strtolower($deviceInstance['device']['operatingSystem']['release']), $deviceInstance['device']['operatingSystem']['version']);
                 }
                 else {     
-                    $this->logger->info("Error in LXC creation, no release and version defined",InstanceLogMessage::SCOPE_PUBLIC,[
+                    $this->logger->info("Error in LXC creation, no release and version defined ",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    throw new \Exception("Error in LXC creation; no release and version defined" . $deviceInstance['uuid']);
+                    throw new \Exception("Error in LXC creation, no release and version defined " . $deviceInstance['uuid']);
 
                     $result=array(
                         "state" => InstanceStateMessage::STATE_ERROR,
@@ -4721,7 +4795,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
             }
 
-            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new',$bridgeName,$gateway);
+            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');
             
             if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                 $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4863,5 +4937,172 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     )
             
             );
+    }
+
+    private function check_systemd_unit(string $unitName){   
+        $check_cmd=[
+            'systemctl',
+            'is-active',
+            $unitName
+        ];
+
+        $checkProcess = new Process($check_cmd);
+        
+        $this->logger->debug(
+                    '[InstanceManager:ttyd_start]::ttyd service check if running',InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $unitName,
+                    'command' => implode(' ', $check_cmd)
+                    ]
+                );
+        
+        $checkProcess->run();
+        $status = trim($checkProcess->getOutput());
+        return $status;
+    }
+
+    private function start_systemd_ttyd(string $uuid,string $unitName, $ttydCommand) {
+        $status=$this->check_systemd_unit($unitName);
+    
+        $this->logger->debug("[InstanceManager:start_systemd_ttyd]::ttyd status ?", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'status' => $status
+                ]);
+
+        switch ($status) {
+            case 'active':
+                $this->logger->info(
+                    '[InstanceManager:start_systemd_ttyd]::ttyd service already running',InstanceLogMessage::SCOPE_PRIVATE,
+                    [   'instance' => $uuid,
+                        'unit' => $unitName
+                    ]
+                );
+                break;
+
+            case 'inactive':
+                $this->logger->debug(
+                    '[InstanceManager:start_systemd_ttyd]::ttyd service not exist, will create it',InstanceLogMessage::SCOPE_PRIVATE,
+                    [   'instance' => $uuid,
+                        'unit' => $unitName,
+                        'command' => implode(' ',$ttydCommand)
+                    ]
+                );
+                $command = [
+                    'systemd-run',
+                    '--unit=' . $unitName,
+                    '--description='.$unitName,
+                    '--slice=remotelabz-worker-services.slice',
+                    '--'
+                ];
+
+                $fullCommand = array_merge($command, $ttydCommand);
+                $this->logger->debug("[InstanceManager:start_systemd_ttyd]::ttyd creation ", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "command" => implode(' ',$fullCommand)
+                ]);
+
+                $process = new Process($fullCommand);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $error=true;
+                    $this->logger->debug("[InstanceManager:start_systemd_ttyd]::ttyd error command", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid,
+                        'exception' => $exception
+                    ]);
+                }
+            case 'activating':
+            case 'failed':
+                $this->logger->debug(
+                    '[InstanceManager:start_systemd_ttyd]::Ttyd service exist but in failed',InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $uuid, 'unit' => $unitName]
+                );
+                $command = [
+                    'systemctl', 'restart', $unitName
+                ];
+
+                $process = new Process($command);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $error=true;
+                    $this->logger->debug("[InstanceManager:start_systemd_ttyd]::Ttyd systemd restart command", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid,
+                        'exception' => $exception
+                    ]);
+                }
+            break;
+        }
+    }
+
+    private function stop_systemd_ttyd(string $uuid,string $unitName) {
+        
+        $status=$this->check_systemd_unit($unitName);
+
+        $this->logger->debug("[InstanceManager:stop_systemd_ttyd]::Ttyd status ?", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'status' => $status
+                ]);
+
+        switch ($status) {
+            case 'active':
+                $this->logger->info(
+                    '[InstanceManager:stop_systemd_ttyd]::Ttyd service is running',InstanceLogMessage::SCOPE_PRIVATE,
+                    [   'instance' => $uuid,
+                        'unit' => $unitName
+                    ]
+                );
+
+                $command = [
+                    'systemctl',
+                    'stop',
+                    $unitName
+                ];
+
+                $process = new Process($command);
+                try {
+                    $process->mustRun();
+                    $this->logger->info("Ttyd is stopped", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid,
+                        'unit' => $unitName
+
+                    ]);
+                }   catch (ProcessFailedException $exception) {
+                    $error=true;
+                    $this->logger->debug("[InstanceManager:stop_systemd_ttyd]::Ttyd error command", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid,
+                        'exception' => $exception
+                    ]);
+                }
+                break;
+
+            case 'inactive':
+                $this->logger->debug(
+                    '[InstanceManager:stop_systemd_ttyd]::Ttyd service not exist',InstanceLogMessage::SCOPE_PRIVATE,
+                    [   'instance' => $uuid,
+                        'unit' => $unitName
+                    ]
+                );
+
+            case 'activating':
+            case 'failed':
+                $this->logger->debug(
+                    '[InstanceManager:stop_systemd_ttyd]::Ttyd service exist but in failed',InstanceLogMessage::SCOPE_PRIVATE,
+                    ['instance' => $uuid, 'unit' => $unitName]
+                );
+                $command = [
+                    'systemctl', 'stop', $unitName
+                ];
+
+                $process = new Process($command);
+                try {
+                    $process->mustRun();
+                }   catch (ProcessFailedException $exception) {
+                    $error=true;
+                    $this->logger->debug("[InstanceManager:stop_systemd_ttyd]::Ttyd systemd stop command", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $uuid,
+                        'exception' => $exception
+                    ]);
+                }
+            break;
+        }
     }
 }

@@ -1,0 +1,7 @@
+[Unit]
+Description=RemoteLabz worker Services Slice
+Before=slices.target
+Requires=remotelabz-worker.slice
+
+[Slice]
+Slice=remotelabz-worker.slice

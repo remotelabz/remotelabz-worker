@@ -4,10 +4,20 @@ After=network.target
 
 [Service]
 Type=simple
+WorkingDirectory=/opt/remotelabz-worker
+
+# IMPORTANT: Ne pas tuer les processus enfants lors du restart
+KillMode=process
+# Ou si vous voulez garder un contrôle partiel:
+# KillMode=mixed
+
 Restart=always
 RestartSec=5
-ExecStartPre=/usr/bin/env php /opt/remotelabz-worker/bin/remotelabz-network-up
-ExecStart=/usr/bin/env php /opt/remotelabz-worker/bin/console messenger:consume worker
+
+LimitNOFILE=65536
+
+ExecStartPre=/usr/bin/env php /opt/remotelabz-worker/bin/remotelabz-worker-network-up
+ExecStart=/usr/bin/env php /opt/remotelabz-worker/bin/console messenger:consume worker --time-limit=3600
 ExecStop=/usr/bin/env php /opt/remotelabz-worker/bin/console messenger:stop-workers
 
 [Install]
