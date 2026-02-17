@@ -1,0 +1,8 @@
+[Unit]
+Description=RemoteLabz Worker Slice
+Before=slices.target
+
+[Slice]
+# Limites optionnelles pour tous les processus RemoteLabz
+# MemoryMax=80G
+# CPUQuota=95%
