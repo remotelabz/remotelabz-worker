@@ -447,6 +447,9 @@ function setup_container_pamtester() {
     return 1
   fi
   
+  sudo iptables -A FORWARD -i lxcbr0 -j ACCEPT
+  sudo iptables -A FORWARD -o lxcbr0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
   debug "Checking pamtester in ${container_name}..."
   
   # Check if pamtester is already installed
@@ -472,6 +475,13 @@ function setup_container_pamtester() {
       else
         warning "⚠ Failed to install pamtester in ${container_name} - manual installation needed"
       fi
+
+      # Stop container if not stopped
+      if ! lxc-info -n "$container_name" | grep -q "STOPPED"; then
+        lxc-stop -n "$container_name"
+        sleep 3
+      fi
+
       ;;
       
     alpine)
@@ -495,6 +505,13 @@ function setup_container_pamtester() {
       else
         warning "⚠ Failed to install pamtester in ${container_name} - manual installation needed"
       fi
+
+      # Stop container if not stopped
+      if ! lxc-info -n "$container_name" | grep -q "STOPPED"; then
+        lxc-stop -n "$container_name"
+        sleep 3
+      fi
+
       ;;
   esac
 }
@@ -840,7 +857,7 @@ if [ -z "$REMOTELABZ_WORKER_PATH" ]; then
     export REMOTELABZ_WORKER_PATH="/opt/remotelabz-worker"
 fi
 if [ -z "$REMOTELABZ_WORKER_PORT" ]; then
-    export REMOTELABZ_WORKER_PORT=8080
+    export REMOTELABZ_WORKER_PORT=8081
 fi
 
 export SCRIPTPATH="$( cd "$(dirname "$0")/.." ; pwd -P )"
@@ -874,6 +891,7 @@ success "Packages installed ✔️"
 if [ ! $(getent passwd remotelabz-worker) ]; then
   debug "Creating remotelabz-worker user"
   useradd -N -m remotelabz-worker
+  usermod --password $(echo remotelabz-worker_pass | openssl passwd -1 -stdin) remotelabz-worker
 fi
 if [ ! $(getent group remotelabz-worker) ]; then
   debug "Creating remotelabz-worker group"
@@ -898,12 +916,13 @@ if [ -d "/home/remotelabz-worker" ]; then
         
         debug "Generating SSH key: myremotelabzkey"
         sudo -u remotelabz-worker ssh-keygen -m PEM -t rsa -b 4096 -f /home/remotelabz-worker/.ssh/myremotelabzkey -N ""
-        chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
         chmod 600 /home/remotelabz-worker/.ssh/myremotelabzkey
         
         cat /home/remotelabz-worker/.ssh/myremotelabzkey.pub | sudo tee -a /home/remotelabz-worker/.ssh/authorized_keys
         chmod 600 /home/remotelabz-worker/.ssh/authorized_keys
         
+        chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
+
         success "SSH keys created: myremotelabzkey"
         
         sed -i 's|SSH_USER_PRIVATEKEY_FILE=.*|SSH_USER_PRIVATEKEY_FILE="/home/remotelabz-worker/.ssh/myremotelabzkey"|' "${ENV_FILE}"
@@ -933,6 +952,24 @@ else
   debug "Composer is already installed! Skipping."
 fi
 
+debug "Downloading bundles"
+
+mkdir -p "$SCRIPTPATH/lib"
+
+if [ ! -d "$SCRIPTPATH/lib/network-bundle" ]; then
+  git clone https://github.com/remotelabz/network-bundle.git --branch Upgrade-2.5 "$SCRIPTPATH/lib/network-bundle"
+else 
+  cd "$SCRIPTPATH/lib/network-bundle" && git pull
+  cd "$SCRIPTPATH"
+fi
+
+if [ ! -d "$SCRIPTPATH/lib/remotelabz-message-bundle" ]; then
+  git clone https://github.com/remotelabz/remotelabz-message-bundle.git --branch Upgrade-2.5  "$SCRIPTPATH/lib/remotelabz-message-bundle"
+else 
+  cd "$SCRIPTPATH/lib/network-bundle" && git pull
+  cd "$SCRIPTPATH"
+fi
+
 debug "Downloading Composer packages"
 (cd "${SCRIPTPATH}" && composer install)
 chown -R remotelabz-worker:remotelabz-worker "${SCRIPTPATH}"/vendor
@@ -956,6 +993,7 @@ mkdir -p "${REMOTELABZ_WORKER_PATH}/instances"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/instances"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
+sudo chown -R remotelabz-worker:www-data "${REMOTELABZ_WORKER_PATH}/var/"
 
 # Websockify
 debug "Installing WebSockify"
