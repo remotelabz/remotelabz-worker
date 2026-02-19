@@ -857,7 +857,7 @@ if [ -z "$REMOTELABZ_WORKER_PATH" ]; then
     export REMOTELABZ_WORKER_PATH="/opt/remotelabz-worker"
 fi
 if [ -z "$REMOTELABZ_WORKER_PORT" ]; then
-    export REMOTELABZ_WORKER_PORT=8080
+    export REMOTELABZ_WORKER_PORT=8081
 fi
 
 export SCRIPTPATH="$( cd "$(dirname "$0")/.." ; pwd -P )"
