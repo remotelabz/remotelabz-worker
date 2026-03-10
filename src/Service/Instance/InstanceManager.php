@@ -673,72 +673,93 @@ class InstanceManager extends AbstractController
  /**
  * @return true if error, false if no error occurs
  */
-public function websockify_start($uuid,$IpAddress,$Port){
-    $error=false;
+public function websockify_start($uuid, $IpAddress, $Port): bool
+{
+    $unitName = "websockify-$uuid";
     $websockifyCommand = ['websockify'];
-    
+
     if ($this->getParameter('app.services.proxy.wss')) {
-        $this->logger->debug("Websocket use wss", InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid
-            ]);
-        array_push($websockifyCommand,
-            '--cert='.$this->getParameter('app.services.proxy.cert'),
-            '--key='.$this->getParameter('app.services.proxy.key')
+
+        $this->logger->debug(
+            "Websocket use wss",
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance' => $uuid]
         );
-    } else
-        $this->logger->debug("Websocket doesn't use wss", InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid
-        ]);
-    array_push($websockifyCommand, 
-        $IpAddress . ':' . ($Port + 1000), 
-        $IpAddress . ':' . $Port
-    );    
-    // Wrapper avec systemd-run
-    $command = [
+
+        $websockifyCommand[] = '--cert='.$this->getParameter('app.services.proxy.cert');
+        $websockifyCommand[] = '--key='.$this->getParameter('app.services.proxy.key');
+    }
+
+    $websockifyCommand[] = $IpAddress . ':' . ($Port + 1000);
+    $websockifyCommand[] = $IpAddress . ':' . $Port;
+
+    $command = array_merge([
         'systemd-run',
-        '--scope',
-        '--unit=websockify-' . $uuid,
-        '--description=Websockify_for_' . $uuid,
+        '--unit='.$unitName,
         '--slice=remotelabz-worker-services.slice',
+        '--property=Restart=on-failure',
+        '--property=RestartSec=2',
+        '--collect',
         '--'
-    ];
-    
-    $fullCommand = array_merge($command, $websockifyCommand);
-    
-    $process = new Process($fullCommand);
+    ], $websockifyCommand);
+
+    $this->logger->debug(
+        "Starting websockify: ".implode(' ', $command),
+        InstanceLogMessage::SCOPE_PRIVATE,
+        ['instance' => $uuid]
+    );
 
     try {
-        $this->logger->debug("Websockify starting command: ".implode(" ",$command), InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid
-            ]);
-        $process->mustRun();
-    }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
-                'instance' => $uuid
-                ]);
-            $error=true;
-            }
-        if (!$error) {
-        $command="ps aux | grep " . $IpAddress . ":" . $Port . " | grep websockify | grep -v grep | awk '{print $2}'";
-        $this->logger->debug("List websockify: ".$command, InstanceLogMessage::SCOPE_PRIVATE, [
-            'instance' => $uuid
-            ]);
 
-        $process = Process::fromShellCommandline($command);
-        try {
-            $process->mustRun();
-            //$pidInstance = $process->getOutput();
-            }   catch (ProcessFailedException $exception) {
-            $this->logger->error("Listing process to find websockify process error !".$exception, InstanceLogMessage::SCOPE_PRIVATE, [
-                'instance' => $uuid
-                ]);
-            $this->logger->error("Websockify starting process in error !", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $uuid
-                ]);
-            $error=true;
-            }
+        $process = new Process($command);
+        $process->setTimeout(10);
+        $process->mustRun();
+
+    } catch (\Exception $e) {
+
+        $this->logger->error(
+            "Failed to launch websockify: ".$e->getMessage(),
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance'=>$uuid]
+        );
+
+        return true;
+    }
+
+    // Vérification systemd
+    try {
+
+        $statusProcess = new Process([
+            'systemctl',
+            'is-active',
+            $unitName
+        ]);
+
+        $statusProcess->mustRun();
+
+        if (trim($statusProcess->getOutput()) !== 'active') {
+
+            $this->logger->error(
+                "Websockify service not active",
+                InstanceLogMessage::SCOPE_PRIVATE,
+                ['instance'=>$uuid]
+            );
+
+            return true;
         }
-    return $error;
+
+    } catch (\Exception $e) {
+
+        $this->logger->error(
+            "Unable to verify websockify status: ".$e->getMessage(),
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance'=>$uuid]
+        );
+
+        return true;
+    }
+
+    return false;
 }
 
  /**
