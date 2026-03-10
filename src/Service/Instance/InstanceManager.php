@@ -603,7 +603,7 @@ class InstanceManager extends AbstractController
             //'controlProtocolTypeInstances' => $deviceInstance['controlProtocolTypeInstances']
             ]);
             $new_free_port=$this->getFreePort();
-            array_push($result["arg"],'-chardev','socket,id=serial0,server,telnet,port='.($new_free_port).',host=127.0.0.1,nowait');
+            array_push($result["arg"],'-chardev','socket,id=serial0,server=on,telnet=on,port='.($new_free_port).',host=127.0.0.1,wait=off');
             array_push($result["arg"],'-serial','chardev:serial0');
 
             $this->logger->debug("Starting ttyd process for serial access...", InstanceLogMessage::SCOPE_PRIVATE, [
