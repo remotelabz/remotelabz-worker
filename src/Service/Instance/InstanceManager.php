@@ -1162,8 +1162,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             '-display', 'none',
             '-daemonize',
             '-name', "$uuid",
-            '-audiodev none,id=snd0'
+            '-nodefaults'
         ];
+
+        
 
         foreach ($parameters as $parametersType) {
             foreach ($parametersType as $parameter) {
