@@ -775,21 +775,21 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     //$command = ['screen','-S',$uuid,'-dm','ttyd'];
         
     if ($sandbox)
-        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::ttyd called from sandbox", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
         ]);
     else
-        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd called from lab", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::ttyd called from lab", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
         ]);
 
     if ($this->getParameter('app.services.proxy.wss')) {
-        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::ttyd use https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
         //array_push($command,'-S','-C',$this->getParameter('app.services.proxy.cert'),'-K',$this->getParameter('app.services.proxy.key'));
     } else
-        $this->logger->debug("[InstanceManager:ttyd_start]::Ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:ttyd_start]::ttyd without https", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $uuid
             ]);
 

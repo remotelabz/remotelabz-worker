@@ -17,7 +17,7 @@ RestartSec=5
 LimitNOFILE=65536
 
 ExecStartPre=/usr/bin/env php /opt/remotelabz-worker/bin/remotelabz-worker-network-up
-ExecStart=/usr/bin/env php /opt/remotelabz-worker/bin/console messenger:consume worker --time-limit=3600
+ExecStart=/usr/bin/env php /opt/remotelabz-worker/bin/console messenger:consume worker
 ExecStop=/usr/bin/env php /opt/remotelabz-worker/bin/console messenger:stop-workers
 
 [Install]

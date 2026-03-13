@@ -1,0 +1,9 @@
+[Unit]
+Description=Restart Remotelabz worker service at 01:00 GMT
+
+[Timer]
+OnCalendar=*-*-* 01:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
