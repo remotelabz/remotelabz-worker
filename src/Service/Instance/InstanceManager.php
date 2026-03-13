@@ -462,10 +462,8 @@ class InstanceManager extends AbstractController
         $gateway = $labNetwork->getLastAddress();
         $bridgeName=$labInstance['bridgeName'];
 
-
         $this->Create_And_Secure_OVS($labInstance);
         
-
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
             return ($deviceInstance['uuid'] == $uuid && $deviceInstance['state'] != 'started');
         });
@@ -511,9 +509,12 @@ class InstanceManager extends AbstractController
         if (strtolower($deviceInstance['device']['hypervisor']['name']) === 'qemu') {
             $result=$this->create_qemu_device($deviceInstance,$bridgeName,$instancePath,$sandbox);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED) {
-                    $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                    ]);         
+                    if (!array_key_exists("state",$result["options"])) {
+                        //Already started. Avoid to send message to front
+                        $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                    }         
             }
         }
         elseif ($deviceInstance['device']['hypervisor']['name'] === 'lxc' ){ //&& $deviceInstance['device']['name'] == 'Service') {
@@ -530,9 +531,11 @@ class InstanceManager extends AbstractController
         
 
         if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-            $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                'instance' => $deviceInstance['uuid']
-        ]);
+            if (!array_key_exists("state",$result["options"])) { //Already exist
+                $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                ]);
+            }
         }
         else {
             $this->logger->error("Device not started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -1144,10 +1147,13 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * TODO finish this function qemu_start
      * @param array $parameters Array of all parameters to the command qemu.
      * @param string $uuid UUID of the device instance to start.
+     * @return 0 : stop to start, no error
+     * @return 2 : error
+     * @return 1 : already started
      */
     public function qemu_start(array $parameters,string $uuid ){
         $arch = posix_uname()['machine'];
-        $error=false;
+        $error=0;
         $scopeName = 'qemu-' . $uuid . '.scope';
 
         // ---------------------------------------------------------------
@@ -1167,12 +1173,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         ]);
 
         if ($status === 'active') {
-            $this->logger->info(
-                "QEMU scope already active, VM is already running. Skipping start.",
+            $this->logger->debug(
+                "[InstanceManager:qemu_start]::QEMU scope already active, VM is already running. Skipping start.",
                 InstanceLogMessage::SCOPE_PUBLIC,
                 ['instance' => $uuid, 'scope' => $scopeName]
             );
-            return false; // false = pas d'erreur, cohérent avec le reste de la fonction
+            return 1;
         }
 
         $command = [
@@ -1184,9 +1190,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             '-daemonize',
             '-name', "$uuid",
             '-nodefaults'
-        ];
-
-        
+        ];     
 
         foreach ($parameters as $parametersType) {
             foreach ($parametersType as $parameter) {
@@ -1210,7 +1214,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             '--'
         ];
     
-    $fullCommand = array_merge($systemdCommand, $command);
+        $fullCommand = array_merge($systemdCommand, $command);
 
         $this->logger->debug("[InstanceManager:qemu_start]::Starting QEMU virtual machine.", InstanceLogMessage::SCOPE_PRIVATE, [
             "command" => implode(' ',preg_replace('/\s+/', ' ', $command))
@@ -1226,12 +1230,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             if (str_contains($message,"lock\nIs another process using the image")) {
                 //$this->logger->debug("Detect write lock", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
                 $this->logger->debug("[InstanceManager:qemu_start]::QEMU virtual machine already started", InstanceLogMessage::SCOPE_PRIVATE,[ 'instance' => $uuid]);
-                $error=true;
+                $error=2;
             } else {
                 $this->logger->error("Starting QEMU virtual machine error! ".$message, InstanceLogMessage::SCOPE_PUBLIC,
                 [ 'instance' => $uuid]);
                 //$this->logger->debug("Starting QEMU virtual machine error! ".$exception, InstanceLogMessage::SCOPE_PRIVATE);
-                $error=true;
+                $error=2;
             }
         }
         $this->logger->debug("[InstanceManager:qemu_start]::Value of error at the end of the qemu_start ".$error, InstanceLogMessage::SCOPE_PUBLIC,
@@ -4427,10 +4431,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         $result=null;
         $image_src= $deviceInstance['device']['operatingSystem']['image'];
-        $this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
+        /*$this->logger->info('QEMU vm is starting', InstanceLogMessage::SCOPE_PUBLIC, [
             "image" => $deviceInstance['device']['operatingSystem']['name'],
             'instance' => $deviceInstance['uuid']
         ]);
+        */
         // Start qemu
         $image_dst=$this->kernel->getProjectDir() . "/images/" . basename($image_src);
         $iso_directory=$this->kernel->getProjectDir() . "/iso/";
@@ -4689,7 +4694,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     'parameters' => $parameters
                     ]);
 
-            if (!$this->qemu_start($parameters,$deviceInstance['uuid'])){
+            $qemu_start_return=$this->qemu_start($parameters,$deviceInstance['uuid']);
+            if ($qemu_start_return===0) {
                 $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
@@ -4700,7 +4706,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "options" => null
                     );
             }
-            else {
+
+            elseif ($qemu_start_return===2) {
                 $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
@@ -4710,6 +4717,18 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "options" => null
                 );
             }
+            else { // return 1, already started
+                $this->logger->debug("[InstanceManager:create_qemu_device]::Already started", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                    ]);
+                
+                $result=array(
+                    "state" => InstanceStateMessage::STATE_STARTED,
+                    "uuid" => $deviceInstance['uuid'],
+                    "options" => [ "state" => "already_started"]
+                    );
+            }
+
         } else {
             $this->logger->error("Remote access process doesn't start correctly !", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']
