@@ -1456,7 +1456,8 @@ private function lxc_is_running(string $lxc_name): bool
             return [
                 "state" => InstanceStateMessage::STATE_STARTED,
                 "uuid" => $lxc_name,
-                "options" => null
+                "options" => [ "state" => "already_running"
+                ]
             ];
         } else {
 
@@ -4744,7 +4745,7 @@ private function lxc_is_running(string $lxc_name): bool
                 $result=array(
                     "state" => InstanceStateMessage::STATE_STARTED,
                     "uuid" => $deviceInstance['uuid'],
-                    "options" => [ "state" => "already_started"]
+                    "options" => [ "state" => "already_running"]
                     );
             }
 
@@ -4770,11 +4771,13 @@ private function lxc_is_running(string $lxc_name): bool
      **/
     private function create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox,$instancePath) {
         $uuid=$deviceInstance['uuid'];
-
-        $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
-            "image" => $deviceInstance['device']['operatingSystem']['name'],
-            'instance' => $deviceInstance['uuid']
-        ]);
+        $lxc_is_already_running=$this->lxc_is_running($uuid);
+        if (  $lxc_is_already_running === false ) {
+            $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
+                "image" => $deviceInstance['device']['operatingSystem']['name'],
+                'instance' => $deviceInstance['uuid']
+            ]);
+        }
         $error=false;
         if (!$this->lxc_exist($uuid)) {
             //$this->lxc_clone("Service",$uuid);
@@ -4863,9 +4866,11 @@ private function lxc_is_running(string $lxc_name): bool
             $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');    
             
             if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-                $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                    'instance' => $deviceInstance['uuid']
-                    ]);
+                    if ( $lxc_is_already_running === false ) {   
+                        $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                    }
                 OVS::portList($bridgeName,$this->logger);
                 if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {
                     $this->logger->info("LXC container is configured with IP:".$ip_addr, InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4874,9 +4879,11 @@ private function lxc_is_running(string $lxc_name): bool
                 }
 
                 if ($this->remote_access_start($deviceInstance,$sandbox)["error"]===false) {
-                    $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
-                        'instance' => $deviceInstance['uuid']
-                        ]);
+                    if ( $lxc_is_already_running === false ) {   
+                        $this->logger->info("Remote access process started", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                            ]);
+                    }
 
                 } else {
                     $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -5040,7 +5047,7 @@ private function lxc_is_running(string $lxc_name): bool
         switch ($status) {
             case 'active':
                 $this->logger->info(
-                    '[InstanceManager:start_systemd_ttyd]::ttyd service already running',InstanceLogMessage::SCOPE_PRIVATE,
+                    'ttyd service already running',InstanceLogMessage::SCOPE_PRIVATE,
                     [   'instance' => $uuid,
                         'unit' => $unitName
                     ]
