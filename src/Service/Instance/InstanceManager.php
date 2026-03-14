@@ -1463,25 +1463,25 @@ private function lxc_is_running(string $lxc_name): bool
 
             $result = null;
 
-            // Commande originale
-            $lxcCommand = [
-                'lxc-start',
-                '-n', $lxc_name,
-                '-f', $template
-            ];
-
             // Wrapper avec systemd-run pour isoler complètement
             $command = [
                 'systemd-run',
-                '--scope',
                 '--unit=lxc-' . $lxc_name,
-                '--description=LXC_Container_' . $lxc_name.'"',
                 '--slice=remotelabz-worker-containers.slice',
+                '--property=Restart=no',
+                '--property=KillMode=process',
+                '--property=Delegate=yes',
+                '--collect',
+                '--description=LXC_Container_' . $lxc_name,
                 '--'
             ];
             
-            $fullCommand = array_merge($command, $lxcCommand);
-
+            $fullCommand = array_merge($command, [
+                'lxc-start',
+                '-n', $lxc_name,
+                '-f', $template,
+                "--foreground"
+            ]);
             $this->logger->debug("[InstanceManager:lxc_start]::Starting LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
                 "command" => implode(' ', $fullCommand),
                 "instance" => $lxc_name

@@ -3,5 +3,3 @@ Description=RemoteLabz Containers Slice
 Before=slices.target
 Requires=remotelabz-worker.slice
 
-[Slice]
-Slice=remotelabz-worker.slice
