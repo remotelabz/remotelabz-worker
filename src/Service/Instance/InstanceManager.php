@@ -449,7 +449,7 @@ class InstanceManager extends AbstractController
         //$this->logger->setUuid($uuid);
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
         
-        $this->logger->debug("[InstanceManager:startDeviceInstance]::Received JSON:".json_encode($labInstance, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)." []");
+        //$this->logger->debug("[InstanceManager:startDeviceInstance]::Received JSON:".json_encode($labInstance, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)." []");
 
         if (!is_array($labInstance)) {
             // invalid json
