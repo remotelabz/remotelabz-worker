@@ -531,10 +531,14 @@ class InstanceManager extends AbstractController
         
 
         if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
-            if (!array_key_exists("state",$result["options"])) { //Already exist
+            if (!is_null($result["options"]) && !array_key_exists("state",$result["options"])) { //Already exist
                 $this->logger->info("Device started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                 ]);
+            } else {
+                /*$this->logger->info("Device already started", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $deviceInstance['uuid']
+                ]);*/
             }
         }
         else {
@@ -573,13 +577,13 @@ class InstanceManager extends AbstractController
             //'controlProtocolTypeInstances' => $deviceInstance['controlProtocolTypeInstances']
             ]);
             
-            $this->logger->debug("Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:remote_access_start]::Starting ttyd process...", InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $deviceInstance['uuid']
                 ]);
             $remote_interface=$this->getParameter('app.network.data.interface');
             $error=$this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"login");
             if ($error===false) {
-                $this->logger->debug("ttyd process started for login", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->debug("[InstanceManager:remote_access_start]::ttyd process started for login", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
             }
@@ -595,7 +599,7 @@ class InstanceManager extends AbstractController
         }
         $result["error"]=$result["error"] || $error;
         
-        $this->logger->debug("State after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:remote_access_start]::State after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -609,19 +613,19 @@ class InstanceManager extends AbstractController
             array_push($result["arg"],'-chardev','socket,id=serial0,server=on,telnet=on,port='.($new_free_port).',host=127.0.0.1,wait=off');
             array_push($result["arg"],'-serial','chardev:serial0');
 
-            $this->logger->debug("Starting ttyd process for serial access...", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:remote_access_start]::Starting ttyd process for serial access...", InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $deviceInstance['uuid']
                 ]);
             $remote_interface=$this->getParameter('app.network.data.interface');
             $error=$this->ttyd_start($deviceInstance['uuid'],$remote_interface,$remote_port,$sandbox,"serial",$new_free_port);
 
             if ($error===false) {
-                $this->logger->debug("Ttyd process started for serial", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->debug("[InstanceManager:remote_access_start]::ttyd process started for serial", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
             }
             else {
-                $this->logger->error("Ttyd starting process in error for serial!", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->error("ttyd starting process in error for serial!", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid'],
                     'error' => $error
                     ]);
@@ -633,7 +637,7 @@ class InstanceManager extends AbstractController
 
         $result["error"]=$result["error"] || $error;
 
-        $this->logger->debug("State after ttyd for serial", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:remote_access_start]::State after ttyd for serial", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -645,18 +649,18 @@ class InstanceManager extends AbstractController
             ]);
             $vncAddress = "0.0.0.0";
 
-            $this->logger->debug("Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:remote_access_start]::Starting websockify process...", InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $deviceInstance['uuid']
                 ]);
             
             $error=$this->websockify_start($deviceInstance['uuid'],$vncAddress,$vncPort);
             if ($error===true)
-                $this->logger->debug("websockify doesn't start", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug("[InstanceManager:remote_access_start]::websockify doesn't start", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid'],
                     'result-error' => $error
                 ]);
             else {
-                $this->logger->debug("websockify started", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->debug("[InstanceManager:remote_access_start]::websockify started", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid'],
                     'result-error' => $error
                 ]);
@@ -665,7 +669,7 @@ class InstanceManager extends AbstractController
         }
         $result["error"]=$result["error"] || $error;
 
-        $this->logger->debug("State after websockify", InstanceLogMessage::SCOPE_PRIVATE, [
+        $this->logger->debug("[InstanceManager:remote_access_start]::State after websockify", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
             'result-error' => $result["error"]
         ]);
@@ -1119,10 +1123,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         //$this->logger->debug("LXC container $name existence testing. Process return:".$exist, InstanceLogMessage::SCOPE_PRIVATE);
         
         if ($exist) {
-            $this->logger->debug("The LXC container $name exists", InstanceLogMessage::SCOPE_PRIVATE);
+            $this->logger->debug("[InstanceManager:lxc_exist]::The LXC container $name exists", InstanceLogMessage::SCOPE_PRIVATE);
         }
         else {
-            $this->logger->debug("The LXC container $name doesn't exist", InstanceLogMessage::SCOPE_PRIVATE);
+            $this->logger->debug("[InstanceManager:lxc_exist]::The LXC container $name doesn't exist", InstanceLogMessage::SCOPE_PRIVATE);
         }
 
         return $exist;
@@ -1413,6 +1417,26 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
 
+private function lxc_is_running(string $lxc_name): bool
+{
+    $checkCommand = ['lxc-info', '-n', $lxc_name, '-s'];
+    $checkProcess = new Process($checkCommand);
+    $checkProcess->run();
+
+    if (strpos($checkProcess->getOutput(), 'RUNNING')) {
+        $this->logger->debug("[InstanceManager:lxc_is_running]::LXC ".$lxc_name." is running.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "instance" => $lxc_name
+            ]);
+        return true;
+    }
+    else {
+        $this->logger->debug("[InstanceManager:lxc_is_running]::LXC ".$lxc_name." is not running.", InstanceLogMessage::SCOPE_PRIVATE, [
+                "instance" => $lxc_name
+            ]);
+        return false;
+    }
+}
+
     /**
      * Function to start lxc
      * @param array $parameters Array of all parameters to the command qemu.
@@ -1422,11 +1446,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_start(string $lxc_name, string $template): ?array
     {
-        $checkCommand = ['lxc-info', '-n', $lxc_name, '-s'];
-        $checkProcess = new Process($checkCommand);
-        $checkProcess->run();
-
-        if (strpos($checkProcess->getOutput(), 'RUNNING') !== false) {
+        if ( $this->lxc_is_running($lxc_name) === true ) {
             $this->logger->info("LXC container is already running.", 
                 InstanceLogMessage::SCOPE_PRIVATE, [
                     "lxc_name" => $lxc_name,
@@ -1439,7 +1459,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 "options" => null
             ];
         } else {
-
 
             $result = null;
 
@@ -4749,7 +4768,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      *     "uuid" => $deviceInstance['uuid'],
      *     "options" => null)
      **/
-    private function create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox,$instancePath){
+    private function create_lxc_device($deviceInstance,$bridgeName,$labNetwork,$gateway,$sandbox,$instancePath) {
         $uuid=$deviceInstance['uuid'];
 
         $this->logger->info('LXC container is starting', InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4812,9 +4831,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $first_ip=$labNetwork->getFirstAddress();
             $last_ip=long2ip(ip2long($labNetwork->getLastAddress())-1);
             $end_range=long2ip(ip2long($labNetwork->getLastAddress())-2);
-            $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
+            $lxc_is_running_return=$this->lxc_is_running($uuid);
+            if (!$lxc_is_running_return) {
+                $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $deviceInstance['uuid']
                 ]);
+            }
             $org_file='template.txt';
             if ($deviceInstance["device"]["operatingSystem"]["name"] === "Service") {                
                 $ip_addr=long2ip(ip2long($labNetwork->getLastAddress())-1);
@@ -4837,8 +4859,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                 //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
             }
-
-            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');
+            
+            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');    
             
             if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                 $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -4856,7 +4878,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                         'instance' => $deviceInstance['uuid']
                         ]);
 
-                    } else {
+                } else {
                     $this->logger->error("Remote access process failed", InstanceLogMessage::SCOPE_PUBLIC, [
                         'instance' => $deviceInstance['uuid']
                         ]);
@@ -4880,6 +4902,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                     "options" => null);
             }
         }
+        $this->logger->debug("[InstanceManager:create_lxc_device]::return value", InstanceLogMessage::SCOPE_PRIVATE, [
+                'return' => $result
+                ]);
+
         return $result;
     }
 
