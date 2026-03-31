@@ -688,7 +688,7 @@ public function websockify_start($uuid, $IpAddress, $Port): bool
     if ($this->getParameter('app.services.proxy.wss')) {
 
         $this->logger->debug(
-            "Websocket use wss",
+            "[InstanceManager:websockify_start]::Websocket use wss",
             InstanceLogMessage::SCOPE_PRIVATE,
             ['instance' => $uuid]
         );
@@ -711,7 +711,7 @@ public function websockify_start($uuid, $IpAddress, $Port): bool
     ], $websockifyCommand);
 
     $this->logger->debug(
-        "Starting websockify: ".implode(' ', $command),
+        "[InstanceManager:websockify_start]::Starting websockify: ".implode(' ', $command),
         InstanceLogMessage::SCOPE_PRIVATE,
         ['instance' => $uuid]
     );
