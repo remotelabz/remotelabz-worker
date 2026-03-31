@@ -683,6 +683,22 @@ class InstanceManager extends AbstractController
 public function websockify_start($uuid, $IpAddress, $Port): bool
 {
     $unitName = "websockify-$uuid";
+
+    $status = $this->check_systemd_unit($unitName);
+    if ($status === 'active') {
+        $this->logger->info(
+            "[InstanceManager:websockify_start]::Websockify already running, skipping start",
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance' => $uuid, 'unit' => $unitName]
+        );
+        return false; // pas d'erreur, déjà actif
+    }
+
+    // Si en état 'failed', on le stoppe d'abord pour pouvoir le relancer proprement
+    if ($status === 'failed') {
+        $this->websockify_stop($uuid);
+    }
+
     $websockifyCommand = ['websockify'];
 
     if ($this->getParameter('app.services.proxy.wss')) {
@@ -768,6 +784,46 @@ public function websockify_start($uuid, $IpAddress, $Port): bool
 
     return false;
 }
+
+/**
+ * Stop websockify service for a given instance uuid.
+ */
+public function websockify_stop(string $uuid): void
+{
+    $unitName = "websockify-$uuid";
+    $status = $this->check_systemd_unit($unitName);
+
+    $this->logger->debug(
+        "[InstanceManager:websockify_stop]::Websockify status?",
+        InstanceLogMessage::SCOPE_PRIVATE,
+        ['instance' => $uuid, 'status' => $status]
+    );
+
+    if (in_array($status, ['active', 'activating', 'failed'])) {
+        $process = new Process(['systemctl', 'stop', $unitName]);
+        try {
+            $process->mustRun();
+            $this->logger->info(
+                "[InstanceManager:websockify_stop]::Websockify stopped",
+                InstanceLogMessage::SCOPE_PRIVATE,
+                ['instance' => $uuid]
+            );
+        } catch (ProcessFailedException $exception) {
+            $this->logger->error(
+                "[InstanceManager:websockify_stop]::Failed to stop websockify: " . $exception->getMessage(),
+                InstanceLogMessage::SCOPE_PRIVATE,
+                ['instance' => $uuid]
+            );
+        }
+    } else {
+        $this->logger->debug(
+            "[InstanceManager:websockify_stop]::Websockify not running, nothing to stop",
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance' => $uuid]
+        );
+    }
+}
+
 
  /**
  * @return true if error, false otherwise
@@ -3286,9 +3342,21 @@ private function lxc_is_running(string $lxc_name): bool
                         "uuid" => $uuid,
                         "options" => null
                     );
-                if ($this->isSerial($deviceInstance))
+                // Stop ttyd (login)
+                if ($this->isLogin($deviceInstance)) {
                     $this->ttyd_stop($uuid);
                 }
+
+                // Stop ttyd (serial)
+                if ($this->isSerial($deviceInstance)) {
+                    $this->ttyd_stop($uuid);
+                }
+
+                // Stop websockify (VNC)
+                if ($this->isVNC($deviceInstance)) {
+                    $this->websockify_stop($uuid);
+                }
+            }
             else {
                 $this->logger->info("QEMU VM doesn't stop - Error !", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $uuid]);
