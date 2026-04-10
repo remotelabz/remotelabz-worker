@@ -972,7 +972,7 @@ else
 fi
 
 debug "Downloading Composer packages"
-(cd "${SCRIPTPATH}" && composer install)
+(cd "${SCRIPTPATH}" && composer install --prefer-dist)
 chown -R remotelabz-worker:remotelabz-worker "${SCRIPTPATH}"/vendor
 chmod -R 777 "${SCRIPTPATH}"/vendor
 success "Composer packages ✔️"
