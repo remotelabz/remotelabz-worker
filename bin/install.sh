@@ -259,6 +259,7 @@ function configure_env_local() {
   echo "6. Data Network Configuration"
   echo "─────────────────────────────────────────"
   echo "Network used for VM communications"
+  echo "If you have only one network interface, this data network will not use"
   echo ""
   
   local current_data_net=$(grep "^DATA_NETWORK=" "${env_file}" | cut -d'=' -f2)
@@ -876,7 +877,7 @@ apt-get update
 apt-get install -y software-properties-common
 add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y ntp apache2 php8.4 php8.4-ssh2 zip unzip qemu-system-x86 qemu-system-arm qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.4-xml php8.4-curl php8.4-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect pamtester
+apt-get install -y apache2 php8.4 php8.4-ssh2 zip unzip qemu-system-x86 qemu-system-arm qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.4-xml php8.4-curl php8.4-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect pamtester
 a2dismod php8.1 php8.2 php8.3 || true
 
 phpenmod -v 8.4 dom
