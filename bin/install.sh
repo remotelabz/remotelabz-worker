@@ -1033,9 +1033,9 @@ cp -f "${SCRIPTPATH}"/config/logrotate/remotelabz-worker /etc/logrotate.d
 success "Logrotate configured ✔️"
 
 debug "Setup remotelabz service"
-ln -fs "${SCRIPTPATH}"/bin/remotelabz-worker.service /etc/systemd/system/remotelabz-worker.service
-ln -fs "${SCRIPTPATH}"/bin/remotelabz-cache.service /etc/systemd/system/remotelabz-cache.service
-ln -fs "${SCRIPTPATH}"/bin/remotelabz-cache.timer /etc/systemd/system/remotelabz-cache.timer
+ln -fs "${SCRIPTPATH}"/bin/systemd/remotelabz-worker.service /etc/systemd/system/remotelabz-worker.service
+ln -fs "${SCRIPTPATH}"/bin/systemd/remotelabz-cache.service /etc/systemd/system/remotelabz-cache.service
+ln -fs "${SCRIPTPATH}"/bin/systemd/remotelabz-cache.timer /etc/systemd/system/remotelabz-cache.timer
 systemctl daemon-reload
 systemctl enable remotelabz-worker.service
 systemctl enable remotelabz-cache.timer
