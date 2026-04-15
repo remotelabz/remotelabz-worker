@@ -958,17 +958,15 @@ debug "Downloading bundles"
 mkdir -p "$SCRIPTPATH/lib"
 
 if [ ! -d "$SCRIPTPATH/lib/network-bundle" ]; then
-  git clone https://github.com/remotelabz/network-bundle.git --branch Upgrade-2.5 "$SCRIPTPATH/lib/network-bundle"
-else 
-  cd "$SCRIPTPATH/lib/network-bundle" && git pull
-  cd "$SCRIPTPATH"
+  git clone https://github.com/remotelabz/network-bundle.git "$SCRIPTPATH/lib/network-bundle"
+  git -C "$SCRIPTPATH/lib/network-bundle" fetch --tags
+  git -C "$SCRIPTPATH/lib/network-bundle" checkout 1.0.4
 fi
 
 if [ ! -d "$SCRIPTPATH/lib/remotelabz-message-bundle" ]; then
-  git clone https://github.com/remotelabz/remotelabz-message-bundle.git --branch Upgrade-2.5  "$SCRIPTPATH/lib/remotelabz-message-bundle"
-else 
-  cd "$SCRIPTPATH/lib/network-bundle" && git pull
-  cd "$SCRIPTPATH"
+  git clone https://github.com/remotelabz/remotelabz-message-bundle.git "$SCRIPTPATH/lib/remotelabz-message-bundle"
+  git -C "$SCRIPTPATH/lib/remotelabz-message-bundle" fetch --tags
+  git -C "$SCRIPTPATH/lib/remotelabz-message-bundle" checkout 1.0.6
 fi
 
 debug "Downloading Composer packages"
