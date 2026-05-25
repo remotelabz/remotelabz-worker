@@ -4561,7 +4561,7 @@ private function lxc_is_running(string $lxc_name): bool
                 else
                     $cdrom_bus_type='ide';
 
-                array_push($parameters["cdrom"],'-boot','d','-drive','file='.$isoDst.',if='.$cdrom_bus_type.',media=cdrom,bootindex=1');                
+                array_push($parameters["cdrom"],'-boot','d','-drive','file='.$isoDst.',if='.$cdrom_bus_type.',media=cdrom');                
             } catch (\Exception $exception) {
                 $this->logger->error("[InstanceManager:create_qemu_device]::Cannot start device without ISO file!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid'],
