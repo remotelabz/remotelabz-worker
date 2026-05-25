@@ -915,10 +915,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $process->mustRun();
             $result=true;
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("QEMU commit error ! ".$exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->error("[InstanceManager:qemu_create_relative_img]::QEMU commit error ! ".$exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
                 'instance' => $uuid
                 ]);
-            $this->logger->error("QEMU commit error !", InstanceLogMessage::SCOPE_PUBLIC, [
+            $this->logger->error("[InstanceManager:qemu_create_relative_img]::QEMU commit error !", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $uuid
                     ]);
             $result=false;
@@ -4407,14 +4407,14 @@ private function lxc_is_running(string $lxc_name): bool
             try {
                 $process->mustRun();
                 
-                $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info("[InstanceManager:create_Blank_Disk]::Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
                     'image' => $imagePath . ".qcow2",
                     'size' => $size . 'G',
                     'instance' => $uuid
                 ]);
                 
             } catch (ProcessFailedException $exception) {
-                $this->logger->error("Failed to create blank disk image! " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->error("[InstanceManager:create_Blank_Disk]::Failed to create blank disk image! " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
                     'image' => $imagePath,
                     'size' => $size,
                     'error' => $exception->getMessage(),
@@ -4426,8 +4426,8 @@ private function lxc_is_running(string $lxc_name): bool
             }
         }
         else {
-            $this->logger->debug("Blank disk already exist", InstanceLogMessage::SCOPE_PUBLIC, [
-                    'image' => $imagePath . ".qcow2",
+            $this->logger->debug("[InstanceManager:create_Blank_Disk]::Blank disk already exist", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'image' => $imagePath,
                     'size' => $size . 'G',
                     'instance' => $uuid
                 ]);
@@ -4440,7 +4440,7 @@ private function lxc_is_running(string $lxc_name): bool
 
         // Check if image already exists in cache
         if (!$filesystem->exists($image_dst)) {
-            $this->logger->info('Remote image is not in cache. Try to downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+            $this->logger->info('[InstanceManager:download_image]::Remote image is not in cache. Try to downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
                 'image' => $image_src,
                 'instance' => $deviceInstance['uuid']
             ]);
@@ -4469,19 +4469,19 @@ private function lxc_is_running(string $lxc_name): bool
 
             // Check if destination image exists
             if (!$filesystem->exists($img['destination'])) {
-                $this->logger->info('VM never started. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info('[InstanceManager:download_image]::VM never started. Creating new image from source...', InstanceLogMessage::SCOPE_PUBLIC, [
                     'source' => $img['source'],
                     'destination' => $img['destination'],
                     'instance' => $deviceInstance['uuid']
                 ]);
 
                 if ($this->qemu_create_relative_img($img['source'], $img['destination'], $deviceInstance['uuid'])) {
-                    $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                    $this->logger->info('[InstanceManager:download_image]::VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
                         'path' => $img['destination'],
                         'instance' => $deviceInstance['uuid']
                     ]);
                 } else {
-                    $this->logger->error('VM image creation in error.', InstanceLogMessage:: SCOPE_PUBLIC, [
+                    $this->logger->error('[InstanceManager:download_image]::VM image creation in error.', InstanceLogMessage:: SCOPE_PUBLIC, [
                         'path' => $img['destination'],
                         'instance' => $deviceInstance['uuid']
                     ]);
@@ -4554,15 +4554,16 @@ private function lxc_is_running(string $lxc_name): bool
                 
             try {
 
+                // TODO Verify when download failed
                 $this->download_iso($deviceInstance['uuid'], $deviceInstance['isoFilename'], $isoDst);
                 if (array_key_exists('cdrom_bus_type',$deviceInstance['device']) && $deviceInstance['device']['cdrom_bus_type'])
                     $cdrom_bus_type=strtolower($deviceInstance['device']['cdrom_bus_type']);
                 else
                     $cdrom_bus_type='ide';
 
-                array_push($parameters["cdrom"],'-boot','d','-drive','file='.$isoDst.',if='.$cdrom_bus_type.',media=cdrom');                
+                array_push($parameters["cdrom"],'-boot','d','-drive','file='.$isoDst.',if='.$cdrom_bus_type.',media=cdrom,bootindex=1');                
             } catch (\Exception $exception) {
-                $this->logger->error("Cannot start device without ISO file!", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->error("[InstanceManager:create_qemu_device]::Cannot start device without ISO file!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid'],
                     'error' => $exception->getMessage()
                 ]);
@@ -4575,6 +4576,7 @@ private function lxc_is_running(string $lxc_name): bool
             }
 
             try {
+                // TODO : if blank disk exist or not, error or not ?
                 $this->create_Blank_Disk(
                     $deviceInstance['device']['operatingSystem']['image'],
                     $deviceInstance['device']['operatingSystem']['flavorDisk']['disk'],
@@ -4602,26 +4604,34 @@ private function lxc_is_running(string $lxc_name): bool
             }
         
             $img_rel_dst=$instancePath."/".$deviceInstance['device']['operatingSystem']['image'];
-            if ($this->qemu_create_relative_img(
-                    $image_dst,
-                    $img_rel_dst,
-                    $deviceInstance['uuid'])
-                ) {
-                $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
-                        'path' => $img_rel_dst,
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                } else {
-                    $this->logger->error('VM image creation in error.', InstanceLogMessage:: SCOPE_PUBLIC, [
-                        'path' => $instancePath,
-                        'instance' => $deviceInstance['uuid']
-                    ]);
-                    return array(
-                        "state" => InstanceStateMessage::STATE_ERROR,
-                        "uuid" => $deviceInstance['uuid'],
-                        "options" => null
-                    );
-                }
+            $filesystem = new Filesystem();
+            if (!$filesystem->exists($img_rel_dst)) {
+                if ($this->qemu_create_relative_img(
+                        $image_dst,
+                        $img_rel_dst,
+                        $deviceInstance['uuid'])
+                    ) {
+                    $this->logger->info('VM image created.', InstanceLogMessage::SCOPE_PUBLIC, [
+                            'path' => $img_rel_dst,
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                    } else {
+                        $this->logger->error('VM image creation in error.', InstanceLogMessage:: SCOPE_PUBLIC, [
+                            'path' => $instancePath,
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                        return array(
+                            "state" => InstanceStateMessage::STATE_ERROR,
+                            "uuid" => $deviceInstance['uuid'],
+                            "options" => null
+                        );
+                    }
+            } else {
+                $this->logger->debug('[InstanceManager:create_qemu_device]::Relative image already exists (ISO boot)', InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $deviceInstance['uuid'],
+                    'path' => $img_rel_dst
+                ]);
+            }
         } else {
             //Case not to boot on ISO
             $image_dst = $this->kernel->getProjectDir() . "/images/" . basename($image_src);
@@ -4777,14 +4787,14 @@ private function lxc_is_running(string $lxc_name): bool
             //$this->logger->debug("param access:".$param);
             }
     
-            $this->logger->debug("Virtual machine will be start with these parameters", InstanceLogMessage::SCOPE_PRIVATE, [
+            $this->logger->debug("[InstanceManager:create_qemu_device]::Virtual machine will be start with these parameters", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $deviceInstance['uuid'],
                     'parameters' => $parameters
                     ]);
 
             $qemu_start_return=$this->qemu_start($parameters,$deviceInstance['uuid']);
             if ($qemu_start_return===0) {
-                $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info("[InstanceManager:create_qemu_device]::Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 
@@ -4796,7 +4806,7 @@ private function lxc_is_running(string $lxc_name): bool
             }
 
             elseif ($qemu_start_return===2) {
-                $this->logger->error("Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->error("[InstanceManager:create_qemu_device]::Virtual machine QEMU doesn't start !", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 $result=array(
@@ -4987,78 +4997,164 @@ private function lxc_is_running(string $lxc_name): bool
 
     /**
      * Download an ISO file from the front server
-     * 
-     * @param string $uuid of the instance for log and message
-     * @param string $isoFilename the filename of the iso (no path)
-     * @param string $destination the ISO file with is full path
-     * * @throws \Exception When download fails
+     * Supports HTTP Range-based resume on failure
+     *
+     * @param string $uuid        of the instance for log and message
+     * @param string $isoSource   the filename of the iso (no path) or full URL
+     * @param string $destination the ISO file with its full path
+     * @throws \Exception When download fails after all retries
      * @return void
      */
-    private function download_iso($uuid,$isoSource, $destination) {
+    private function download_iso($uuid, $isoSource, $destination) {
         $filesystem = new Filesystem();
-               
-         // Determine the filename from source (URL or filename)
-        $isoFilename = basename($isoSource);
 
-        // Check if ISO already exists in cache
+        $isoFilename = basename($isoSource);
+        
+        $partialPath = $destination . '.part';
+
+
+        // Already fully downloaded
         if ($filesystem->exists($destination)) {
-            $this->logger->debug('ISO file already exists in cache.', InstanceLogMessage::SCOPE_PRIVATE, [
-                'iso' => $isoFilename,
-                'path' => $destination,
-                "instance" => $uuid
+            $this->logger->debug('[InstanceManager:download_iso]::ISO file already exists in cache.', InstanceLogMessage::SCOPE_PRIVATE, [
+                'iso'      => $isoFilename,
+                'path'     => $destination,
+                'instance' => $uuid,
             ]);
             return;
         }
-        
-        $this->logger->info('ISO file is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
-            'iso' => $isoFilename,
-            'isoSource' => $isoSource,
-            'path' => $destination,
-            "instance" => $uuid
-        ]);
-        
 
-        if (filter_var($isoSource, FILTER_VALIDATE_URL)) {
-            $url = $isoSource;
-            $this->logger->debug('[InstanceManager:download_iso]::Download ISO from external URL: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
-                'destination' => $destination,
-                "instance" => $uuid
-            ]);
-        } else {
-            $url = "https://" . $this->front_ip . "/uploads/iso/" . $isoFilename;
-            $this->logger->debug('[InstanceManager:download_iso]::Download ISO from front server: ' . $url, InstanceLogMessage::SCOPE_PRIVATE, [
-                'destination' => $destination,
-                "instance" => $uuid
-            ]);
-        }
-        
-        // Download ISO file
-        $download_ok = $this->download_http_image($url, $uuid,"iso");
-        
-        if (!$download_ok) {
-            $this->logger->error("Download ISO file failed!", InstanceLogMessage::SCOPE_PUBLIC, [
-                'iso' => $isoFilename,
-                'url' => $url,
-                "instance" => $uuid
-            ]);
-            
-            // Clean up partial download if exists
-            if ($filesystem->exists($destination."/".$isoFilename)) {
-                $filesystem->remove($destination."/".$isoFilename);
-                $this->logger->debug('[InstanceManager:download_iso]::Partial ISO file removed.', InstanceLogMessage::SCOPE_PRIVATE, [
-                    'path' => $destination,
-                    'instance' => $uuid
+        $url = filter_var($isoSource, FILTER_VALIDATE_URL)
+            ? $isoSource
+            : "https://{$this->front_ip}/uploads/iso/{$isoFilename}";
+
+        $this->logger->info('[InstanceManager:download_iso]::ISO file is not in cache. Downloading...', InstanceLogMessage::SCOPE_PUBLIC, [
+            'iso'       => $isoFilename,
+            'isoSource' => $url,
+            'path'      => $destination,
+            'instance'  => $uuid,
+        ]);
+
+        $maxRetries  = 3;
+        $attempt     = 0;
+        $success     = false;
+
+        while ($attempt < $maxRetries && !$success) {
+            $attempt++;
+            $resumeOffset = $filesystem->exists($partialPath) ? filesize($partialPath) : 0;
+
+            if ($resumeOffset > 0) {
+                $this->logger->info("[InstanceManager:download_iso]::Resuming download from byte {$resumeOffset} (attempt {$attempt}/{$maxRetries}).", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso'      => $isoFilename,
+                    'instance' => $uuid,
+                ]);
+            } else {
+                $this->logger->debug("[InstanceManager:download_iso]::Starting download attempt {$attempt}/{$maxRetries}.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso'      => $isoFilename,
+                    'instance' => $uuid,
                 ]);
             }
-            
-            throw new \Exception("ISO download failed for device: " . $uuid);
+
+            $success = $this->download_with_range($url, $partialPath, $resumeOffset, $uuid);
+
+            if (!$success) {
+                $this->logger->warning("[InstanceManager:download_iso]::Download attempt {$attempt} failed. " . ($attempt < $maxRetries ? "Retrying..." : "No more retries."), InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso'      => $isoFilename,
+                    'instance' => $uuid,
+                ]);
+            }
         }
-        
-        $this->logger->info('ISO file downloaded successfully.', InstanceLogMessage::SCOPE_PUBLIC, [
-            'iso' => $isoFilename,
-            'path' => $destination,
-            'instance' => $uuid
+
+        if (!$success) {
+            // Clean up partial file
+            if ($filesystem->exists($partialPath)) {
+                $filesystem->remove($partialPath);
+                $this->logger->debug('[InstanceManager:download_iso]::Partial ISO file removed after all retries failed.', InstanceLogMessage::SCOPE_PRIVATE, [
+                    'path'     => $partialPath,
+                    'instance' => $uuid,
+                ]);
+            }
+
+            $this->logger->error('[InstanceManager:download_iso]::Download ISO file failed after all retries!', InstanceLogMessage::SCOPE_PUBLIC, [
+                'iso'      => $isoFilename,
+                'url'      => $url,
+                'instance' => $uuid,
+            ]);
+
+            throw new \Exception("[InstanceManager:download_iso]::ISO download failed for device: " . $uuid);
+        }
+
+        // Rename .part → final file once complete
+        $filesystem->rename($partialPath, $destination);
+
+        $this->logger->info('[InstanceManager:download_iso]::ISO file downloaded successfully.', InstanceLogMessage::SCOPE_PUBLIC, [
+            'iso'      => $isoFilename,
+            'path'     => $destination,
+            'instance' => $uuid,
         ]);
+    }
+
+    /**
+     * Download (or resume) a file using HTTP Range requests.
+     *
+     * @param string $url          Source URL
+     * @param string $partialPath  Local path for the .part file
+     * @param int    $offset       Byte offset to resume from (0 = fresh start)
+     * @param string $uuid         For logging
+     * @return bool True on success
+     */
+    private function download_with_range(string $url, string $partialPath, int $offset, string $uuid): bool {
+        $headers = [];
+
+        if ($offset > 0) {
+            $headers[] = "Range: bytes={$offset}-";
+        }
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_FAILONERROR    => true,
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_LOW_SPEED_LIMIT => 1024,        // 1 KB/s minimum
+            CURLOPT_LOW_SPEED_TIME  => 60,          // abort if under limit for 60s
+        ]);
+
+        if (!empty($headers)) {
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        }
+
+        // Open file in append mode if resuming, write mode otherwise
+        $mode = $offset > 0 ? 'ab' : 'wb';
+        $fp   = fopen($partialPath, $mode);
+
+        if ($fp === false) {
+            $this->logger->error('[InstanceManager:download_with_range]::Cannot open partial file for writing.', InstanceLogMessage::SCOPE_PRIVATE, [
+                'path'     => $partialPath,
+                'instance' => $uuid,
+            ]);
+            curl_close($ch);
+            return false;
+        }
+
+        curl_setopt($ch, CURLOPT_FILE, $fp);
+
+        curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error    = curl_error($ch);
+
+        curl_close($ch);
+        fclose($fp);
+
+        // 200 (fresh) or 206 (partial content / resume) are both valid
+        if ($error || !in_array($httpCode, [200, 206])) {
+            $this->logger->warning("[InstanceManager:download_with_range]::cURL failed. HTTP {$httpCode}: {$error}", InstanceLogMessage::SCOPE_PRIVATE, [
+                'url'      => $url,
+                'instance' => $uuid,
+            ]);
+            return false;
+        }
+
+        return true;
     }
 
     public function deleteISO(string $descriptor){
