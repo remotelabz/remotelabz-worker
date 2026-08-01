@@ -1026,7 +1026,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
             -e \"s/MEM-MAX/".$memory."/g\" \
             -e \"s/NUM-CPU/".$cpuset."/g\" \
-            -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
+            -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" \
+            -e \"s|DIR-ROOTFS|$instancePath/rootfs|g" ." ".$path." > ".$path."-new";
             
             $process = Process::fromShellCommandline($command);
             $this->logger->debug("[InstanceManager:build_template]::Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
@@ -2945,6 +2946,9 @@ private function lxc_is_running(string $lxc_name): bool
      * @return $error: true if error or false if no error
      */
     public function lxc_destroy(string $src_lxc_name){
+        // Remove the logical disk before destroying the container
+        $this->lxc_remove_disk($src_lxc_name);
+
         $error=null;
         $command = [
             'lxc-destroy',
@@ -2974,6 +2978,186 @@ private function lxc_is_running(string $lxc_name): bool
                 'instance' => $src_lxc_name]);
 
         return $error;
+    }
+
+    /**
+     * Setup LVM logical disk for an LXC container
+     * Creates a logical volume and mounts it as the rootfs to isolate data
+     *
+     * @param string $uuid UUID of the LXC container
+     * @param array $deviceInstance Device instance configuration
+     * @param string $instancePath Path to the instance directory
+     * @return void
+     */
+    private function lxc_setup_disk(string $uuid, array $deviceInstance, string $instancePath): void
+    {
+        try {
+            $lvmVolumeGroup = 'vg0';
+            $lvmSize = '10G';
+
+            if (isset($deviceInstance['device']['flavor']['disk'])) {
+                $lvmSize = $deviceInstance['device']['flavor']['disk'] . 'G';
+            }
+
+            $lvmName = 'lxc_' . $uuid;
+
+            $this->logger->info("Creating LVM logical disk for LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+                'uuid' => $uuid,
+                'volume_name' => $lvmName,
+                'size' => $lvmSize,
+            ]);
+
+            $VG_CHECK = Process::fromShellCommandline("sudo vgexists $lvmVolumeGroup 2>/dev/null || sudo vgs $lvmVolumeGroup >/dev/null 2>&1");
+            $VG_CHECK->run();
+
+            if (!$VG_CHECK->isSuccessful()) {
+                $this->logger->warning("Volume group $lvmVolumeGroup not found, skipping LVM disk setup", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'uuid' => $uuid,
+                ]);
+                return;
+            }
+
+            $LV_EXISTS = Process::fromShellCommandline("sudo lvs $lvmVolumeGroup/$lvmName >/dev/null 2>&1");
+            $LV_EXISTS->run();
+
+            if ($LV_EXISTS->isSuccessful()) {
+                $this->logger->info("Logical volume already exists for $uuid, skipping creation", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'uuid' => $uuid,
+                    'volume_name' => $lvmName,
+                ]);
+            } else {
+                $LV_CREATE_CMD = sprintf(
+                    'sudo lvcreate -l 100%%FREE -n %s %s',
+                    $lvmName,
+                    $lvmVolumeGroup
+                );
+                $process = Process::fromShellCommandline($LV_CREATE_CMD);
+                $process->setTimeout(120);
+                $process->run();
+
+                if (!$process->isSuccessful()) {
+                    throw new \Exception('Failed to create logical volume: ' . $process->getErrorOutput());
+                }
+
+                $this->logger->info("Logical volume created successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'uuid' => $uuid,
+                    'volume_name' => $lvmName,
+                ]);
+            }
+
+            $mountPoint = "$instancePath/rootfs";
+
+            $filesystem = new Filesystem();
+            if (!$filesystem->exists($mountPoint)) {
+                $filesystem->mkdir($mountPoint);
+            }
+
+            $MOUNT_CHECK = Process::fromShellCommandline("findmnt -n -o TARGET dev/mapper/{$lvmVolumeGroup}-{$lvmName} 2>/dev/null");
+            $MOUNT_CHECK->run();
+
+            if ($MOUNT_CHECK->isSuccessful() && trim($MOUNT_CHECK->getOutput()) !== '') {
+                $this->logger->info("Logical volume already mounted for $uuid, skipping mount", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'uuid' => $uuid,
+                ]);
+            } else {
+                $MOUNT_CMD = sprintf('sudo mount /dev/%s/%s %s', $lvmVolumeGroup, $lvmName, $mountPoint);
+                $mountProcess = Process::fromShellCommandline($MOUNT_CMD);
+                $mountProcess->setTimeout(60);
+                $mountProcess->run();
+
+                if (!$mountProcess->isSuccessful()) {
+                    $this->logger->warning("Failed to mount logical volume (container may still work with directory rootfs)", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'uuid' => $uuid,
+                        'error' => $mountProcess->getErrorOutput(),
+                    ]);
+                } else {
+                    $this->logger->info("Logical volume mounted successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'uuid' => $uuid,
+                        'mount_point' => $mountPoint,
+                    ]);
+                }
+            }
+
+            $OLD_ROOTFS = "$instancePath/rootfs.old";
+            $NEW_ROOTFS = "$instancePath/rootfs.new";
+
+            $filesystem = new Filesystem();
+            if ($filesystem->exists("$instancePath/rootfs")) {
+                $filesystem->rename("$instancePath/rootfs", $OLD_ROOTFS, true);
+                $filesystem->rename("$instancePath/rootfs.new", "$instancePath/rootfs", true);
+            }
+
+            $this->logger->info("LVM disk setup completed for container", InstanceLogMessage::SCOPE_PUBLIC, [
+                'uuid' => $uuid,
+                'volume_name' => $lvmName,
+                'size' => $lvmSize,
+                'mount_point' => $mountPoint,
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->error("Error setting up LVM disk for LXC container", InstanceLogMessage::SCOPE_PUBLIC, [
+                'uuid' => $uuid,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Remove LVM logical disk for an LXC container
+     * Unmounts and destroys the logical volume
+     *
+     * @param string $src_lxc_name Name of the LXC container
+     * @return void
+     */
+    private function lxc_remove_disk(string $src_lxc_name): void
+    {
+        try {
+            $lvmVolumeGroup = 'vg0';
+            $lvmName = 'lxc_' . $src_lxc_name;
+            $instancePath = "/var/lib/lxc/{$src_lxc_name}";
+            $mountPoint = "$instancePath/rootfs";
+
+            $this->logger->info("Removing LVM logical disk for LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+                'uuid' => $src_lxc_name,
+                'volume_name' => $lvmName,
+            ]);
+
+            $filesystem = new Filesystem();
+            if ($filesystem->exists($mountPoint)) {
+                $UNMOUNT_CMD = "sudo umount $mountPoint";
+                $umountProcess = Process::fromShellCommandline($UNMOUNT_CMD);
+                $umountProcess->setTimeout(60);
+                $umountProcess->run();
+
+                $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'uuid' => $src_lxc_name,
+                ]);
+            }
+
+            $LVREMOVE_CMD = sprintf(
+                'sudo lvremove -f %s/%s',
+                $lvmVolumeGroup,
+                $lvmName
+            );
+            $lvRemoveProcess = Process::fromShellCommandline($LVREMOVE_CMD);
+            $lvRemoveProcess->setTimeout(120);
+            $lvRemoveProcess->run();
+
+            if (!$lvRemoveProcess->isSuccessful()) {
+                $this->logger->warning("Failed to remove logical volume (may not exist)", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'uuid' => $src_lxc_name,
+                    'error' => $lvRemoveProcess->getErrorOutput(),
+                ]);
+            } else {
+                $this->logger->info("Logical volume removed successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'uuid' => $src_lxc_name,
+                ]);
+            }
+        } catch (\Exception $e) {
+            $this->logger->error("Error removing LVM disk for LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+                'uuid' => $src_lxc_name,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -4941,8 +5125,10 @@ private function lxc_is_running(string $lxc_name): bool
                 //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
             }
             
-            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');    
-            
+            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');
+
+            $this->lxc_setup_disk($uuid, $deviceInstance, $instancePath);
+
             if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                     if ( $lxc_is_already_running === false ) {   
                         $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
