@@ -3008,11 +3008,10 @@ private function lxc_is_running(string $lxc_name): bool
                 'size' => $lvmSize,
             ]);
 
-            $VG_CHECK = Process::fromShellCommandline("sudo vgdisplay $lvmVolumeGroup 2>/dev/null | awk '/Free  PE/ {print $NF}'");
+            $VG_CHECK = Process::fromShellCommandline('sudo vgs --noheadings -o vg_free_count ' . escapeshellarg($lvmVolumeGroup) . ' | tr -d " "');
             $VG_CHECK->run();
             $freePE = intval(trim($VG_CHECK->getOutput()));
-
-            if ($freePE <= 0) {
+            if ($freePE === 0) {
                 $this->logger->warning("No free PE in volume group $lvmVolumeGroup, skipping LVM disk setup", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $uuid,
                     'free_pe' => $freePE,
@@ -3020,7 +3019,9 @@ private function lxc_is_running(string $lxc_name): bool
                 return;
             }
 
-            $LV_EXISTS = Process::fromShellCommandline("sudo lvs $lvmVolumeGroup/$lvmName >/dev/null 2>&1");
+            $LV_EXISTS = Process::fromShellCommandline(
+                'sudo lvs ' . escapeshellarg($lvmVolumeGroup . '/' . $lvmName) . ' >/dev/null 2>&1'
+            );
             $LV_EXISTS->run();
 
             if ($LV_EXISTS->isSuccessful()) {
@@ -3030,10 +3031,10 @@ private function lxc_is_running(string $lxc_name): bool
                 ]);
             } else {
                 $LV_CREATE_CMD = sprintf(
-                    'sudo lvcreate -L %s -n %s %s',
-                    $lvmSize,
-                    $lvmName,
-                    $lvmVolumeGroup
+                    'sudo lvcreate -y -Wy -Zy -L %s -n %s %s',
+                    escapeshellarg($lvmSize),
+                    escapeshellarg($lvmName),
+                    escapeshellarg($lvmVolumeGroup)
                 );
                 $process = Process::fromShellCommandline($LV_CREATE_CMD);
                 $process->setTimeout(120);
@@ -3049,53 +3050,59 @@ private function lxc_is_running(string $lxc_name): bool
                 ]);
             }
 
-            $mountPoint = "$instancePath/rootfs";
+            $lvmMountPath = "/var/lib/lxc/{$uuid}/rootfs";
+            $devPath = "/dev/{$lvmVolumeGroup}/{$lvmName}";
 
-            $filesystem = new Filesystem();
-            if (!$filesystem->exists($mountPoint)) {
-                $filesystem->mkdir($mountPoint);
+            $filesystem_check = Process::fromShellCommandline("sudo blkid -o value -s TYPE {$devPath} 2>/dev/null");
+            $filesystem_check->run();
+            if (!$filesystem_check->isSuccessful() || trim($filesystem_check->getOutput()) === '') {
+                $MKFS_CMD = sprintf('sudo mkfs.ext4 -q %s', $devPath);
+                $mkfsProcess = Process::fromShellCommandline($MKFS_CMD);
+                $mkfsProcess->setTimeout(60);
+                $mkfsProcess->run();
+                if (!$mkfsProcess->isSuccessful()) {
+                    throw new \Exception('Failed to create filesystem on logical volume: ' . $mkfsProcess->getErrorOutput());
+                }
+                $this->logger->info("Filesystem created on logical volume", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'volume_name' => $lvmName,
+                ]);
             }
 
-            $MOUNT_CHECK = Process::fromShellCommandline("findmnt -n -o TARGET dev/mapper/{$lvmVolumeGroup}-{$lvmName} 2>/dev/null");
+            $filesystem = new Filesystem();
+            if (!$filesystem->exists($lvmMountPath)) {
+                $filesystem->mkdir($lvmMountPath);
+            }
+
+            $MOUNT_CHECK = Process::fromShellCommandline("findmnt -n -o TARGET {$devPath} 2>/dev/null");
             $MOUNT_CHECK->run();
 
             if ($MOUNT_CHECK->isSuccessful() && trim($MOUNT_CHECK->getOutput()) !== '') {
-                $this->logger->info("Logical volume already mounted for $uuid, skipping mount", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->info("Logical volume already mounted, skipping mount", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $uuid,
+                    'mount_point' => trim($MOUNT_CHECK->getOutput()),
                 ]);
             } else {
-                $MOUNT_CMD = sprintf('sudo mount /dev/%s/%s %s', $lvmVolumeGroup, $lvmName, $mountPoint);
+                $MOUNT_CMD = sprintf('sudo mount %s %s', $devPath, $lvmMountPath);
                 $mountProcess = Process::fromShellCommandline($MOUNT_CMD);
                 $mountProcess->setTimeout(60);
                 $mountProcess->run();
 
                 if (!$mountProcess->isSuccessful()) {
-                    $this->logger->warning("Failed to mount logical volume (container may still work with directory rootfs)", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid,
-                        'error' => $mountProcess->getErrorOutput(),
-                    ]);
-                } else {
-                    $this->logger->info("Logical volume mounted successfully", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $uuid,
-                        'mount_point' => $mountPoint,
-                    ]);
+                    throw new \Exception('Failed to mount logical volume: ' . $mountProcess->getErrorOutput());
                 }
-            }
 
-            $OLD_ROOTFS = "$instancePath/rootfs.old";
-            $NEW_ROOTFS = "$instancePath/rootfs.new";
-
-            $filesystem = new Filesystem();
-            if ($filesystem->exists("$instancePath/rootfs")) {
-                $filesystem->rename("$instancePath/rootfs", $OLD_ROOTFS, true);
-                $filesystem->rename("$instancePath/rootfs.new", "$instancePath/rootfs", true);
+                $this->logger->info("Logical volume mounted successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'mount_point' => $lvmMountPath,
+                ]);
             }
 
             $this->logger->info("LVM disk setup completed for container", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $uuid,
                 'volume_name' => $lvmName,
                 'size' => $lvmSize,
-                'mount_point' => $mountPoint,
+                'mount_point' => $lvmMountPath,
             ]);
         } catch (\Exception $e) {
             $this->logger->error("Error setting up LVM disk for LXC container", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -5129,9 +5136,9 @@ private function lxc_is_running(string $lxc_name): bool
                 //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
             }
             
-            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');
-
             $this->lxc_setup_disk($uuid, $deviceInstance, $instancePath);
+
+            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');
 
             if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                     if ( $lxc_is_already_running === false ) {   
