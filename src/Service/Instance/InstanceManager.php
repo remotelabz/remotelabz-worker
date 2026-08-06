@@ -1614,10 +1614,11 @@ private function lxc_is_running(string $lxc_name): bool
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        //$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
-        //    'labInstance' => $labInstance
-        //  ]);
-
+        /*
+        $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'labInstance' => $labInstance
+                            ]);
+        */
 
         // Network interfaces
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
@@ -1631,6 +1632,9 @@ private function lxc_is_running(string $lxc_name): bool
         } else {
             $deviceIndex = array_key_first($deviceInstance);
             $deviceInstance = $deviceInstance[$deviceIndex];
+            $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'deviceInstance' => $deviceInstance
+                            ]);
         }
 
         if (strtolower($deviceInstance['device']['hypervisor']['name'] === 'qemu')) {
@@ -3638,9 +3642,9 @@ private function lxc_is_running(string $lxc_name): bool
     }
 
     private function stop_device_lxc($uuid,$deviceInstance,$labInstance) {
-            /*$this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
-                'labInstance' => $labInstance
-            ]);*/
+            $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
+                'deviceInstance' => $deviceInstance
+            ]);
             $result=$this->lxc_stop($uuid);
             if ($result['state']===InstanceStateMessage::STATE_STOPPED) {
                 $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -3651,7 +3655,7 @@ private function lxc_is_running(string $lxc_name): bool
                         "uuid" => $deviceInstance['uuid'],
                         "options" => null
                     );
-                }
+            }
             else {
                 $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']]);
@@ -5535,7 +5539,7 @@ private function lxc_is_running(string $lxc_name): bool
                         'unit' => $unitName
                     ]
                 );
-
+                break;
             case 'activating':
             case 'failed':
                 $this->logger->debug(
