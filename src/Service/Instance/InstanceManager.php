@@ -1348,24 +1348,40 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_clone(string $src_lxc_name,string $dst_lxc_name){
         $error=null;
-        $command = [
-            'lxc-copy',
-            '-n',
-            "$src_lxc_name",
-            '-N',
-            "$dst_lxc_name"
-        ];
+        $srcRootfsPath = "/var/lib/lxc/{$src_lxc_name}/rootfs";
+        $dstRootfsPath = "/var/lib/lxc/{$dst_lxc_name}/rootfs";
+
         $this->logger->info("Cloning LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $dst_lxc_name]
         );
-        $this->logger->debug("Cloning LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
-        ]);
+        $this->logger->debug("Cloning LXC container from {$srcRootfsPath} to {$dstRootfsPath}", InstanceLogMessage::SCOPE_PRIVATE, []);
 
-        $process = new Process($command);
+        $filesystem = new Filesystem();
+        if (!$filesystem->exists($srcRootfsPath)) {
+            $this->logger->error("Source LXC rootfs does not exist", InstanceLogMessage::SCOPE_PUBLIC, [
+                'error' => "Source rootfs path: {$srcRootfsPath}",
+                'instance' => $dst_lxc_name
+            ]);
+            return true;
+        }
+
+        if (!$filesystem->exists($dstRootfsPath)) {
+            $filesystem->mkdir($dstRootfsPath);
+        }
+
+        $command = sprintf(
+            'sudo rsync -aAXv --delete "%s/" "%s/" 2>&1',
+            $srcRootfsPath,
+            $dstRootfsPath
+        );
+
+        $process = Process::fromShellCommandline($command);
         $process->setTimeout(600);
         try {
-            $process->mustRun();
+            $process->run();
+            if (!$process->isSuccessful()) {
+                throw new ProcessFailedException($process);
+            }
             $error=false;
         }   catch (ProcessFailedException $exception) {
             $error=true;
@@ -1379,7 +1395,6 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 'instance' => $dst_lxc_name]);
 
         return $error;
-        
     }
 
     /**
@@ -5072,6 +5087,10 @@ private function lxc_is_running(string $lxc_name): bool
                     $error=true;
                 }
             }
+            
+            // Setup disk BEFORE cloning to ensure data is present during mount
+            $this->lxc_setup_disk($uuid, $deviceInstance, $instancePath);
+            
             if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
                 $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                     'instance' => $deviceInstance['uuid']
@@ -5135,8 +5154,6 @@ private function lxc_is_running(string $lxc_name): bool
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                 //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
             }
-            
-            $this->lxc_setup_disk($uuid, $deviceInstance, $instancePath);
 
             $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');
 
