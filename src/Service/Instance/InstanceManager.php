@@ -1312,6 +1312,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $src_lxc_name Name of the LXC contianer to clone.
      * @param string $dst_lxc_name Name of the new LXC container created.
      */
+    /*
     public function lxd_clone(string $src_lxc_name,string $dst_lxc_name){
         $command = [
             'lxc copy',
@@ -1339,7 +1340,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->info("LXD container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $dst_lxc_name]);
     }
-
+    */
+    
     /**
      * Function to clone a LXC container
      * @param string $src_lxc_name Name of the LXC contianer to clone.
@@ -1369,6 +1371,25 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $filesystem->mkdir($dstRootfsPath);
         }
 
+        $command = [
+            'cp',
+            "{$srcRootfsPath}/../config",
+            "{$dstRootfsPath}/../config"
+        ];
+
+        $process = new Process($command);
+        try {
+            $process->mustRun();
+            $this->logger->debug("[InstanceManager:lxc_clone]::LXC template config copied", InstanceLogMessage::SCOPE_PRIVATE, [
+                "source" => "{$srcRootfsPath}/../config",
+                "destination" => "{$dstRootfsPath}/../config"
+            ]);
+        } catch (ProcessFailedException $exception) {
+            $this->logger->error("Copying LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                "instance" => $dst_lxc_name
+            ]);
+        }
+
         $command = sprintf(
             'sudo rsync -aAXv --delete "%s/" "%s/" 2>&1',
             $srcRootfsPath,
@@ -1393,6 +1414,9 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         if (!$error)
             $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $dst_lxc_name]);
+
+
+
 
         return $error;
     }
@@ -1535,7 +1559,6 @@ private function lxc_is_running(string $lxc_name): bool
         } else {
 
             $result = null;
-
             // Wrapper avec systemd-run pour isoler complètement
             $command = [
                 'systemd-run',
@@ -5153,6 +5176,30 @@ private function lxc_is_running(string $lxc_name): bool
 
             $cpu_number=$deviceInstance["device"]["nbCpu"];
             $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox,$deviceInstance['device']['flavor']['memory'],$cpu_number);
+
+            // Copy the generated template as LXC config so that lxc-stop and lxc-info
+            // can find the container definition after restart.
+            $templatePath = $instancePath . '/' . $org_file . '-new';
+            $destConfigPath = "/var/lib/lxc/{$uuid}/config";
+
+            $command = [
+                'cp',
+                $templatePath,
+                $destConfigPath
+            ];
+
+            $process = new Process($command);
+            try {
+                $process->mustRun();
+                $this->logger->debug("[InstanceManager:create_lxc_device]::Template copied to LXC config", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "source" => $templatePath,
+                    "destination" => $destConfigPath
+                ]);
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("Copying template to LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                   "instance" => $uuid
+                ]);
+            }
 
 
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
