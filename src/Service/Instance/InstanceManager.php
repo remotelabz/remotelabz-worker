@@ -1371,13 +1371,15 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $filesystem->mkdir($dstRootfsPath);
         }
 
-        $command = [
-            'cp',
+        $command = sprintf(
+            'cp "%s" "%s" && sed -i "s|^lxc.rootfs.path = .*$|lxc.rootfs.path = %s|g" "%s"',
             "{$srcRootfsPath}/../config",
+            "{$dstRootfsPath}/../config",
+            $dstRootfsPath,
             "{$dstRootfsPath}/../config"
-        ];
+        );
 
-        $process = new Process($command);
+        $process = Process::fromShellCommandline($command);
         try {
             $process->mustRun();
             $this->logger->debug("[InstanceManager:lxc_clone]::LXC template config copied", InstanceLogMessage::SCOPE_PRIVATE, [
