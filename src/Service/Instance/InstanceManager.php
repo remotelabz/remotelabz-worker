@@ -3038,12 +3038,12 @@ private function lxc_is_running(string $lxc_name): bool
     {
         try {
             $lvmVolumeGroup = 'lxc-vg';
-            $lvmSize = '1G';
+            $lvmSize = '600M';
 
-            if (isset($deviceInstance['device']['flavor']['disk'])) {
-                $lvmSize = $deviceInstance['device']['flavor']['disk'] . 'G';
+            if (isset($deviceInstance['device']['operatingSystem']['flavorDisk']['disk'])) {
+                $lvmSize = $deviceInstance['device']['operatingSystem']['flavorDisk']['disk'] . 'M';
             }
-
+            
             $lvmName = 'lxc_' . $uuid;
 
             $this->logger->info("Creating LVM logical disk for LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
