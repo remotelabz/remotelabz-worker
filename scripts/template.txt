@@ -11,7 +11,7 @@ lxc.include = /usr/share/lxc/config/common.conf
 lxc.arch = linux64
 
 # Container specific configuration
-lxc.rootfs.path = dir:/var/lib/lxc/NAME-CONT/rootfs
+lxc.rootfs.path = DIR-ROOTFS
 lxc.uts.name = NAME-CONT
 
 # Support cgroups v2
@@ -41,4 +41,5 @@ lxc.net.0.hwaddr = MAC_ADDR
 lxc.hook.version = 1
 
 lxc.apparmor.allow_nesting=1
-lxc.apparmor.profile = generated
+# lxc.apparmor.profile = generated
+lxc.apparmor.profile = unconfined

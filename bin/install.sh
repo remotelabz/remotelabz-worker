@@ -78,6 +78,67 @@ function check_cgroup_v2() {
 }
 
 # ====================================================================
+# NEW FUNCTION: Create LVM volume group for LXC containers
+# ====================================================================
+function create_lxc_volume_group() {
+  debug "Checking LVM volume group 'lxc-vg'..."
+  
+  if command -v vgdisplay &>/dev/null && vgdisplay lxc-vg &>/dev/null; then
+    success "LVM volume group 'lxc-vg' already exists"
+    return 0
+  fi
+  
+  # Check if LVM2 tools are available
+  if ! command -v vgcreate &>/dev/null; then
+    debug "LVM2 tools not found, installing..."
+    apt-get install -y lvm2
+  fi
+  
+  # Find a suitable physical volume (skip /dev/sda1 which is LVM partition)
+  local pv_device=""
+  
+  # Check if there's free disk space not part of an existing LV
+  while read -r device; do
+    local device_name=$(basename "$device")
+    
+    # Skip loop devices, dm devices, and partitions that are already PVs
+    if [[ "$device_name" == loop* ]] || [[ "$device_name" == dm-* ]] || [[ "$device_name" == sda1 ]] || [[ "$device_name" == sda2 ]]; then
+      continue
+    fi
+    
+    # Check if the device is a whole disk (not a partition)
+    if ! [[ "$device_name" =~ [0-9]$ ]]; then
+      # Check if there's free space on this disk
+      local disk_size=$(blockdev --getsize64 "$device" 2>/dev/null)
+      if [ -n "$disk_size" ]; then
+        pvc=$(pvs 2>/dev/null | grep "$device_name")
+        if [ -z "$pvc" ]; then
+          pv_device="$device"
+          break
+        fi
+      fi
+    fi
+  done < <(ls -1 /dev | grep -E "^(sd[a-z]|vd[a-z]|nvme[0-9]+n[0-9]+)$")
+  
+  if [ -z "$pv_device" ]; then
+    warning "No suitable disk device found for LVM volume group"
+    warning "LXC containers will use directory rootfs instead of LVM"
+    return 1
+  fi
+  
+  if ! pvs | grep -q "$pv_device"; then
+    debug "Creating physical volume on ${pv_device}"
+    pvcreate -f "$pv_device"
+  fi
+  
+  debug "Creating volume group 'lxc-vg' on ${pv_device}"
+  vgcreate lxc-vg "$pv_device"
+  success "LVM volume group 'lxc-vg' created successfully"
+  
+  return 0
+}
+
+# ====================================================================
 # NEW FUNCTION: Detect deployment topology
 # ====================================================================
 function detect_deployment_topology() {
@@ -1155,6 +1216,9 @@ fi;
 
 sysctl -f /etc/sysctl.conf
 success "LXC capabilities increased ✔️"
+
+# Create LVM volume group for LXC containers
+create_lxc_volume_group
 
 # Configure messenger.yaml if worker_id is specified
 if [ -n "$WORKER_ID" ]; then

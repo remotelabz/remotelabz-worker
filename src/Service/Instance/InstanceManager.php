@@ -1016,6 +1016,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $memory=$memory*1024*1024;
 
             $cpuset=$this->SetCPU($cpu_number);
+            $instancePath = "/var/lib/lxc/{$uuid}";
 
             $command="sed \
             -e \"s/NAME-CONT/".$uuid."/g\" \
@@ -1026,7 +1027,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             -e \"s/VLAN_UP/".str_replace("/","\/",$instance_path)."\/set_vlan/g\" \
             -e \"s/MEM-MAX/".$memory."/g\" \
             -e \"s/NUM-CPU/".$cpuset."/g\" \
-            -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" ".$path." > ".$path."-new";
+            -e \"s/MAC_ADDR/".$MAC_ADDR."/g\" \
+            -e \"s|DIR-ROOTFS|".$instancePath."/rootfs|g\" ".$path." > ".$path."-new";
             
             $process = Process::fromShellCommandline($command);
             $this->logger->debug("[InstanceManager:build_template]::Build template with sed:".$command, InstanceLogMessage::SCOPE_PRIVATE);
@@ -1310,6 +1312,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $src_lxc_name Name of the LXC contianer to clone.
      * @param string $dst_lxc_name Name of the new LXC container created.
      */
+    /*
     public function lxd_clone(string $src_lxc_name,string $dst_lxc_name){
         $command = [
             'lxc copy',
@@ -1337,7 +1340,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         $this->logger->info("LXD container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $dst_lxc_name]);
     }
-
+    */
+    
     /**
      * Function to clone a LXC container
      * @param string $src_lxc_name Name of the LXC contianer to clone.
@@ -1346,24 +1350,61 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_clone(string $src_lxc_name,string $dst_lxc_name){
         $error=null;
-        $command = [
-            'lxc-copy',
-            '-n',
-            "$src_lxc_name",
-            '-N',
-            "$dst_lxc_name"
-        ];
+        $srcRootfsPath = "/var/lib/lxc/{$src_lxc_name}/rootfs";
+        $dstRootfsPath = "/var/lib/lxc/{$dst_lxc_name}/rootfs";
+
         $this->logger->info("Cloning LXC container in progress", InstanceLogMessage::SCOPE_PUBLIC, [
             'instance' => $dst_lxc_name]
         );
-        $this->logger->debug("Cloning LXC container.", InstanceLogMessage::SCOPE_PRIVATE, [
-            "command" => implode(' ',$command)
-        ]);
+        $this->logger->debug("Cloning LXC container from {$srcRootfsPath} to {$dstRootfsPath}", InstanceLogMessage::SCOPE_PRIVATE, []);
 
-        $process = new Process($command);
-        $process->setTimeout(600);
+        $filesystem = new Filesystem();
+        if (!$filesystem->exists($srcRootfsPath)) {
+            $this->logger->error("Source LXC rootfs does not exist", InstanceLogMessage::SCOPE_PUBLIC, [
+                'error' => "Source rootfs path: {$srcRootfsPath}",
+                'instance' => $dst_lxc_name
+            ]);
+            return true;
+        }
+
+        if (!$filesystem->exists($dstRootfsPath)) {
+            $filesystem->mkdir($dstRootfsPath);
+        }
+
+        $command = sprintf(
+            'cp "%s" "%s" && sed -i "s|^lxc.rootfs.path = .*$|lxc.rootfs.path = %s|g" "%s"',
+            "{$srcRootfsPath}/../config",
+            "{$dstRootfsPath}/../config",
+            $dstRootfsPath,
+            "{$dstRootfsPath}/../config"
+        );
+
+        $process = Process::fromShellCommandline($command);
         try {
             $process->mustRun();
+            $this->logger->debug("[InstanceManager:lxc_clone]::LXC template config copied", InstanceLogMessage::SCOPE_PRIVATE, [
+                "source" => "{$srcRootfsPath}/../config",
+                "destination" => "{$dstRootfsPath}/../config"
+            ]);
+        } catch (ProcessFailedException $exception) {
+            $this->logger->error("Copying LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                "instance" => $dst_lxc_name
+            ]);
+        }
+
+        $command = sprintf(
+            'sudo rsync -aAXv --delete "%s/" "%s/" 2>&1',
+            $srcRootfsPath,
+            $dstRootfsPath
+        );
+
+        $process = Process::fromShellCommandline($command);
+        $process->setTimeout(600);
+        try {
+            $process->run();
+            if (!$process->isSuccessful()) {
+                throw new ProcessFailedException($process);
+            }
             $error=false;
         }   catch (ProcessFailedException $exception) {
             $error=true;
@@ -1376,8 +1417,10 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $dst_lxc_name]);
 
+
+
+
         return $error;
-        
     }
 
     /**
@@ -1518,7 +1561,6 @@ private function lxc_is_running(string $lxc_name): bool
         } else {
 
             $result = null;
-
             // Wrapper avec systemd-run pour isoler complètement
             $command = [
                 'systemd-run',
@@ -1597,10 +1639,11 @@ private function lxc_is_running(string $lxc_name): bool
             $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
             throw new BadDescriptorException($labInstance);
         }
-        //$this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
-        //    'labInstance' => $labInstance
-        //  ]);
-
+        /*
+        $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'labInstance' => $labInstance
+                            ]);
+        */
 
         // Network interfaces
         $deviceInstance = array_filter($labInstance["deviceInstances"], function ($deviceInstance) use ($uuid) {
@@ -1614,6 +1657,9 @@ private function lxc_is_running(string $lxc_name): bool
         } else {
             $deviceIndex = array_key_first($deviceInstance);
             $deviceInstance = $deviceInstance[$deviceIndex];
+            $this->logger->debug("Device instance stopping", InstanceLogMessage::SCOPE_PRIVATE, [
+                                    'deviceInstance' => $deviceInstance
+                            ]);
         }
 
         if (strtolower($deviceInstance['device']['hypervisor']['name'] === 'qemu')) {
@@ -2945,6 +2991,9 @@ private function lxc_is_running(string $lxc_name): bool
      * @return $error: true if error or false if no error
      */
     public function lxc_destroy(string $src_lxc_name){
+        // Remove the logical disk before destroying the container
+        $this->lxc_remove_disk($src_lxc_name);
+
         $error=null;
         $command = [
             'lxc-destroy',
@@ -2974,6 +3023,196 @@ private function lxc_is_running(string $lxc_name): bool
                 'instance' => $src_lxc_name]);
 
         return $error;
+    }
+
+    /**
+     * Setup LVM logical disk for an LXC container
+     * Creates a logical volume and mounts it as the rootfs to isolate data
+     *
+     * @param string $uuid UUID of the LXC container
+     * @param array $deviceInstance Device instance configuration
+     * @param string $instancePath Path to the instance directory
+     * @return void
+     */
+    private function lxc_setup_disk(string $uuid, array $deviceInstance, string $instancePath): void
+    {
+        try {
+            $lvmVolumeGroup = 'lxc-vg';
+            $lvmSize = '600M';
+
+            if (isset($deviceInstance['device']['operatingSystem']['flavorDisk']['disk'])) {
+                $lvmSize = $deviceInstance['device']['operatingSystem']['flavorDisk']['disk'] . 'M';
+            }
+            
+            $lvmName = 'lxc_' . $uuid;
+
+            $this->logger->info("Creating LVM logical disk for LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'volume_name' => $lvmName,
+                'size' => $lvmSize,
+            ]);
+
+            $VG_CHECK = Process::fromShellCommandline('sudo vgs --noheadings -o vg_free_count ' . escapeshellarg($lvmVolumeGroup) . ' | tr -d " "');
+            $VG_CHECK->run();
+            $freePE = intval(trim($VG_CHECK->getOutput()));
+            if ($freePE === 0) {
+                $this->logger->warning("No free PE in volume group $lvmVolumeGroup, skipping LVM disk setup", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'free_pe' => $freePE,
+                ]);
+                return;
+            }
+
+            $LV_EXISTS = Process::fromShellCommandline(
+                'sudo lvs ' . escapeshellarg($lvmVolumeGroup . '/' . $lvmName) . ' >/dev/null 2>&1'
+            );
+            $LV_EXISTS->run();
+
+            if ($LV_EXISTS->isSuccessful()) {
+                $this->logger->info("Logical volume already exists for $uuid, skipping creation", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $uuid,
+                    'volume_name' => $lvmName,
+                ]);
+            } else {
+                $LV_CREATE_CMD = sprintf(
+                    'sudo lvcreate -y -Wy -Zy -L %s -n %s %s',
+                    escapeshellarg($lvmSize),
+                    escapeshellarg($lvmName),
+                    escapeshellarg($lvmVolumeGroup)
+                );
+                $process = Process::fromShellCommandline($LV_CREATE_CMD);
+                $process->setTimeout(120);
+                $process->run();
+
+                if (!$process->isSuccessful()) {
+                    throw new \Exception('Failed to create logical volume: ' . $process->getErrorOutput());
+                }
+
+                $this->logger->info("Logical volume created successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'volume_name' => $lvmName,
+                ]);
+            }
+
+            $lvmMountPath = "/var/lib/lxc/{$uuid}/rootfs";
+            $devPath = "/dev/{$lvmVolumeGroup}/{$lvmName}";
+
+            $filesystem_check = Process::fromShellCommandline("sudo blkid -o value -s TYPE {$devPath} 2>/dev/null");
+            $filesystem_check->run();
+            if (!$filesystem_check->isSuccessful() || trim($filesystem_check->getOutput()) === '') {
+                $MKFS_CMD = sprintf('sudo mkfs.ext4 -q %s', $devPath);
+                $mkfsProcess = Process::fromShellCommandline($MKFS_CMD);
+                $mkfsProcess->setTimeout(60);
+                $mkfsProcess->run();
+                if (!$mkfsProcess->isSuccessful()) {
+                    throw new \Exception('Failed to create filesystem on logical volume: ' . $mkfsProcess->getErrorOutput());
+                }
+                $this->logger->info("Filesystem created on logical volume", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'volume_name' => $lvmName,
+                ]);
+            }
+
+            $filesystem = new Filesystem();
+            if (!$filesystem->exists($lvmMountPath)) {
+                $filesystem->mkdir($lvmMountPath);
+            }
+
+            $MOUNT_CHECK = Process::fromShellCommandline("findmnt -n -o TARGET {$devPath} 2>/dev/null");
+            $MOUNT_CHECK->run();
+
+            if ($MOUNT_CHECK->isSuccessful() && trim($MOUNT_CHECK->getOutput()) !== '') {
+                $this->logger->info("Logical volume already mounted, skipping mount", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'mount_point' => trim($MOUNT_CHECK->getOutput()),
+                ]);
+            } else {
+                $MOUNT_CMD = sprintf('sudo mount %s %s', $devPath, $lvmMountPath);
+                $mountProcess = Process::fromShellCommandline($MOUNT_CMD);
+                $mountProcess->setTimeout(60);
+                $mountProcess->run();
+
+                if (!$mountProcess->isSuccessful()) {
+                    throw new \Exception('Failed to mount logical volume: ' . $mountProcess->getErrorOutput());
+                }
+
+                $this->logger->info("Logical volume mounted successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $uuid,
+                    'mount_point' => $lvmMountPath,
+                ]);
+            }
+
+            $this->logger->info("LVM disk setup completed for container", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $uuid,
+                'volume_name' => $lvmName,
+                'size' => $lvmSize,
+                'mount_point' => $lvmMountPath,
+            ]);
+        } catch (\Exception $e) {
+            $this->logger->error("Error setting up LVM disk for LXC container", InstanceLogMessage::SCOPE_PUBLIC, [
+                'instance' => $uuid,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Remove LVM logical disk for an LXC container
+     * Unmounts and destroys the logical volume
+     *
+     * @param string $src_lxc_name Name of the LXC container
+     * @return void
+     */
+    private function lxc_remove_disk(string $src_lxc_name): void
+    {
+        try {
+            $lvmVolumeGroup = 'lxc-vg';
+            $lvmName = 'lxc_' . $src_lxc_name;
+            $instancePath = "/var/lib/lxc/{$src_lxc_name}";
+            $mountPoint = "$instancePath/rootfs";
+
+            $this->logger->info("Removing LVM logical disk for LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $src_lxc_name,
+                'volume_name' => $lvmName,
+            ]);
+
+            $filesystem = new Filesystem();
+            if ($filesystem->exists($mountPoint)) {
+                $UNMOUNT_CMD = "sudo umount $mountPoint";
+                $umountProcess = Process::fromShellCommandline($UNMOUNT_CMD);
+                $umountProcess->setTimeout(60);
+                $umountProcess->run();
+
+                $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $src_lxc_name,
+                ]);
+            }
+
+            $LVREMOVE_CMD = sprintf(
+                'sudo lvremove -f %s/%s',
+                $lvmVolumeGroup,
+                $lvmName
+            );
+            $lvRemoveProcess = Process::fromShellCommandline($LVREMOVE_CMD);
+            $lvRemoveProcess->setTimeout(120);
+            $lvRemoveProcess->run();
+
+            if (!$lvRemoveProcess->isSuccessful()) {
+                $this->logger->warning("Failed to remove logical volume (may not exist)", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $src_lxc_name,
+                    'error' => $lvRemoveProcess->getErrorOutput(),
+                ]);
+            } else {
+                $this->logger->info("Logical volume removed successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'instance' => $src_lxc_name,
+                ]);
+            }
+        } catch (\Exception $e) {
+            $this->logger->error("Error removing LVM disk for LXC container", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $src_lxc_name,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -3428,9 +3667,9 @@ private function lxc_is_running(string $lxc_name): bool
     }
 
     private function stop_device_lxc($uuid,$deviceInstance,$labInstance) {
-            /*$this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
-                'labInstance' => $labInstance
-            ]);*/
+            $this->logger->debug("Device instance stopping LXC", InstanceLogMessage::SCOPE_PRIVATE, [
+                'deviceInstance' => $deviceInstance
+            ]);
             $result=$this->lxc_stop($uuid);
             if ($result['state']===InstanceStateMessage::STATE_STOPPED) {
                 $this->logger->info("LXC container stopped successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -3441,7 +3680,7 @@ private function lxc_is_running(string $lxc_name): bool
                         "uuid" => $deviceInstance['uuid'],
                         "options" => null
                     );
-                }
+            }
             else {
                 $this->logger->error("LXC container stopped with error!", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']]);
@@ -4877,6 +5116,10 @@ private function lxc_is_running(string $lxc_name): bool
                     $error=true;
                 }
             }
+            
+            // Setup disk BEFORE cloning to ensure data is present during mount
+            $this->lxc_setup_disk($uuid, $deviceInstance, $instancePath);
+            
             if (!$this->lxc_clone(basename($deviceInstance['device']['operatingSystem']['image']),$uuid)){
                 $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                     'instance' => $deviceInstance['uuid']
@@ -4936,13 +5179,37 @@ private function lxc_is_running(string $lxc_name): bool
             $cpu_number=$deviceInstance["device"]["nbCpu"];
             $this->build_template($uuid,$instancePath,$org_file,$bridgeName,$ip_addr,$deviceInstance["networkInterfaceInstances"],$gateway,$sandbox,$deviceInstance['device']['flavor']['memory'],$cpu_number);
 
+            // Copy the generated template as LXC config so that lxc-stop and lxc-info
+            // can find the container definition after restart.
+            $templatePath = $instancePath . '/' . $org_file . '-new';
+            $destConfigPath = "/var/lib/lxc/{$uuid}/config";
+
+            $command = [
+                'cp',
+                $templatePath,
+                $destConfigPath
+            ];
+
+            $process = new Process($command);
+            try {
+                $process->mustRun();
+                $this->logger->debug("[InstanceManager:create_lxc_device]::Template copied to LXC config", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "source" => $templatePath,
+                    "destination" => $destConfigPath
+                ]);
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("Copying template to LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                   "instance" => $uuid
+                ]);
+            }
+
 
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                 //OVS::setInterface($nic["networkInterface"]["uuid"],array("tag" => $nic["vlan"]));
             }
-            
-            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');    
-            
+
+            $result=$this->lxc_start($uuid,$instancePath.'/'.$org_file.'-new');
+
             if ($result["state"] === InstanceStateMessage::STATE_STARTED ) {
                     if ( $lxc_is_already_running === false ) {   
                         $this->logger->info("LXC container started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
@@ -5321,7 +5588,7 @@ private function lxc_is_running(string $lxc_name): bool
                         'unit' => $unitName
                     ]
                 );
-
+                break;
             case 'activating':
             case 'failed':
                 $this->logger->debug(
