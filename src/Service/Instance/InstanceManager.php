@@ -1508,9 +1508,16 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             $error=true;
         }
-        if (!$error)
+        if (!$error) {
             $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $uuid]);
+            
+            $archivePath = "/var/lib/lxc/{$uuid}.tgz";
+            if (file_exists($archivePath)) {
+                unlink($archivePath);
+                $this->logger->debug("Deleted archive file: {$archivePath}", InstanceLogMessage::SCOPE_PRIVATE);
+            }
+        }
         
         return $result;
     }
