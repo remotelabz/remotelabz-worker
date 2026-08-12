@@ -2755,7 +2755,19 @@ private function lxc_is_running(string $lxc_name): bool
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    $this->lxc_delete($deviceInstance['uuid']);
+                    
+                    $deleteResult = $this->lxc_delete($deviceInstance['uuid']);
+
+                    if ($deleteResult["state"] === InstanceStateMessage::STATE_ERROR) {
+                        $this->logger->warning("Export succeeded but cleanup of source LXC container failed", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                        // decide: still report STATE_EXPORTED (clone worked, cleanup is secondary),
+                        // or surface a distinct partial-failure state so the front end/ops know
+                        // the old container is still on disk and needs manual removal.
+                    }
+
+
                     $result=array(
                         "state" => InstanceStateMessage::STATE_EXPORTED,
                         "uuid" => $deviceInstance['uuid'],
