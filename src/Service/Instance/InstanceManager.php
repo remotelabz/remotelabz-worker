@@ -1479,6 +1479,29 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      */
     public function lxc_delete(string $uuid){
         $result=null;
+        
+        // Guard 1: skip cleanly if the container is already gone (avoids a
+        // needless "container not found" error, e.g. on retry/race conditions)
+        if (!$this->lxc_exist($uuid)) {
+            $this->logger->info("LXC container already absent, nothing to delete.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid
+            ]);
+            return array(
+                "state" => InstanceStateMessage::STATE_DELETED,
+                "uuid" => $uuid,
+                "options" => null
+            );
+        }
+
+        // Guard 2: rootfs path sanity check, useful for logging/diagnosis
+        $rootfsPath = "/var/lib/lxc/{$uuid}/rootfs";
+        if (!file_exists($rootfsPath)) {
+            $this->logger->warning("LXC container is registered but rootfs is missing.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $uuid,
+                'rootfs' => $rootfsPath
+            ]);
+        }
+
         $command = [
             'lxc-destroy',
             '-n',
@@ -1500,17 +1523,34 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 );
             $error=false;
         }   catch (ProcessFailedException $exception) {
-            $this->logger->error("LXC container deleted error ! ".$exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
-            $result=array(
-                "state" => InstanceStateMessage::STATE_ERROR,
-                "uuid" => $uuid,
-                "options" => null
-                );
-            $error=true;
+            $this->logger->debug("ERROR: LXC container deleted error ! ".$exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
+
+            // lxc-destroy's internal recursive rmdir can fail on device nodes/xattrs
+            // (ENOTTY: Inappropriate ioctl for device). Fall back to a plain rm -rf,
+            // which doesn't go through the same code path.
+            $fallback = Process::fromShellCommandline("sudo rm -rf /var/lib/lxc/{$uuid}");
+            $fallback->setTimeout(600);
+            try {
+                $fallback->mustRun();
+                $this->logger->info("LXC container removed via fallback rm -rf after lxc-destroy failure.", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
+                $result = array("state" => InstanceStateMessage::STATE_DELETED, "uuid" => $uuid, "options" => null);
+                $error = false;
+            } catch (ProcessFailedException $fallbackException) {
+                $this->logger->debug("ERROR: Fallback rm -rf also failed ! ".$fallbackException->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $uuid]);
+                $result = array("state" => InstanceStateMessage::STATE_ERROR, "uuid" => $uuid, "options" => null);
+                $error = true;
+            }
         }
-        if (!$error)
+        if (!$error) {
             $this->logger->info("LXC container deleted successfully!", InstanceLogMessage::SCOPE_PUBLIC, [
                 'instance' => $uuid]);
+            
+            $archivePath = "/var/lib/lxc/{$uuid}.tgz";
+            if (file_exists($archivePath)) {
+                unlink($archivePath);
+                $this->logger->debug("Deleted archive file: {$archivePath}", InstanceLogMessage::SCOPE_PRIVATE);
+            }
+        }
         
         return $result;
     }
@@ -2748,7 +2788,19 @@ private function lxc_is_running(string $lxc_name): bool
                     $this->logger->info("New device created successfully",InstanceLogMessage::SCOPE_PUBLIC,[
                         'instance' => $deviceInstance['uuid']
                     ]);
-                    $this->lxc_delete($deviceInstance['uuid']);
+                    
+                    $deleteResult = $this->lxc_delete($deviceInstance['uuid']);
+
+                    if ($deleteResult["state"] === InstanceStateMessage::STATE_ERROR) {
+                        $this->logger->warning("Export succeeded but cleanup of source LXC container failed", InstanceLogMessage::SCOPE_PUBLIC, [
+                            'instance' => $deviceInstance['uuid']
+                        ]);
+                        // decide: still report STATE_EXPORTED (clone worked, cleanup is secondary),
+                        // or surface a distinct partial-failure state so the front end/ops know
+                        // the old container is still on disk and needs manual removal.
+                    }
+
+
                     $result=array(
                         "state" => InstanceStateMessage::STATE_EXPORTED,
                         "uuid" => $deviceInstance['uuid'],
