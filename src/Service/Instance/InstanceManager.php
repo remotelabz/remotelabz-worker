@@ -3089,7 +3089,7 @@ private function lxc_is_running(string $lxc_name): bool
     private function lxc_setup_disk(string $uuid, array $deviceInstance, string $instancePath): void
     {
         try {
-            $lvmVolumeGroup = 'lxc-vg';
+            $lvmVolumeGroup = 'rlz-vg';
             $lvmSize = '600M';
 
             if (isset($deviceInstance['device']['operatingSystem']['flavorDisk']['disk'])) {
@@ -3218,7 +3218,7 @@ private function lxc_is_running(string $lxc_name): bool
     private function lxc_remove_disk(string $src_lxc_name): void
     {
         try {
-            $lvmVolumeGroup = 'lxc-vg';
+            $lvmVolumeGroup = 'rlz-vg';
             $lvmName = 'lxc_' . $src_lxc_name;
             $instancePath = "/var/lib/lxc/{$src_lxc_name}";
             $mountPoint = "$instancePath/rootfs";
