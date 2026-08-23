@@ -830,6 +830,21 @@ function display_post_installation_actions() {
   fi
 }
 
+# ============================================================================
+# Set sysctl parameter helper function
+# ============================================================================
+function set_sysctl_param() {
+    local param="$1"
+    local value="$2"
+    local file="/etc/sysctl.d/99-remotelabz.conf"
+
+    if grep -q "^${param}=" "$file" 2>/dev/null; then
+        sed -i "s|^${param}=.*|${param}=${value}|" "$file"
+    else
+        echo "${param}=${value}" >> "$file"
+    fi
+}
+
 # ====================================================================
 # MAIN SCRIPT START
 # ====================================================================
@@ -871,9 +886,9 @@ done
 
 debug "Starting remoteLabz-worker installation"
 
-# Check for ubuntu >24.04
-if [ ! $(which lsb_release) ] || [ $(lsb_release -is) != "Ubuntu" ] || [ $(lsb_release -rs) != "24.04" ]; then
-  error "Your platform is unsupported. Please use Ubuntu Server LTS 24.04."
+# Check for ubuntu >=26
+if [ ! $(which lsb_release) ] || [ $(lsb_release -is) != "Ubuntu" ] || [ $(lsb_release -rs) != "26.04" ]; then
+  error "Your platform is unsupported. Please use Ubuntu Server LTS 26.04."
   exit 1
 fi
 
@@ -936,18 +951,19 @@ configure_cgroup_v2
 debug "Running apt-get to grab required packages"
 apt-get update
 apt-get install -y software-properties-common
-add-apt-repository -y ppa:ondrej/php
 apt-get update
-apt-get install -y apache2 php8.4 php8.4-ssh2 zip unzip qemu-system-x86 qemu-system-arm qemu-kvm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.4-xml php8.4-curl php8.4-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect pamtester
-a2dismod php8.1 php8.2 php8.3 || true
+apt-get install -y ttyd apache2 php8.5 php8.5-ssh2 zip unzip qemu-system-x86 qemu-system-arm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.5-xml php8.5-curl php8.5-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect pamtester
+a2dismod php8.1 php8.2 php8.3 php8.4|| true
 
-phpenmod -v 8.4 dom
-update-alternatives --set php /usr/bin/php8.4
-update-alternatives --set phar /usr/bin/phar8.4
-update-alternatives --set phar.phar /usr/bin/phar.phar8.4
-a2enmod php8.4
+a2enmod php8.5
 systemctl restart apache2
 success "Packages installed ✔️"
+
+# Install old sudo to allow regex in sudoers
+update-alternatives --list sudo
+update-alternatives --set sudo /usr/bin/sudo.ws
+success "Old sudo package installed ✔️"
+
 
 # Create user remotelabz-worker and remotelabz-worker group
 if [ ! $(getent passwd remotelabz-worker) ]; then
@@ -997,7 +1013,7 @@ fi
 
 debug "IP configuration of the data network for the VMs and forward between interfaces"
 ip addr add "${DATA_INT_IP_ADDRESS}" dev "${DATA_INTERFACE}" || true
-sed -i 's/[#| ]*net.ipv4.ip_forward[ ]*=[ |0|1]*/net.ipv4.ip_forward = 1/g' /etc/sysctl.conf
+set_sysctl_param "net.ipv4.ip_forward" "1"
 success "IP configuration ✔️"
 
 debug "Adding sudo permissions for remotelabz-worker user"
@@ -1119,16 +1135,16 @@ chown :remotelabz-worker "${REMOTELABZ_WORKER_PATH}"/config/certs/
 chmod g+w "${REMOTELABZ_WORKER_PATH}"/config/certs/
 success "Certificates directory created ✔️"
 
-debug "Installation of ttyd from its github project"
-cd ~
-if [ ! -d ttyd-1.7.3 ]; then
-        wget https://github.com/tsl0922/ttyd/archive/refs/tags/1.7.3.zip
-  unzip 1.7.3.zip
-        cd ttyd-1.7.3 && mkdir build && cd build
-        cmake ..
-        make && sudo make install
-fi;
-success "ttyd installed ✔️"
+#debug "Installation of ttyd from its github project"
+#cd ~
+#if [ ! -d ttyd-1.7.3 ]; then
+#        wget https://github.com/tsl0922/ttyd/archive/refs/tags/1.7.3.zip
+#  unzip 1.7.3.zip
+#        cd ttyd-1.7.3 && mkdir build && cd build
+#        cmake ..
+#        make && sudo make install
+#fi;
+#success "ttyd installed ✔️"
 
 # Container creation and configuration
 debug "Checking and configuring LXC containers..."
@@ -1186,35 +1202,20 @@ setup_container_pamtester "AlpineEdge" "alpine"
 success "All containers configured ✔️"
 
 debug "Increase route cache for ipv6"
-PATTERN=`awk '/net.ipv6.route.max_size = 20000/' "/etc/sysctl.conf"`;
-if [ "${PATTERN}" == "" ]; then
-  echo "net.ipv6.route.max_size = 20000" >> "/etc/sysctl.conf"
-fi;
+set_sysctl_param "net.ipv6.route.max_size" "20000"
 success "IPv6 cache increased ✔️"
 
+debug "Disable IPv6"
+set_sysctl_param "net.ipv6.conf.all.disable_ipv6" "1"
+set_sysctl_param "net.ipv6.conf.lo.disable_ipv6" "1"
+set_sysctl_param "net.ipv6.conf.default.disable_ipv6" "1"
+success "IPv6 disabled ✔️"
+
 debug "Increase lxc capabilities"
-
-PATTERN=`awk '/fs.inotify.max_user_watches=800000/' "/etc/sysctl.conf"`;
-if [ "${PATTERN}" == "" ]; then
-  echo "fs.inotify.max_user_watches=800000" >> "/etc/sysctl.conf"
-fi;
-
-PATTERN=`awk '/fs.inotify.max_user_instances=500000/' "/etc/sysctl.conf"`;
-if [ "${PATTERN}" == "" ]; then
-  echo "fs.inotify.max_user_instances=500000" >> "/etc/sysctl.conf"
-fi;
-
-PATTERN=`awk '/fs.file-max=15793398/' "/etc/sysctl.conf"`;
-if [ "${PATTERN}" == "" ]; then
-  echo "fs.file-max=15793398" >> "/etc/sysctl.conf"
-fi;
-
-PATTERN=`awk '/kernel.pty.max = 10000/' "/etc/sysctl.conf"`;
-if [ "${PATTERN}" == "" ]; then
-  echo "kernel.pty.max = 10000" >> "/etc/sysctl.conf"
-fi;
-
-sysctl -f /etc/sysctl.conf
+set_sysctl_param "fs.inotify.max_user_watches" "800000"
+set_sysctl_param "fs.inotify.max_user_instances" "500000"
+set_sysctl_param "fs.file-max" "15793398"
+set_sysctl_param "kernel.pty.max" "10000"
 success "LXC capabilities increased ✔️"
 
 # Create LVM volume group for LXC containers
