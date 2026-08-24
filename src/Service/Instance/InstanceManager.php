@@ -601,7 +601,8 @@ class InstanceManager extends AbstractController
         
         $this->logger->debug("[InstanceManager:remote_access_start]::State after ttyd for login", InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance['uuid'],
-            'result-error' => $result["error"]
+            'result-error' => $result["error"],
+            'remote_port' => $remote_port
         ]);
 
         if ($remote_port=$this->isSerial($deviceInstance)) {
@@ -3592,7 +3593,8 @@ private function lxc_is_running(string $lxc_name): bool
         }
         $this->logger->debug('[InstanceManager:isLogin]::Login detected by isLogin function ?', InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance["uuid"],
-            'result' => $result
+            'result' => $result,
+            'port' => $port
             ]);
         return $result ? $port : false;
     }

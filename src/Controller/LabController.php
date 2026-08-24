@@ -46,6 +46,13 @@ class LabController extends AbstractController
                 500
             );
         }
-        return new Response($process->getOutput());
+        $port=$process->getOutput();
+        $this->logger->debug('[LabController:getFreePortAction]', [
+    'path'   => $this->kernel->getProjectDir(),
+    'port'   => $port,
+    'stderr' => $process->getErrorOutput(),
+    'exit'   => $process->getExitCode(),
+]);
+        return new Response($port);
     }
 }
