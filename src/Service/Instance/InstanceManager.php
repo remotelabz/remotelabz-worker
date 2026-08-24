@@ -3582,20 +3582,19 @@ private function lxc_is_running(string $lxc_name): bool
     // $result : port number is vnc is true otherwise return false
     private function isLogin($deviceInstance) {
         $result=false;
+        $port=false;
         foreach ($deviceInstance['controlProtocolTypeInstances'] as $control_protocol) {
-            if (strtolower($control_protocol['controlProtocolType']['name'])==="login") {
-                $result=($result || true);
+            if (strtolower($control_protocol['controlProtocolType']['name'])==="login") {               
+                $result=true;
+                $port=$control_protocol['port'];
+                break;
             }
         }
         $this->logger->debug('[InstanceManager:isLogin]::Login detected by isLogin function ?', InstanceLogMessage::SCOPE_PRIVATE, [
             'instance' => $deviceInstance["uuid"],
             'result' => $result
             ]);
-    if ($result)
-        $result=$control_protocol['port'];
-    else
-        $result=false;
-        return $result;
+        return $result ? $port : false;
     }
 
     private function getFreePort()
