@@ -1073,16 +1073,17 @@ sudo chown -R remotelabz-worker:www-data "${REMOTELABZ_WORKER_PATH}/var/"
 
 # Websockify
 debug "Installing WebSockify"
-if ! [ $(command -v websockify) ]; then
-    debug "Installing WebSockify..."
-    apt install python3-setuptools
-    git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify"
-    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install)
-    rm -rf "${REMOTELABZ_WORKER_PATH}/websockify"
-    success "WebSockify installed ✔️"
-else
-  debug "WebSockify is already installed! Skipping."
-fi
+apt install -y websockify
+#if ! [ $(command -v websockify) ]; then
+#    debug "Installing WebSockify..."
+#    apt install python3-setuptools
+#    git clone https://github.com/novnc/websockify.git "${REMOTELABZ_WORKER_PATH}/websockify"
+#    (cd "${REMOTELABZ_WORKER_PATH}/websockify" && python3 setup.py install)
+#    rm -rf "${REMOTELABZ_WORKER_PATH}/websockify"
+#    success "WebSockify installed ✔️"
+#else
+#  debug "WebSockify is already installed! Skipping."
+#fi
 
 # Grant OVS permissions to remotelabz group
 chmod g+rwx /var/run/openvswitch/db.sock

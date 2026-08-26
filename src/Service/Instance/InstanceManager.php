@@ -3091,7 +3091,7 @@ private function lxc_is_running(string $lxc_name): bool
     {
         try {
             $lvmVolumeGroup = 'rlz-vg';
-            $lvmSize = '600M';
+            $lvmSize = $this->params->get('app.lxc.default_mindiskspace') . 'M';
 
             if (isset($deviceInstance['device']['operatingSystem']['flavorDisk']['disk'])) {
                 $lvmSize = $deviceInstance['device']['operatingSystem']['flavorDisk']['disk'] . 'M';
