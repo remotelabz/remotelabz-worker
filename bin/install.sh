@@ -1001,10 +1001,11 @@ if [ -d "/home/remotelabz-worker" ]; then
         
         chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
 
+        mkdir /opt/remotelabz-worker/config/system/keys
         cp /home/remotelabz-worker/.ssh/myremotelabzkey /opt/remotelabz-worker/config/system/keys/myremotelabzkey
         cp /home/remotelabz-worker/.ssh/myremotelabzkey.pub /opt/remotelabz-worker/config/system/keys/myremotelabzkey.pub
         chown www-data:www-data /opt/remotelabz-worker/config/system/keys
-        
+
         success "SSH keys created: myremotelabzkey"
         
         sed -i 's|SSH_USER_PRIVATEKEY_FILE=.*|SSH_USER_PRIVATEKEY_FILE="/opt/remotelabz-worker/config/system/keys/myremotelabzkey"|' "${ENV_FILE}"
