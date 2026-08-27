@@ -1066,6 +1066,7 @@ chmod g+rwx "${REMOTELABZ_WORKER_PATH}/instances"
 mkdir -p "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
 chown -R remotelabz-worker:www-data "${REMOTELABZ_WORKER_PATH}/var/"
+chmod g+rw "${REMOTELABZ_WORKER_PATH}/var" -R
 
 mkdir -p "${REMOTELABZ_WORKER_PATH}/config/system/keys"
 cp /home/remotelabz-worker/.ssh/myremotelabzkey "${REMOTELABZ_WORKER_PATH}/config/system/keys/myremotelabzkey"
@@ -1109,7 +1110,7 @@ debug "Configuring logrotate"
 cp -f "${SCRIPTPATH}"/config/logrotate/remotelabz-worker /etc/logrotate.d
 success "Logrotate configured ✔️"
 
-debug "Setup remotelabz service"
+debug "Setup remotelabz-worker services"
 ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-cache.service /etc/systemd/system/
 ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-cache.timer /etc/systemd/system/
 ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker-containers.slice /etc/systemd/system/
@@ -1119,9 +1120,7 @@ ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker.service /etc/sy
 ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker.slice /etc/systemd/system/
 ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker.timer /etc/systemd/system/
 
-
 systemctl daemon-reload
-systemctl enable remotelabz-cache.service
 systemctl enable remotelabz-cache.timer
 systemctl enable remotelabz-worker.service
 systemctl enable remotelabz-worker.timer
