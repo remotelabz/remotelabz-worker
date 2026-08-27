@@ -68,11 +68,14 @@ function check_cgroup_v2() {
   fi
   
   # Check if configured in grub but not yet active (needs reboot)
-  if grep -q "systemd.unified_cgroup_hierarchy=1" /proc/cmdline 2>/dev/null; then
+  if grep -q "systemd.unified_cgroup_hierarchy=1" /proc/cmdline 2>/dev/null; then  
+    systemctl enable lxcfs
+    systemctl start lxcfs
     success "cgroup v2 is configured in kernel parameters"
     return 0
   fi
   
+
   warning "cgroup v2 is not yet active"
   return 1
 }
@@ -1107,14 +1110,11 @@ cp -f "${SCRIPTPATH}"/config/logrotate/remotelabz-worker /etc/logrotate.d
 success "Logrotate configured ✔️"
 
 debug "Setup remotelabz service"
-ln -fs "${SCRIPTPATH}"/bin/systemd/remotelabz-worker.service /etc/systemd/system/remotelabz-worker.service
-ln -fs "${SCRIPTPATH}"/bin/systemd/remotelabz-cache.service /etc/systemd/system/remotelabz-cache.service
-ln -fs "${SCRIPTPATH}"/bin/systemd/remotelabz-cache.timer /etc/systemd/system/remotelabz-cache.timer
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/* /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable remotelabz-worker.service
-systemctl enable remotelabz-cache.timer
-systemctl start remotelabz-cache.timer
-systemctl start remotelabz-worker
+systemctl enable remotelabz-*
+
+systemctl start remotelabz-*
 systemctl daemon-reload || true
 success "Services configured ✔️"
 
