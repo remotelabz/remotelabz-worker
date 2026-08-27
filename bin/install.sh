@@ -1001,10 +1001,14 @@ if [ -d "/home/remotelabz-worker" ]; then
         
         chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
 
+        cp /home/remotelabz-worker/.ssh/myremotelabzkey /opt/remotelabz-worker/config/system/keys/myremotelabzkey
+        cp /home/remotelabz-worker/.ssh/myremotelabzkey.pub /opt/remotelabz-worker/config/system/keys/myremotelabzkey.pub
+        chown www-data:www-data /opt/remotelabz-worker/config/system/keys
+        
         success "SSH keys created: myremotelabzkey"
         
-        sed -i 's|SSH_USER_PRIVATEKEY_FILE=.*|SSH_USER_PRIVATEKEY_FILE="/home/remotelabz-worker/.ssh/myremotelabzkey"|' "${ENV_FILE}"
-        sed -i 's|SSH_USER_PUBLICKEY_FILE=.*|SSH_USER_PUBLICKEY_FILE="/home/remotelabz-worker/.ssh/myremotelabzkey.pub"|' "${ENV_FILE}"
+        sed -i 's|SSH_USER_PRIVATEKEY_FILE=.*|SSH_USER_PRIVATEKEY_FILE="/opt/remotelabz-worker/config/system/keys/myremotelabzkey"|' "${ENV_FILE}"
+        sed -i 's|SSH_USER_PUBLICKEY_FILE=.*|SSH_USER_PUBLICKEY_FILE="/opt/remotelabz-worker/config/system/keys/myremotelabzkey.pub"|' "${ENV_FILE}"
     else
         warning "SSH keys cannot be created, please delete the remotelabz-worker directory."
         read -p "Press Enter to continue ..."
