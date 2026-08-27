@@ -4007,6 +4007,7 @@ private function lxc_is_running(string $lxc_name): bool
                 ssh remotelabz-worker@$deviceInstance["worker_dest"] "sudo lxc-create -n '$deviceInstance['os_imagename']' -t none"
                 scp -r "/var/lib/lxc/".$deviceInstance["os_imagename"] remotelabz-worker@$deviceInstance["worker_dest"]:"/var/lib/lxc/".$deviceInstance["os_imagename"]
                 */
+
                 $connection=$this->sshService->connect($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
 
                 $result_lxc=$this->Destroy_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename']);
@@ -4355,7 +4356,7 @@ private function lxc_is_running(string $lxc_name): bool
                     } else {
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
 
-                        $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
+                        $cmd="tar xzf ".$remote_file." -C /var/lib/lxc/";
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                         $result=$this->executeRemoteCommand($connection, $cmd);
 
@@ -4502,7 +4503,7 @@ private function lxc_is_running(string $lxc_name): bool
      * @throws Exception              Lève une exception en cas d'échec de connexion ou d'exécution.
      */
     function scp($connection, $localFile, $remoteFile,$Worker_Dest_IP) {  
-        $this->logger->debug("Send file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
+        $this->logger->debug("[InstanceManager:scp]::Send file ".$localFile." -> ".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE);
         $this->logger->info("Send ".$localFile." file via scp to ".$Worker_Dest_IP.":".$remoteFile, InstanceLogMessage::SCOPE_PRIVATE,
             [
                 'instance' => $localFile,

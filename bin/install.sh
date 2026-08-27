@@ -1251,6 +1251,7 @@ fi;
 
 chown remotelabz-worker:www-data "${REMOTELABZ_WORKER_PATH}/var" -R
 chmod g+w "${REMOTELABZ_WORKER_PATH}/var" -R
+chown :remotelabz-worker "${REMOTELABZ_WORKER_PATH}"/images
 chmod g+w /var/lib/lxc
 chown remotelabz-worker: "${REMOTELABZ_WORKER_PATH}"/images
 
