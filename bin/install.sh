@@ -1110,12 +1110,31 @@ cp -f "${SCRIPTPATH}"/config/logrotate/remotelabz-worker /etc/logrotate.d
 success "Logrotate configured ✔️"
 
 debug "Setup remotelabz service"
-ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/* /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable remotelabz-*
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-cache.service /etc/systemd/system/
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-cache.timer /etc/systemd/system/
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker-containers.slice /etc/systemd/system/
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker-services.slice  /etc/systemd/system/
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker-vms.slice  /etc/systemd/system/
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker.service /etc/systemd/system/
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker.slice /etc/systemd/system/
+ln -fs "${REMOTELABZ_WORKER_PATH}"/bin/systemd/remotelabz-worker.timer /etc/systemd/system/
 
-systemctl start remotelabz-*
-systemctl daemon-reload || true
+
+systemctl daemon-reload
+systemctl enable remotelabz-cache.service
+systemctl enable remotelabz-cache.timer
+systemctl enable remotelabz-worker.service
+systemctl enable remotelabz-worker.timer
+
+systemctl start remotelabz-cache.service
+systemctl start remotelabz-cache.timer
+systemctl start remotelabz-worker-containers.slice
+systemctl start remotelabz-worker-services.slice
+systemctl start remotelabz-worker-vms.slice
+systemctl start remotelabz-worker.service
+systemctl start remotelabz-worker.slice
+systemctl start remotelabz-worker.timer
+
 success "Services configured ✔️"
 
 debug "Backup .env.local and copy to final location"
