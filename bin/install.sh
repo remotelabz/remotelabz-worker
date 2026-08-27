@@ -1064,7 +1064,7 @@ mkdir -p "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
 chmod g+rwx "${REMOTELABZ_WORKER_PATH}/var/cache/resources"
 chown -R remotelabz-worker:www-data "${REMOTELABZ_WORKER_PATH}/var/"
 
-mkdir "${REMOTELABZ_WORKER_PATH}/config/system/keys"
+mkdir -p "${REMOTELABZ_WORKER_PATH}/config/system/keys"
 cp /home/remotelabz-worker/.ssh/myremotelabzkey "${REMOTELABZ_WORKER_PATH}/config/system/keys/myremotelabzkey"
 cp /home/remotelabz-worker/.ssh/myremotelabzkey.pub "${REMOTELABZ_WORKER_PATH}/config/system/keys/myremotelabzkey.pub"
 chown www-data:www-data /opt/remotelabz-worker/config/system/keys
