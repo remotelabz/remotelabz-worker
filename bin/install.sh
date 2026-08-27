@@ -983,33 +983,26 @@ chgrp -R remotelabz-worker "${SCRIPTPATH}"
 chmod -R g+rwx "${SCRIPTPATH}"
 
 # Create SSH keys
-if [ -d "/home/remotelabz-worker" ]; then
-    read -p "The /home/remotelabz-worker directory already exists. Do you want to delete it? (y/n) " response
-    if [[ $response == [yY] ]]; then
-        rm -rf /home/remotelabz-worker
-        mkdir /home/remotelabz-worker
-        mkdir /home/remotelabz-worker/.ssh
-        chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh
-        chmod 700 /home/remotelabz-worker/.ssh
-        
-        debug "Generating SSH key: myremotelabzkey"
-        sudo -u remotelabz-worker ssh-keygen -m PEM -t rsa -b 4096 -f /home/remotelabz-worker/.ssh/myremotelabzkey -N ""
-        chmod 600 /home/remotelabz-worker/.ssh/myremotelabzkey
-        
-        cat /home/remotelabz-worker/.ssh/myremotelabzkey.pub | sudo tee -a /home/remotelabz-worker/.ssh/authorized_keys
-        chmod 600 /home/remotelabz-worker/.ssh/authorized_keys
-        
-        chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
+rm -rf /home/remotelabz-worker
+mkdir /home/remotelabz-worker
+mkdir /home/remotelabz-worker/.ssh
+chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh
+chmod 700 /home/remotelabz-worker/.ssh
 
-        success "SSH keys created: myremotelabzkey"
-        
-        sed -i 's|SSH_USER_PRIVATEKEY_FILE=.*|SSH_USER_PRIVATEKEY_FILE="/opt/remotelabz-worker/config/system/keys/myremotelabzkey"|' "${ENV_FILE}"
-        sed -i 's|SSH_USER_PUBLICKEY_FILE=.*|SSH_USER_PUBLICKEY_FILE="/opt/remotelabz-worker/config/system/keys/myremotelabzkey.pub"|' "${ENV_FILE}"
-    else
-        warning "SSH keys cannot be created, please delete the remotelabz-worker directory."
-        read -p "Press Enter to continue ..."
-    fi
-fi
+debug "Generating SSH key: myremotelabzkey"
+sudo -u remotelabz-worker ssh-keygen -m PEM -t rsa -b 4096 -f /home/remotelabz-worker/.ssh/myremotelabzkey -N ""
+chmod 600 /home/remotelabz-worker/.ssh/myremotelabzkey
+
+cat /home/remotelabz-worker/.ssh/myremotelabzkey.pub | sudo tee -a /home/remotelabz-worker/.ssh/authorized_keys
+chmod 600 /home/remotelabz-worker/.ssh/authorized_keys
+
+chown remotelabz-worker:remotelabz-worker /home/remotelabz-worker/.ssh -R
+
+success "SSH keys created: myremotelabzkey"
+
+sed -i 's|SSH_USER_PRIVATEKEY_FILE=.*|SSH_USER_PRIVATEKEY_FILE="/opt/remotelabz-worker/config/system/keys/myremotelabzkey"|' "${ENV_FILE}"
+sed -i 's|SSH_USER_PUBLICKEY_FILE=.*|SSH_USER_PUBLICKEY_FILE="/opt/remotelabz-worker/config/system/keys/myremotelabzkey.pub"|' "${ENV_FILE}"
+
 
 debug "IP configuration of the data network for the VMs and forward between interfaces"
 ip addr add "${DATA_INT_IP_ADDRESS}" dev "${DATA_INTERFACE}" || true
