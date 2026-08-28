@@ -49,7 +49,7 @@ php bin/console cache:clear
 chown remotelabz-worker:www-data * -R
 chmod g+w /opt/remotelabz-worker/var -R
 chown :remotelabz-worker /var/lib/lxc
-chmod g+w /var /lib/lxc
+chmod g+w /var/lib/lxc
 systemctl daemon-reload
 systemctl restart remotelabz-cache
 systemctl restart remotelabz-worker
