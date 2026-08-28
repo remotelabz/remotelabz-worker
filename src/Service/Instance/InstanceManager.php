@@ -4676,7 +4676,7 @@ private function lxc_is_running(string $lxc_name): bool
 
             $this->logger->debug("[InstanceManager:create_Blank_Disk]::Creating blank disk image.", InstanceLogMessage::SCOPE_PRIVATE, [
                 'imagePath' => $imagePath,
-                'size' => $size . 'G',
+                'size' => $size . 'M',
                 'instance' => $uuid
             ]);
 
@@ -4686,7 +4686,7 @@ private function lxc_is_running(string $lxc_name): bool
                 '-f',
                 'qcow2',
                 $imagePath,
-                $size . "G"
+                $size . "M"
             ];
 
             $this->logger->debug("[InstanceManager:create_Blank_Disk]::Executing command.", InstanceLogMessage::SCOPE_PRIVATE, [
