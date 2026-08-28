@@ -5475,7 +5475,7 @@ private function lxc_is_running(string $lxc_name): bool
             CURLOPT_FOLLOWLOCATION   => true,
             CURLOPT_FAILONERROR      => true,
             CURLOPT_CONNECTTIMEOUT   => 30,
-            CURLOPT_TIMEOUT_MS       => 600,     // 10 minute total timeout
+            CURLOPT_TIMEOUT_MS       => 600000,  // 10 minute total timeout
             CURLOPT_LOW_SPEED_LIMIT  => 10240,        // 1 KB/s minimum speed
             CURLOPT_LOW_SPEED_TIME   => 60,          // abort if under limit for 60s
             CURLOPT_TCP_NODELAY       => true,
@@ -5487,24 +5487,32 @@ private function lxc_is_running(string $lxc_name): bool
                 $progressBytes = $offset + $downloaded;
 
                 // Log every 10 MB or at 100% completion
-                $shouldLog = ($totalSize === null)
-                    || ($downloaded - $lastLogBytes >= 10 * 1024 * 1024)
-                    || ($downloaded >= $downloadSize);
+                if ($downloaded > 0) {
+                    $shouldLog = false;
 
-                if ($shouldLog && $downloaded > 0) {
-                    $lastLogBytes = $downloaded;
-                    $progressPct = $totalSize ? round(($downloaded / $downloadSize) * 100, 1) : '???';
-                    $downloadedMB = round($progressBytes / (1024 * 1024), 2);
-                    $totalMB = round($totalSize / (1024 * 1024), 2);
+                    if ($totalSize === 0) {
+                        $shouldLog = ($downloaded - $lastLogBytes >= 10 * 1024 * 1024);
+                    } elseif ($downloaded >= $downloadSize) {
+                        $shouldLog = true;
+                    } else {
+                        $shouldLog = ($downloaded - $lastLogBytes >= 10 * 1024 * 1024);
+                    }
 
-                    $this->logger->debug('[InstanceManager:download_with_range]::Download progress.', InstanceLogMessage::SCOPE_PRIVATE, [
-                        'url'        => $url,
-                        'instance'   => $uuid,
-                        'progress'   => $progressPct . '%',
-                        'downloaded' => $downloadedMB . ' MB',
-                        'total'      => $totalMB . ' MB',
-                        'offset'     => $offset > 0 ? $offset . ' bytes (resume)' : '0 (fresh)',
-                    ]);
+                    if ($shouldLog) {
+                        $lastLogBytes = $downloaded;
+                        $progressPct = $totalSize ? round(($downloaded / $downloadSize) * 100, 1) : '???';
+                        $downloadedMB = round($progressBytes / (1024 * 1024), 2);
+                        $totalMB = round($totalSize / (1024 * 1024), 2);
+
+                        $this->logger->debug('[InstanceManager:download_with_range]::Download progress.', InstanceLogMessage::SCOPE_PRIVATE, [
+                            'url'        => $url,
+                            'instance'   => $uuid,
+                            'progress'   => $progressPct . '%',
+                            'downloaded' => $downloadedMB . ' MB',
+                            'total'      => $totalMB . ' MB',
+                            'offset'     => $offset > 0 ? $offset . ' bytes (resume)' : '0 (fresh)',
+                        ]);
+                    }
                 }
             },
         ]);
