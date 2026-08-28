@@ -5358,29 +5358,61 @@ private function lxc_is_running(string $lxc_name): bool
         $maxRetries  = 3;
         $attempt     = 0;
         $success     = false;
+        $startTime   = microtime(true);
 
         while ($attempt < $maxRetries && !$success) {
             $attempt++;
             $resumeOffset = $filesystem->exists($partialPath) ? filesize($partialPath) : 0;
+            $attemptStart = microtime(true);
 
             if ($resumeOffset > 0) {
                 $this->logger->info("[InstanceManager:download_iso]::Resuming download from byte {$resumeOffset} (attempt {$attempt}/{$maxRetries}).", InstanceLogMessage::SCOPE_PRIVATE, [
                     'iso'      => $isoFilename,
                     'instance' => $uuid,
                 ]);
+                $this->logger->debug("[InstanceManager:download_iso]::Resuming from {$resumeOffset} bytes (attempt {$attempt}). Elapsed: " . round($attemptStart - $startTime, 2) . 's.', InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso'        => $isoFilename,
+                    'instance'   => $uuid,
+                    'attempt'    => $attempt,
+                    'elapsed_s'  => round($attemptStart - $startTime, 2),
+                    'resume_from' => $resumeOffset,
+                ]);
             } else {
-                $this->logger->debug("[InstanceManager:download_iso]::Starting download attempt {$attempt}/{$maxRetries}.", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'iso'      => $isoFilename,
-                    'instance' => $uuid,
+                $this->logger->debug("[InstanceManager:download_iso]::Starting fresh download (attempt {$attempt}/{$maxRetries}). Elapsed: " . round($attemptStart - $startTime, 2) . 's.', InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso'        => $isoFilename,
+                    'instance'   => $uuid,
+                    'attempt'    => $attempt,
+                    'elapsed_s'  => round($attemptStart - $startTime, 2),
                 ]);
             }
 
+            $this->logger->debug("[InstanceManager:download_iso]::Download in progress for {$isoFilename}...", InstanceLogMessage::SCOPE_PRIVATE, [
+                'iso'       => $isoFilename,
+                'instance'  => $uuid,
+                'attempt'   => $attempt,
+                'partial_size_bytes' => $resumeOffset,
+            ]);
+
             $success = $this->download_with_range($url, $partialPath, $resumeOffset, $uuid);
 
+            $elapsed = round(microtime(true) - $attemptStart, 2);
+            $finalSize = $filesystem->exists($partialPath) ? filesize($partialPath) : 0;
+
             if (!$success) {
-                $this->logger->warning("[InstanceManager:download_iso]::Download attempt {$attempt} failed. " . ($attempt < $maxRetries ? "Retrying..." : "No more retries."), InstanceLogMessage::SCOPE_PRIVATE, [
-                    'iso'      => $isoFilename,
-                    'instance' => $uuid,
+                $this->logger->warning("[InstanceManager:download_iso]::Download attempt {$attempt} failed after {$elapsed}s. " . ($attempt < $maxRetries ? "Retrying..." : "No more retries."), InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso'         => $isoFilename,
+                    'instance'    => $uuid,
+                    'attempt'     => $attempt,
+                    'elapsed_s'   => $elapsed,
+                    'partial_size' => $finalSize,
+                ]);
+            } else {
+                $this->logger->debug("[InstanceManager:download_iso]::Download attempt {$attempt} completed successfully in {$elapsed}s. Final size: {$finalSize} bytes.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    'iso'         => $isoFilename,
+                    'instance'    => $uuid,
+                    'attempt'     => $attempt,
+                    'elapsed_s'   => $elapsed,
+                    'final_size'  => $finalSize,
                 ]);
             }
         }
@@ -5407,10 +5439,15 @@ private function lxc_is_running(string $lxc_name): bool
         // Rename .part → final file once complete
         $filesystem->rename($partialPath, $destination);
 
+        $totalElapsed = round(microtime(true) - $startTime, 2);
+        $finalSize = filesize($destination);
+
         $this->logger->info('[InstanceManager:download_iso]::ISO file downloaded successfully.', InstanceLogMessage::SCOPE_PUBLIC, [
-            'iso'      => $isoFilename,
-            'path'     => $destination,
-            'instance' => $uuid,
+            'iso'         => $isoFilename,
+            'path'        => $destination,
+            'instance'    => $uuid,
+            'final_size'  => $finalSize,
+            'total_elapsed_s' => $totalElapsed,
         ]);
     }
 
@@ -5430,14 +5467,46 @@ private function lxc_is_running(string $lxc_name): bool
             $headers[] = "Range: bytes={$offset}-";
         }
 
+        $lastLogBytes = 0;
+
         $ch = curl_init($url);
         curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_FAILONERROR    => true,
-            CURLOPT_CONNECTTIMEOUT => 30,
-            CURLOPT_LOW_SPEED_LIMIT => 1024,        // 1 KB/s minimum
-            CURLOPT_LOW_SPEED_TIME  => 60,          // abort if under limit for 60s
+            CURLOPT_RETURNTRANSFER   => false,
+            CURLOPT_FOLLOWLOCATION   => true,
+            CURLOPT_FAILONERROR      => true,
+            CURLOPT_CONNECTTIMEOUT   => 30,
+            CURLOPT_TIMEOUT_MS       => 600,     // 10 minute total timeout
+            CURLOPT_LOW_SPEED_LIMIT  => 10240,        // 1 KB/s minimum speed
+            CURLOPT_LOW_SPEED_TIME   => 60,          // abort if under limit for 60s
+            CURLOPT_TCP_NODELAY       => true,
+            CURLOPT_BUFFERSIZE       => 65536,        // 64 KB buffer (default is 16 KB)
+            // Progress callback
+            CURLOPT_NOPROGRESS   => false,
+            CURLOPT_PROGRESSFUNCTION  => function ($downloadSize, $downloaded, $uploadSize, $uploaded) use (&$lastLogBytes, $url, $partialPath, $offset, $uuid) {
+                $totalSize = $downloadSize > 0 ? $downloadSize : null;
+                $progressBytes = $offset + $downloaded;
+
+                // Log every 10 MB or at 100% completion
+                $shouldLog = ($totalSize === null)
+                    || ($downloaded - $lastLogBytes >= 10 * 1024 * 1024)
+                    || ($downloaded >= $downloadSize);
+
+                if ($shouldLog && $downloaded > 0) {
+                    $lastLogBytes = $downloaded;
+                    $progressPct = $totalSize ? round(($downloaded / $downloadSize) * 100, 1) : '???';
+                    $downloadedMB = round($progressBytes / (1024 * 1024), 2);
+                    $totalMB = round($totalSize / (1024 * 1024), 2);
+
+                    $this->logger->debug('[InstanceManager:download_with_range]::Download progress.', InstanceLogMessage::SCOPE_PRIVATE, [
+                        'url'        => $url,
+                        'instance'   => $uuid,
+                        'progress'   => $progressPct . '%',
+                        'downloaded' => $downloadedMB . ' MB',
+                        'total'      => $totalMB . ' MB',
+                        'offset'     => $offset > 0 ? $offset . ' bytes (resume)' : '0 (fresh)',
+                    ]);
+                }
+            },
         ]);
 
         if (!empty($headers)) {
@@ -5462,6 +5531,7 @@ private function lxc_is_running(string $lxc_name): bool
         curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error    = curl_error($ch);
+        $totalDownloaded = curl_getinfo($ch, CURLINFO_SIZE_DOWNLOAD);
 
         curl_close($ch);
         fclose($fp);
@@ -5471,6 +5541,7 @@ private function lxc_is_running(string $lxc_name): bool
             $this->logger->warning("[InstanceManager:download_with_range]::cURL failed. HTTP {$httpCode}: {$error}", InstanceLogMessage::SCOPE_PRIVATE, [
                 'url'      => $url,
                 'instance' => $uuid,
+                'downloaded_bytes' => $totalDownloaded,
             ]);
             return false;
         }
