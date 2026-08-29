@@ -126,31 +126,61 @@ class ResourcesCacheService
 
     private function disk_usage(): array
     {
-        $process = new Process([
-    'sudo', '-n', 'vgs',
-    '--noheadings', '--units', 'g', '--nosuffix',
-    '-o', 'vg_name,vg_size,vg_free',
-]);
+        // 1. Liste de tous les VG (pour ne pas en oublier même sans LV monté, ex: rlz-vg)
+        $vgsProcess = new Process(['sudo', '-n', 'vgs', '--noheadings', '-o', 'vg_name']);
 
         try {
-            $process->mustRun();
+            $vgsProcess->mustRun();
         } catch (ProcessFailedException $e) {
-            $this->logger->error('Erreur disk usage : ' . $e->getMessage());
+            $this->logger->error('Erreur disk usage (vgs) : ' . $e->getMessage());
             return [];
         }
 
-        $lines = array_filter(array_map('trim', explode("\n", $process->getOutput())));
+        $vgNames = array_filter(array_map('trim', explode("\n", $vgsProcess->getOutput())));
+        $result = array_fill_keys($vgNames, null); // null = pas de LV monté => NA côté Twig
 
-        $result = [];
+        // 2. Liste des LV avec leur VG d'appartenance et leur chemin device
+        $lvsProcess = new Process(['sudo', '-n', 'lvs', '--noheadings', '--separator', ';', '-o', 'vg_name,lv_path']);
 
-        foreach ($lines as $line) {
-            [$name, $size, $free] = preg_split('/\s+/', $line);
-            $size = (float) $size;
-            $free = (float) $free;
+        try {
+            $lvsProcess->mustRun();
+        } catch (ProcessFailedException $e) {
+            $this->logger->error('Erreur disk usage (lvs) : ' . $e->getMessage());
+            return $result;
+        }
 
-            $usedPercent = $size > 0 ? (int) round((($size - $free) / $size) * 100) : 0;
+        $lvLines = array_filter(array_map('trim', explode("\n", $lvsProcess->getOutput())));
 
-            $result[$name] = $usedPercent;
+        foreach ($lvLines as $line) {
+            [$vgName, $lvPath] = array_map('trim', explode(';', $line));
+
+            // 3. Point de montage réel de ce LV (pas forcément monté)
+            $findmntProcess = new Process(['findmnt', '-n', '-o', 'TARGET', $lvPath]);
+            $findmntProcess->run();
+
+            if (!$findmntProcess->isSuccessful()) {
+                continue; // LV non monté (swap, LV brut, etc.)
+            }
+
+            $mountPoint = trim($findmntProcess->getOutput());
+            if ($mountPoint === '') {
+                continue;
+            }
+
+            // 4. Taux de remplissage réel du filesystem, comme df -h
+            $dfProcess = new Process(['df', '--output=pcent', $mountPoint]);
+
+            try {
+                $dfProcess->mustRun();
+            } catch (ProcessFailedException $e) {
+                $this->logger->error("Erreur disk usage (df sur $mountPoint) : " . $e->getMessage());
+                continue;
+            }
+
+            $dfLines = explode("\n", trim($dfProcess->getOutput()));
+            $percent = (int) rtrim(trim($dfLines[1] ?? '0%'), '%');
+
+            $result[$vgName] = $percent;
         }
 
         return $result;
