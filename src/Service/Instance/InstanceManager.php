@@ -1503,6 +1503,13 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             ]);
         }
 
+        // Guard 3: the rootfs is normally a mounted LVM logical volume
+        // (see lxc_setup_disk). It MUST be unmounted (and the LV removed)
+        // BEFORE we try to delete the container directory tree, otherwise
+        // lxc-destroy / rm -rf will fail with "Device or resource busy" /
+        // "Inappropriate ioctl for device" on the mount point itself.
+        $this->lxc_remove_disk($uuid);
+
         $command = [
             'lxc-destroy',
             '-n',
@@ -1552,7 +1559,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
                 $this->logger->debug("Deleted archive file: {$archivePath}", InstanceLogMessage::SCOPE_PRIVATE);
             }
         }
-        
+
         return $result;
     }
 
@@ -3236,9 +3243,33 @@ private function lxc_is_running(string $lxc_name): bool
                 $umountProcess->setTimeout(60);
                 $umountProcess->run();
 
-                $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $src_lxc_name,
-                ]);
+                if ($umountProcess->isSuccessful()) {
+                    $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $src_lxc_name,
+                    ]);
+                } else {
+                    // Retry with a lazy unmount as a fallback: if something still
+                    // holds a reference open (e.g. a shell cwd, a leftover fd from
+                    // a previous rsync/clone), a normal umount can report "busy".
+                    $this->logger->warning("umount failed, retrying with lazy unmount (-l)", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $src_lxc_name,
+                        'error' => $umountProcess->getErrorOutput(),
+                    ]);
+                    $lazyUmount = Process::fromShellCommandline("sudo umount -l $mountPoint");
+                    $lazyUmount->setTimeout(60);
+                    $lazyUmount->run();
+
+                    if ($lazyUmount->isSuccessful()) {
+                        $this->logger->info("Logical volume unmounted (lazy)", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
+                        ]);
+                    } else {
+                        $this->logger->error("Failed to unmount logical volume, lvremove will likely fail too", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
+                            'error' => $lazyUmount->getErrorOutput(),
+                        ]);
+                    }
+                }
             }
 
             $LVREMOVE_CMD = sprintf(
