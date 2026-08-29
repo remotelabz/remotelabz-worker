@@ -124,19 +124,32 @@ class ResourcesCacheService
         return 0;
     }
 
-    private function disk_usage(): int
+    private function disk_usage(): array
     {
-        $process = new Process(['df', '-h', '/']);
+        $process = new Process(['vgs', '--noheadings', '--units', 'g', '--nosuffix', '-o', 'vg_name,vg_size,vg_free']);
 
         try {
             $process->mustRun();
         } catch (ProcessFailedException $e) {
             $this->logger->error('Erreur disk usage : ' . $e->getMessage());
-            return 0;
+            return [];
         }
 
-        $output = explode("\n", $process->getOutput());
-        return (int)round(preg_replace('/^.+ ([0-9]+)% .+/', '$1', $output[1] ?? '0'));
+        $lines = array_filter(array_map('trim', explode("\n", $process->getOutput())));
+
+        $result = [];
+
+        foreach ($lines as $line) {
+            [$name, $size, $free] = preg_split('/\s+/', $line);
+            $size = (float) $size;
+            $free = (float) $free;
+
+            $usedPercent = $size > 0 ? (int) round((($size - $free) / $size) * 100) : 0;
+
+            $result[$name] = $usedPercent;
+        }
+
+        return $result;
     }
 
     private function memory_usage(): array
