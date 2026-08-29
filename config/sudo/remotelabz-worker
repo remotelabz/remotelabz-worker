@@ -6,4 +6,4 @@ Cmnd_Alias LVM_CMD = /usr/sbin/vgs, /usr/sbin/lvs, /usr/sbin/vgdisplay, /usr/sbi
 Cmnd_Alias LXC_CMD = /usr/bin/lxc-create, /usr/bin/lxc-ls, /usr/bin/lxc-destroy, /usr/bin/chown root\:remotelabz-worker /var/lib/lxc/*, /usr/bin/tar xzf /var/lib/lxc/*
 
 %remotelabz-worker     ALL = (ALL) NOPASSWD: REMOTELABZ_START, REMOTELABZ_STOP, REMOTELABZ_RESTART, REMOTELABZ_STATUS, LVM_CMD, LXC_CMD, /usr/sbin/ip, /usr/sbin/iptables, /usr/bin/ovs-vsctl, /usr/bin/systemd-run,/usr/bin/systemctl is-active, /usr/bin/lsof, /usr/bin/ps x, /usr/sbin/findmnt, /usr/bin/mount, /usr/bin/umount, /usr/bin/rsync
-%www-data     ALL = (ALL) NOPASSWD: /usr/sbin/ip, /usr/sbin/iptables, /usr/bin/ovs-vsctl, REMOTELABZ_START, REMOTELABZ_STOP, REMOTELABZ_RESTART, REMOTELABZ_STATUS,/usr/bin/systemctl is-active, /usr/bin/systemd-run
+%www-data     ALL = (ALL) NOPASSWD: /usr/sbin/ip, /usr/sbin/iptables, /usr/bin/ovs-vsctl, REMOTELABZ_START, REMOTELABZ_STOP, REMOTELABZ_RESTART, REMOTELABZ_STATUS, LVM_CMD, LXC_CMD, /usr/bin/systemctl is-active, /usr/bin/systemd-run

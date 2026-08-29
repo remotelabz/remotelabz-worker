@@ -126,7 +126,11 @@ class ResourcesCacheService
 
     private function disk_usage(): array
     {
-        $process = new Process(['vgs', '--noheadings', '--units', 'g', '--nosuffix', '-o', 'vg_name,vg_size,vg_free']);
+        $process = new Process([
+    'sudo', '-n', 'vgs',
+    '--noheadings', '--units', 'g', '--nosuffix',
+    '-o', 'vg_name,vg_size,vg_free',
+]);
 
         try {
             $process->mustRun();
