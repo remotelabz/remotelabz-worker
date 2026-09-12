@@ -1349,6 +1349,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $dst_lxc_name Name of the new LXC container created.
      * @return $error: true if error or false if no error
      */
+    /**
+     * @var resource[] Open file handles holding lxc_clone slots (flock)
+     */
+    private array $lxcCloneSlotHandles = [];
+
     public function lxc_clone(string $src_lxc_name,string $dst_lxc_name){
         $error=null;
         $srcRootfsPath = "/var/lib/lxc/{$src_lxc_name}/rootfs";
@@ -1359,69 +1364,123 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         );
         $this->logger->debug("Cloning LXC container from {$srcRootfsPath} to {$dstRootfsPath}", InstanceLogMessage::SCOPE_PRIVATE, []);
 
-        $filesystem = new Filesystem();
-        if (!$filesystem->exists($srcRootfsPath)) {
-            $this->logger->error("Source LXC rootfs does not exist", InstanceLogMessage::SCOPE_PUBLIC, [
-                'error' => "Source rootfs path: {$srcRootfsPath}",
-                'instance' => $dst_lxc_name
-            ]);
-            return true;
-        }
-
-        if (!$filesystem->exists($dstRootfsPath)) {
-            $filesystem->mkdir($dstRootfsPath);
-        }
-
-        $command = sprintf(
-            'cp "%s" "%s" && sed -i "s|^lxc.rootfs.path = .*$|lxc.rootfs.path = %s|g" "%s"',
-            "{$srcRootfsPath}/../config",
-            "{$dstRootfsPath}/../config",
-            $dstRootfsPath,
-            "{$dstRootfsPath}/../config"
-        );
-
-        $process = Process::fromShellCommandline($command);
+        $this->acquireLxcCloneSlot($dst_lxc_name);
         try {
-            $process->mustRun();
-            $this->logger->debug("[InstanceManager:lxc_clone]::LXC template config copied", InstanceLogMessage::SCOPE_PRIVATE, [
-                "source" => "{$srcRootfsPath}/../config",
-                "destination" => "{$dstRootfsPath}/../config"
-            ]);
-        } catch (ProcessFailedException $exception) {
-            $this->logger->error("Copying LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
-                "instance" => $dst_lxc_name
-            ]);
-        }
-
-        $command = sprintf(
-            'sudo rsync -aAXv --delete "%s/" "%s/" 2>&1',
-            $srcRootfsPath,
-            $dstRootfsPath
-        );
-
-        $process = Process::fromShellCommandline($command);
-        $process->setTimeout(600);
-        try {
-            $process->run();
-            if (!$process->isSuccessful()) {
-                throw new ProcessFailedException($process);
+            $filesystem = new Filesystem();
+            if (!$filesystem->exists($srcRootfsPath)) {
+                $this->logger->error("Source LXC rootfs does not exist", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'error' => "Source rootfs path: {$srcRootfsPath}",
+                    'instance' => $dst_lxc_name
+                ]);
+                return true;
             }
-            $error=false;
-        }   catch (ProcessFailedException $exception) {
-            $error=true;
-            $this->logger->error("LXC container cloned is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
-                'error' => $exception->getMessage(),
-                'instance' => $dst_lxc_name
-            ]);
+
+            if (!$filesystem->exists($dstRootfsPath)) {
+                $filesystem->mkdir($dstRootfsPath);
+            }
+
+            $command = sprintf(
+                'cp "%s" "%s" && sed -i "s|^lxc.rootfs.path = .*$|lxc.rootfs.path = %s|g" "%s"',
+                "{$srcRootfsPath}/../config",
+                "{$dstRootfsPath}/../config",
+                $dstRootfsPath,
+                "{$dstRootfsPath}/../config"
+            );
+
+            $process = Process::fromShellCommandline($command);
+            try {
+                $process->mustRun();
+                $this->logger->debug("[InstanceManager:lxc_clone]::LXC template config copied", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "source" => "{$srcRootfsPath}/../config",
+                    "destination" => "{$dstRootfsPath}/../config"
+                ]);
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("Copying LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                    "instance" => $dst_lxc_name
+                ]);
+            }
+
+            $command = sprintf(
+                'sudo rsync -aAXv --delete "%s/" "%s/" 2>&1',
+                $srcRootfsPath,
+                $dstRootfsPath
+            );
+
+            $process = Process::fromShellCommandline($command);
+            $process->setTimeout(600);
+            try {
+                $process->run();
+                if (!$process->isSuccessful()) {
+                    throw new ProcessFailedException($process);
+                }
+                $error=false;
+            }   catch (ProcessFailedException $exception) {
+                $error=true;
+                $this->logger->error("LXC container cloned is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'error' => $exception->getMessage(),
+                    'instance' => $dst_lxc_name
+                ]);
+            }
+            if (!$error)
+                $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $dst_lxc_name]);
+        } finally {
+            $this->releaseLxcCloneSlots();
         }
-        if (!$error)
-            $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                'instance' => $dst_lxc_name]);
-
-
-
 
         return $error;
+    }
+
+    /**
+     * Acquire a slot in the lxc_clone concurrency pool.
+     * The pool is implemented as N lock files protected by flock(), so the
+     * limit is enforced across all worker processes (all messenger consumers).
+     * flock() locks are released automatically by the kernel when a process
+     * dies, so no stale lock can ever be left behind.
+     *
+     * @param string $instance Instance name, for logging purposes only
+     */
+    private function acquireLxcCloneSlot(string $instance): void
+    {
+        $maxConcurrent = (int) $this->params->get('app.lxc.clone.max_concurrent');
+        if ($maxConcurrent <= 0) {
+            return;
+        }
+
+        $lockDir = $this->install_directory . '/var/run/lxc-clone';
+        (new Filesystem())->mkdir($lockDir);
+
+        $this->logger->debug(
+            "[InstanceManager:lxc_clone]::Waiting for a free clone slot (max concurrent rsync: {$maxConcurrent})",
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance' => $instance]
+        );
+
+        while (true) {
+            for ($i = 0; $i < $maxConcurrent; $i++) {
+                $handle = fopen("{$lockDir}/slot-{$i}.lock", 'c');
+                if ($handle !== false && flock($handle, LOCK_EX | LOCK_NB)) {
+                    $this->lxcCloneSlotHandles[] = $handle;
+                    return;
+                }
+                if ($handle !== false) {
+                    fclose($handle);
+                }
+            }
+            usleep(200000);
+        }
+    }
+
+    /**
+     * Release all slots held by this process.
+     */
+    private function releaseLxcCloneSlots(): void
+    {
+        foreach ($this->lxcCloneSlotHandles as $handle) {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+        $this->lxcCloneSlotHandles = [];
     }
 
     /**
