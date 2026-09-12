@@ -3979,58 +3979,84 @@ private function lxc_is_running(string $lxc_name): bool
               ]);
         switch (strtolower($os_to_copy["hypervisor"])) {
             case "qemu":
-                $result_scp="";
-                $connection=$this->sshService->connect($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
                 $local_file="/opt/remotelabz-worker/images/".$os_to_copy["os_imagename"];
                 $remote_file=$local_file;
-               
-                try {
-                    $result_scp=$this->scp($connection, $local_file, $remote_file,$os_to_copy["Worker_Dest_IP"]);                
 
-                    if ($result_scp) {       
-                        $message=$result_scp;
-                        $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $os_to_copy["os_imagename"],
-                            "uuid" => $os_to_copy['os_imagename'],
-                            'error' => true,
-                            "options" => [
-                                "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                'error' => $message,
-                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
-                                        ]
-                                ]);
-                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
-                                                "uuid" => $os_to_copy["os_imagename"],
-                                                "error" => true,
-                                                "message" => $message,
-                                                "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                                            'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
-                                                            'error' => $message
-                                                            ]
-                                    );
-                    } else { // No error return by scp command
-                        $this->logger->info("::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $local_file,
-                            "uuid"=>    $local_file
-                        ]);
-                        
-                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
-                        "uuid" => $os_to_copy["os_imagename"],
-                        "error" => false,
-                        "message" => $result_scp,
-                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                    'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
-                                    ]
-                        );
+                $this->logger->info("Send ".$local_file." file via rsync to ".$os_to_copy["Worker_Dest_IP"].":".$remote_file, InstanceLogMessage::SCOPE_PRIVATE,
+                    [
+                        'instance' => $os_to_copy["os_imagename"],
+                        'uuid' => $os_to_copy['os_imagename'],
+                    ]);
+
+                $ssh_options='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes';
+                $command=sprintf(
+                    'rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
+                    escapeshellarg($privateKeyFile),
+                    $ssh_options,
+                    escapeshellarg($local_file),
+                    escapeshellarg($cible),
+                    escapeshellarg($remote_file)
+                );
+
+                $process=Process::fromShellCommandline($command);
+                $process->setTimeout(3600);
+                try {
+                    $process->run(function ($type, $buffer) {
+                        $this->logger->debug("{InstanceManager:copy2worker]::qemu RSYNC: ".$buffer, InstanceLogMessage::SCOPE_PRIVATE);
+                    });
+                    if (!$process->isSuccessful()) {
+                        throw new ProcessFailedException($process);
                     }
-                } catch(ErrorException $e) {
-                    $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'error' => $e->getMessage(),
+                } catch (ProcessFailedException $exception) {
+                    $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $os_to_copy["os_imagename"],
+                        "uuid" => $os_to_copy['os_imagename'],
+                        'error' => true,
+                        "options" => [
+                            "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                            'error' => $exception->getProcess()->getOutput() . $exception->getProcess()->getErrorOutput(),
+                            'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                    ]
+                            ]);
+                    $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                            "uuid" => $os_to_copy["os_imagename"],
+                                            "error" => true,
+                                            "message" => $exception->getProcess()->getOutput(),
+                                            "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                        'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
+                                                        'error' => $exception->getProcess()->getOutput()
+                                                        ]
+                                );
+                } catch (ProcessTimedOutException $exception) {
+                    $this->logger->error("RSync timed out for ".$local_file, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'error' => $exception->getMessage(),
                         'instance' => $os_to_copy["os_imagename"]
                     ]);
+                    $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                    "uuid" => $os_to_copy["os_imagename"],
+                                    "error" => true,
+                                    "message" => "RSync timed out",
+                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
+                                                'error' => "RSync timed out"
+                                                ]
+                            );
                 }
+                if (!isset($result["error"]) || !$result["error"]) { // No error return by rsync command
+                    $this->logger->info("Qemu Rsync ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $local_file,
+                        "uuid"=>    $local_file
+                    ]);
 
-                ssh2_disconnect($connection);
+                    $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                    "uuid" => $os_to_copy["os_imagename"],
+                    "error" => false,
+                    "message" => "OK",
+                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                ]
+                    );
+                }
                 break;
             
             case "lxc":
