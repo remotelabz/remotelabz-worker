@@ -4203,7 +4203,7 @@ private function lxc_is_running(string $lxc_name): bool
                                     ]
                       ]);   
                     */
-                    $result_lxc=$this->Create_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename']);               
+                    $result_lxc=$this->Create_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename'],$ssh_user,$privateKeyFile);               
 
                     if ($result_lxc["error"]) {
                         $this->logger->error("Error in remote LXC creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
@@ -4461,7 +4461,7 @@ private function lxc_is_running(string $lxc_name): bool
      * @param string $os_imagename
      * @throws ProcessFailedException When a process failed to run.
      */
-    public function Create_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename) {
+    public function Create_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename,$ssh_user,$privateKeyFile) {
         $result="";
         $result_creation=array();
         $message="";
@@ -4489,8 +4489,34 @@ private function lxc_is_running(string $lxc_name): bool
                 $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
 
                 try {
-                    $result=$this->scp($connection, $local_file, $remote_file,$Worker_Dest_IP);                
-                    
+                    $this->logger->info("Send ".$local_file." file via rsync to ".$Worker_Dest_IP.":".$remote_file, InstanceLogMessage::SCOPE_PRIVATE,
+                        [
+                            'instance' => $os_imagename,
+                            'uuid' => $os_imagename,
+                        ]);
+
+                    $cible=$ssh_user."@".$Worker_Dest_IP;
+                    $ssh_options='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes';
+                    $rsync_command=sprintf(
+                        'rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
+                        escapeshellarg($privateKeyFile),
+                        $ssh_options,
+                        escapeshellarg($local_file),
+                        escapeshellarg($cible),
+                        escapeshellarg($remote_file)
+                    );
+
+                    $rsync_process=Process::fromShellCommandline($rsync_command);
+                    $rsync_process->setTimeout(3600);
+                    $rsync_process->run(function ($type, $buffer) {
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::RSYNC: ".$buffer, InstanceLogMessage::SCOPE_PRIVATE);
+                    });
+
+                    $result="";
+                    if (!$rsync_process->isSuccessful()) {
+                        $result=$rsync_process->getOutput() . $rsync_process->getErrorOutput();
+                    }
+
                     if ($result) {       
                         $message=$result;
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Error in remote LXC container creation ! ");
@@ -4513,7 +4539,7 @@ private function lxc_is_running(string $lxc_name): bool
                                                             'error' => $message
                                                             ]
                                     );
-                        //The SCP failed but if we are in this function, a empty container has been created so we have to delete it.
+                        //The RSYNC failed but if we are in this function, a empty container has been created so we have to delete it.
                         $this->Destroy_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename);
 
                     } else {
@@ -4548,7 +4574,7 @@ private function lxc_is_running(string $lxc_name): bool
                     }
                 }
                 catch (ErrorException $exception){
-                    $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
+                    $this->logger->error("Failed RSYNC", InstanceLogMessage::SCOPE_PRIVATE, [
                         'error' => $exception->getMessage(),
                         'instance' => $os_imagename
                     ]);
