@@ -3297,57 +3297,104 @@ private function lxc_is_running(string $lxc_name): bool
 
             $filesystem = new Filesystem();
             if ($filesystem->exists($mountPoint)) {
-                $UNMOUNT_CMD = "sudo umount $mountPoint";
-                $umountProcess = Process::fromShellCommandline($UNMOUNT_CMD);
-                $umountProcess->setTimeout(60);
-                $umountProcess->run();
+                // The path may exist either as a real mount destination (the
+                // instance LVM volume mounted at $mountPoint), as a plain
+                // leftover directory, or inside the base /var/lib/lxc mount
+                // (reference images live in /dev/mapper/rlz--vg-lib--lxc).
+                // findmnt -T reports the deepest mount containing the path, so
+                // we must check that the reported target is exactly $mountPoint
+                // before unmounting.
+                $findmntProcess = Process::fromShellCommandline(sprintf(
+                    'findmnt --noheadings --target %s -o TARGET',
+                    escapeshellarg($mountPoint)
+                ));
+                $findmntProcess->setTimeout(10);
+                $findmntProcess->run();
+                $foundTarget = trim($findmntProcess->getOutput());
+                $isMountPoint = $findmntProcess->isSuccessful() && $foundTarget === $mountPoint;
 
-                if ($umountProcess->isSuccessful()) {
-                    $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
+                if (!$isMountPoint) {
+                    $this->logger->debug("[InstanceManager:lxc_remove_disk]::No instance mount at mount point (base /var/lib/lxc mount or plain directory), skipping umount", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $src_lxc_name,
+                        'found_target' => $foundTarget,
                     ]);
                 } else {
-                    // Retry with a lazy unmount as a fallback: if something still
-                    // holds a reference open (e.g. a shell cwd, a leftover fd from
-                    // a previous rsync/clone), a normal umount can report "busy".
-                    $this->logger->warning("umount failed, retrying with lazy unmount (-l)", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $src_lxc_name,
-                        'error' => $umountProcess->getErrorOutput(),
+                    $this->logger->debug("[InstanceManager:lxc_remove_disk]::Mounted Logical volume existing", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
                     ]);
-                    $lazyUmount = Process::fromShellCommandline("sudo umount -l $mountPoint");
-                    $lazyUmount->setTimeout(60);
-                    $lazyUmount->run();
+                    $UNMOUNT_CMD = "sudo umount $mountPoint";
+                    $umountProcess = Process::fromShellCommandline($UNMOUNT_CMD);
+                    $umountProcess->setTimeout(60);
+                    $umountProcess->run();
 
-                    if ($lazyUmount->isSuccessful()) {
-                        $this->logger->info("Logical volume unmounted (lazy)", InstanceLogMessage::SCOPE_PRIVATE, [
+                    if ($umountProcess->isSuccessful()) {
+                        $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
                             'instance' => $src_lxc_name,
                         ]);
-                    } else {
-                        $this->logger->error("Failed to unmount logical volume, lvremove will likely fail too", InstanceLogMessage::SCOPE_PRIVATE, [
+                    } /*else {
+                        // Retry with a lazy unmount as a fallback: if something still
+                        // holds a reference open (e.g. a shell cwd, a leftover fd from
+                        // a previous rsync/clone), a normal umount can report "busy".
+                        $this->logger->warning("umount failed, retrying with lazy unmount (-l)", InstanceLogMessage::SCOPE_PRIVATE, [
                             'instance' => $src_lxc_name,
-                            'error' => $lazyUmount->getErrorOutput(),
+                            'error' => $umountProcess->getErrorOutput(),
+                        ]);
+                        $lazyUmount = Process::fromShellCommandline("sudo umount -l $mountPoint");
+                        $lazyUmount->setTimeout(60);
+                        $lazyUmount->run();
+
+                        if ($lazyUmount->isSuccessful()) {
+                            $this->logger->info("Logical volume unmounted (lazy)", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $src_lxc_name,
+                            ]);
+                        } else {
+                            $this->logger->error("Failed to unmount logical volume, lvremove will likely fail too", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $src_lxc_name,
+                                'error' => $lazyUmount->getErrorOutput(),
+                            ]);
+                        }
+                    }*/
+                }
+
+                $lvsProcess = Process::fromShellCommandline(sprintf(
+                    'sudo lvs --noheadings -o name %s/%s',
+                    escapeshellarg($lvmVolumeGroup),
+                    escapeshellarg($lvmName)
+                ));
+                $lvsProcess->setTimeout(10);
+                $lvsProcess->run();
+                $lvExists = $lvsProcess->isSuccessful() && trim($lvsProcess->getOutput()) !== '';
+
+                if (!$lvExists) {
+                    $this->logger->debug("[InstanceManager:lxc_remove_disk]::Logical volume does not exist, skipping lvremove", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $src_lxc_name,
+                        'volume_name' => $lvmName,
+                    ]);
+                } else {
+                    $LVREMOVE_CMD = sprintf(
+                        'sudo lvremove -f %s/%s',
+                        $lvmVolumeGroup,
+                        $lvmName
+                    );
+                    $lvRemoveProcess = Process::fromShellCommandline($LVREMOVE_CMD);
+                    $lvRemoveProcess->setTimeout(120);
+                    $lvRemoveProcess->run();
+
+                    if (!$lvRemoveProcess->isSuccessful()) {
+                        $this->logger->warning("Failed to remove logical volume", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
+                            'error' => $lvRemoveProcess->getErrorOutput(),
+                        ]);
+                    } else {
+                        $this->logger->info("Logical volume removed successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
                         ]);
                     }
                 }
-            }
-
-            $LVREMOVE_CMD = sprintf(
-                'sudo lvremove -f %s/%s',
-                $lvmVolumeGroup,
-                $lvmName
-            );
-            $lvRemoveProcess = Process::fromShellCommandline($LVREMOVE_CMD);
-            $lvRemoveProcess->setTimeout(120);
-            $lvRemoveProcess->run();
-
-            if (!$lvRemoveProcess->isSuccessful()) {
-                $this->logger->warning("Failed to remove logical volume (may not exist)", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $src_lxc_name,
-                    'error' => $lvRemoveProcess->getErrorOutput(),
-                ]);
-            } else {
-                $this->logger->info("Logical volume removed successfully", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $src_lxc_name,
+            } else 
+            {
+                $this->logger->debug("[InstanceManager:lxc_remove_disk]::No mounted Logical volume existing", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $src_lxc_name,
                 ]);
             }
         } catch (\Exception $e) {
