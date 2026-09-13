@@ -4096,7 +4096,7 @@ private function lxc_is_running(string $lxc_name): bool
 
                 $ssh_options='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes';
                 $command=sprintf(
-                    'rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
+                    'sudo rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
                     escapeshellarg($privateKeyFile),
                     $ssh_options,
                     escapeshellarg($local_file),
@@ -4498,7 +4498,7 @@ private function lxc_is_running(string $lxc_name): bool
                     $cible=$ssh_user."@".$Worker_Dest_IP;
                     $ssh_options='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes';
                     $rsync_command=sprintf(
-                        'rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
+                        'sudo rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
                         escapeshellarg($privateKeyFile),
                         $ssh_options,
                         escapeshellarg($local_file),
