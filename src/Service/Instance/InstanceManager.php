@@ -1349,6 +1349,11 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * @param string $dst_lxc_name Name of the new LXC container created.
      * @return $error: true if error or false if no error
      */
+    /**
+     * @var resource[] Open file handles holding lxc_clone slots (flock)
+     */
+    private array $lxcCloneSlotHandles = [];
+
     public function lxc_clone(string $src_lxc_name,string $dst_lxc_name){
         $error=null;
         $srcRootfsPath = "/var/lib/lxc/{$src_lxc_name}/rootfs";
@@ -1359,69 +1364,123 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
         );
         $this->logger->debug("Cloning LXC container from {$srcRootfsPath} to {$dstRootfsPath}", InstanceLogMessage::SCOPE_PRIVATE, []);
 
-        $filesystem = new Filesystem();
-        if (!$filesystem->exists($srcRootfsPath)) {
-            $this->logger->error("Source LXC rootfs does not exist", InstanceLogMessage::SCOPE_PUBLIC, [
-                'error' => "Source rootfs path: {$srcRootfsPath}",
-                'instance' => $dst_lxc_name
-            ]);
-            return true;
-        }
-
-        if (!$filesystem->exists($dstRootfsPath)) {
-            $filesystem->mkdir($dstRootfsPath);
-        }
-
-        $command = sprintf(
-            'cp "%s" "%s" && sed -i "s|^lxc.rootfs.path = .*$|lxc.rootfs.path = %s|g" "%s"',
-            "{$srcRootfsPath}/../config",
-            "{$dstRootfsPath}/../config",
-            $dstRootfsPath,
-            "{$dstRootfsPath}/../config"
-        );
-
-        $process = Process::fromShellCommandline($command);
+        $this->acquireLxcCloneSlot($dst_lxc_name);
         try {
-            $process->mustRun();
-            $this->logger->debug("[InstanceManager:lxc_clone]::LXC template config copied", InstanceLogMessage::SCOPE_PRIVATE, [
-                "source" => "{$srcRootfsPath}/../config",
-                "destination" => "{$dstRootfsPath}/../config"
-            ]);
-        } catch (ProcessFailedException $exception) {
-            $this->logger->error("Copying LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
-                "instance" => $dst_lxc_name
-            ]);
-        }
-
-        $command = sprintf(
-            'sudo rsync -aAXv --delete "%s/" "%s/" 2>&1',
-            $srcRootfsPath,
-            $dstRootfsPath
-        );
-
-        $process = Process::fromShellCommandline($command);
-        $process->setTimeout(600);
-        try {
-            $process->run();
-            if (!$process->isSuccessful()) {
-                throw new ProcessFailedException($process);
+            $filesystem = new Filesystem();
+            if (!$filesystem->exists($srcRootfsPath)) {
+                $this->logger->error("Source LXC rootfs does not exist", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'error' => "Source rootfs path: {$srcRootfsPath}",
+                    'instance' => $dst_lxc_name
+                ]);
+                return true;
             }
-            $error=false;
-        }   catch (ProcessFailedException $exception) {
-            $error=true;
-            $this->logger->error("LXC container cloned is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
-                'error' => $exception->getMessage(),
-                'instance' => $dst_lxc_name
-            ]);
+
+            if (!$filesystem->exists($dstRootfsPath)) {
+                $filesystem->mkdir($dstRootfsPath);
+            }
+
+            $command = sprintf(
+                'cp "%s" "%s" && sed -i "s|^lxc.rootfs.path = .*$|lxc.rootfs.path = %s|g" "%s"',
+                "{$srcRootfsPath}/../config",
+                "{$dstRootfsPath}/../config",
+                $dstRootfsPath,
+                "{$dstRootfsPath}/../config"
+            );
+
+            $process = Process::fromShellCommandline($command);
+            try {
+                $process->mustRun();
+                $this->logger->debug("[InstanceManager:lxc_clone]::LXC template config copied", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "source" => "{$srcRootfsPath}/../config",
+                    "destination" => "{$dstRootfsPath}/../config"
+                ]);
+            } catch (ProcessFailedException $exception) {
+                $this->logger->error("Copying LXC config failed: " . $exception->getMessage(), InstanceLogMessage::SCOPE_PRIVATE, [
+                    "instance" => $dst_lxc_name
+                ]);
+            }
+
+            $command = sprintf(
+                'sudo rsync -aAXv --delete "%s/" "%s/" 2>&1',
+                $srcRootfsPath,
+                $dstRootfsPath
+            );
+
+            $process = Process::fromShellCommandline($command);
+            $process->setTimeout(600);
+            try {
+                $process->run();
+                if (!$process->isSuccessful()) {
+                    throw new ProcessFailedException($process);
+                }
+                $error=false;
+            }   catch (ProcessFailedException $exception) {
+                $error=true;
+                $this->logger->error("LXC container cloned is in error ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'error' => $exception->getMessage(),
+                    'instance' => $dst_lxc_name
+                ]);
+            }
+            if (!$error)
+                $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                    'instance' => $dst_lxc_name]);
+        } finally {
+            $this->releaseLxcCloneSlots();
         }
-        if (!$error)
-            $this->logger->info("LXC container cloned successfully", InstanceLogMessage::SCOPE_PUBLIC, [
-                'instance' => $dst_lxc_name]);
-
-
-
 
         return $error;
+    }
+
+    /**
+     * Acquire a slot in the lxc_clone concurrency pool.
+     * The pool is implemented as N lock files protected by flock(), so the
+     * limit is enforced across all worker processes (all messenger consumers).
+     * flock() locks are released automatically by the kernel when a process
+     * dies, so no stale lock can ever be left behind.
+     *
+     * @param string $instance Instance name, for logging purposes only
+     */
+    private function acquireLxcCloneSlot(string $instance): void
+    {
+        $maxConcurrent = (int) $this->params->get('app.lxc.clone.max_concurrent');
+        if ($maxConcurrent <= 0) {
+            return;
+        }
+
+        $lockDir = $this->install_directory . '/var/run/lxc-clone';
+        (new Filesystem())->mkdir($lockDir);
+
+        $this->logger->debug(
+            "[InstanceManager:lxc_clone]::Waiting for a free clone slot (max concurrent rsync: {$maxConcurrent})",
+            InstanceLogMessage::SCOPE_PRIVATE,
+            ['instance' => $instance]
+        );
+
+        while (true) {
+            for ($i = 0; $i < $maxConcurrent; $i++) {
+                $handle = fopen("{$lockDir}/slot-{$i}.lock", 'c');
+                if ($handle !== false && flock($handle, LOCK_EX | LOCK_NB)) {
+                    $this->lxcCloneSlotHandles[] = $handle;
+                    return;
+                }
+                if ($handle !== false) {
+                    fclose($handle);
+                }
+            }
+            usleep(200000);
+        }
+    }
+
+    /**
+     * Release all slots held by this process.
+     */
+    private function releaseLxcCloneSlots(): void
+    {
+        foreach ($this->lxcCloneSlotHandles as $handle) {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+        $this->lxcCloneSlotHandles = [];
     }
 
     /**
@@ -3238,57 +3297,104 @@ private function lxc_is_running(string $lxc_name): bool
 
             $filesystem = new Filesystem();
             if ($filesystem->exists($mountPoint)) {
-                $UNMOUNT_CMD = "sudo umount $mountPoint";
-                $umountProcess = Process::fromShellCommandline($UNMOUNT_CMD);
-                $umountProcess->setTimeout(60);
-                $umountProcess->run();
+                // The path may exist either as a real mount destination (the
+                // instance LVM volume mounted at $mountPoint), as a plain
+                // leftover directory, or inside the base /var/lib/lxc mount
+                // (reference images live in /dev/mapper/rlz--vg-lib--lxc).
+                // findmnt -T reports the deepest mount containing the path, so
+                // we must check that the reported target is exactly $mountPoint
+                // before unmounting.
+                $findmntProcess = Process::fromShellCommandline(sprintf(
+                    'findmnt --noheadings --target %s -o TARGET',
+                    escapeshellarg($mountPoint)
+                ));
+                $findmntProcess->setTimeout(10);
+                $findmntProcess->run();
+                $foundTarget = trim($findmntProcess->getOutput());
+                $isMountPoint = $findmntProcess->isSuccessful() && $foundTarget === $mountPoint;
 
-                if ($umountProcess->isSuccessful()) {
-                    $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
+                if (!$isMountPoint) {
+                    $this->logger->debug("[InstanceManager:lxc_remove_disk]::No instance mount at mount point (base /var/lib/lxc mount or plain directory), skipping umount", InstanceLogMessage::SCOPE_PRIVATE, [
                         'instance' => $src_lxc_name,
+                        'found_target' => $foundTarget,
                     ]);
                 } else {
-                    // Retry with a lazy unmount as a fallback: if something still
-                    // holds a reference open (e.g. a shell cwd, a leftover fd from
-                    // a previous rsync/clone), a normal umount can report "busy".
-                    $this->logger->warning("umount failed, retrying with lazy unmount (-l)", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'instance' => $src_lxc_name,
-                        'error' => $umountProcess->getErrorOutput(),
+                    $this->logger->debug("[InstanceManager:lxc_remove_disk]::Mounted Logical volume existing", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
                     ]);
-                    $lazyUmount = Process::fromShellCommandline("sudo umount -l $mountPoint");
-                    $lazyUmount->setTimeout(60);
-                    $lazyUmount->run();
+                    $UNMOUNT_CMD = "sudo umount $mountPoint";
+                    $umountProcess = Process::fromShellCommandline($UNMOUNT_CMD);
+                    $umountProcess->setTimeout(60);
+                    $umountProcess->run();
 
-                    if ($lazyUmount->isSuccessful()) {
-                        $this->logger->info("Logical volume unmounted (lazy)", InstanceLogMessage::SCOPE_PRIVATE, [
+                    if ($umountProcess->isSuccessful()) {
+                        $this->logger->info("Logical volume unmounted", InstanceLogMessage::SCOPE_PRIVATE, [
                             'instance' => $src_lxc_name,
                         ]);
-                    } else {
-                        $this->logger->error("Failed to unmount logical volume, lvremove will likely fail too", InstanceLogMessage::SCOPE_PRIVATE, [
+                    } /*else {
+                        // Retry with a lazy unmount as a fallback: if something still
+                        // holds a reference open (e.g. a shell cwd, a leftover fd from
+                        // a previous rsync/clone), a normal umount can report "busy".
+                        $this->logger->warning("umount failed, retrying with lazy unmount (-l)", InstanceLogMessage::SCOPE_PRIVATE, [
                             'instance' => $src_lxc_name,
-                            'error' => $lazyUmount->getErrorOutput(),
+                            'error' => $umountProcess->getErrorOutput(),
+                        ]);
+                        $lazyUmount = Process::fromShellCommandline("sudo umount -l $mountPoint");
+                        $lazyUmount->setTimeout(60);
+                        $lazyUmount->run();
+
+                        if ($lazyUmount->isSuccessful()) {
+                            $this->logger->info("Logical volume unmounted (lazy)", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $src_lxc_name,
+                            ]);
+                        } else {
+                            $this->logger->error("Failed to unmount logical volume, lvremove will likely fail too", InstanceLogMessage::SCOPE_PRIVATE, [
+                                'instance' => $src_lxc_name,
+                                'error' => $lazyUmount->getErrorOutput(),
+                            ]);
+                        }
+                    }*/
+                }
+
+                $lvsProcess = Process::fromShellCommandline(sprintf(
+                    'sudo lvs --noheadings -o name %s/%s',
+                    escapeshellarg($lvmVolumeGroup),
+                    escapeshellarg($lvmName)
+                ));
+                $lvsProcess->setTimeout(10);
+                $lvsProcess->run();
+                $lvExists = $lvsProcess->isSuccessful() && trim($lvsProcess->getOutput()) !== '';
+
+                if (!$lvExists) {
+                    $this->logger->debug("[InstanceManager:lxc_remove_disk]::Logical volume does not exist, skipping lvremove", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $src_lxc_name,
+                        'volume_name' => $lvmName,
+                    ]);
+                } else {
+                    $LVREMOVE_CMD = sprintf(
+                        'sudo lvremove -f %s/%s',
+                        $lvmVolumeGroup,
+                        $lvmName
+                    );
+                    $lvRemoveProcess = Process::fromShellCommandline($LVREMOVE_CMD);
+                    $lvRemoveProcess->setTimeout(120);
+                    $lvRemoveProcess->run();
+
+                    if (!$lvRemoveProcess->isSuccessful()) {
+                        $this->logger->warning("Failed to remove logical volume", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
+                            'error' => $lvRemoveProcess->getErrorOutput(),
+                        ]);
+                    } else {
+                        $this->logger->info("Logical volume removed successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                            'instance' => $src_lxc_name,
                         ]);
                     }
                 }
-            }
-
-            $LVREMOVE_CMD = sprintf(
-                'sudo lvremove -f %s/%s',
-                $lvmVolumeGroup,
-                $lvmName
-            );
-            $lvRemoveProcess = Process::fromShellCommandline($LVREMOVE_CMD);
-            $lvRemoveProcess->setTimeout(120);
-            $lvRemoveProcess->run();
-
-            if (!$lvRemoveProcess->isSuccessful()) {
-                $this->logger->warning("Failed to remove logical volume (may not exist)", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $src_lxc_name,
-                    'error' => $lvRemoveProcess->getErrorOutput(),
-                ]);
-            } else {
-                $this->logger->info("Logical volume removed successfully", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $src_lxc_name,
+            } else 
+            {
+                $this->logger->debug("[InstanceManager:lxc_remove_disk]::No mounted Logical volume existing", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $src_lxc_name,
                 ]);
             }
         } catch (\Exception $e) {
@@ -3979,58 +4085,84 @@ private function lxc_is_running(string $lxc_name): bool
               ]);
         switch (strtolower($os_to_copy["hypervisor"])) {
             case "qemu":
-                $result_scp="";
-                $connection=$this->sshService->connect($os_to_copy["Worker_Dest_IP"],"22",$ssh_user,$ssh_password,$publicKeyFile,$privateKeyFile);
                 $local_file="/opt/remotelabz-worker/images/".$os_to_copy["os_imagename"];
                 $remote_file=$local_file;
-               
-                try {
-                    $result_scp=$this->scp($connection, $local_file, $remote_file,$os_to_copy["Worker_Dest_IP"]);                
 
-                    if ($result_scp) {       
-                        $message=$result_scp;
-                        $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
-                            'instance' => $os_to_copy["os_imagename"],
-                            "uuid" => $os_to_copy['os_imagename'],
-                            'error' => true,
-                            "options" => [
-                                "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                'error' => $message,
-                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
-                                        ]
-                                ]);
-                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
-                                                "uuid" => $os_to_copy["os_imagename"],
-                                                "error" => true,
-                                                "message" => $message,
-                                                "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                                            'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
-                                                            'error' => $message
-                                                            ]
-                                    );
-                    } else { // No error return by scp command
-                        $this->logger->info("::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE, [
-                            'instance' => $local_file,
-                            "uuid"=>    $local_file
-                        ]);
-                        
-                        $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
-                        "uuid" => $os_to_copy["os_imagename"],
-                        "error" => false,
-                        "message" => $result_scp,
-                        "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
-                                    'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
-                                    ]
-                        );
+                $this->logger->info("Send ".$local_file." file via rsync to ".$os_to_copy["Worker_Dest_IP"].":".$remote_file, InstanceLogMessage::SCOPE_PRIVATE,
+                    [
+                        'instance' => $os_to_copy["os_imagename"],
+                        'uuid' => $os_to_copy['os_imagename'],
+                    ]);
+
+                $ssh_options='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes';
+                $command=sprintf(
+                    'sudo rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
+                    escapeshellarg($privateKeyFile),
+                    $ssh_options,
+                    escapeshellarg($local_file),
+                    escapeshellarg($cible),
+                    escapeshellarg($remote_file)
+                );
+
+                $process=Process::fromShellCommandline($command);
+                $process->setTimeout(3600);
+                try {
+                    $process->run(function ($type, $buffer) {
+                        $this->logger->debug("{InstanceManager:copy2worker]::qemu RSYNC: ".$buffer, InstanceLogMessage::SCOPE_PRIVATE);
+                    });
+                    if (!$process->isSuccessful()) {
+                        throw new ProcessFailedException($process);
                     }
-                } catch(ErrorException $e) {
-                    $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
-                        'error' => $e->getMessage(),
+                } catch (ProcessFailedException $exception) {
+                    $this->logger->error("Error in remote qemu image copy ! ", InstanceLogMessage::SCOPE_PUBLIC, [
+                        'instance' => $os_to_copy["os_imagename"],
+                        "uuid" => $os_to_copy['os_imagename'],
+                        'error' => true,
+                        "options" => [
+                            "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                            'error' => $exception->getProcess()->getOutput() . $exception->getProcess()->getErrorOutput(),
+                            'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                    ]
+                            ]);
+                    $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                            "uuid" => $os_to_copy["os_imagename"],
+                                            "error" => true,
+                                            "message" => $exception->getProcess()->getOutput(),
+                                            "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                        'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
+                                                        'error' => $exception->getProcess()->getOutput()
+                                                        ]
+                                );
+                } catch (ProcessTimedOutException $exception) {
+                    $this->logger->error("RSync timed out for ".$local_file, InstanceLogMessage::SCOPE_PRIVATE, [
+                        'error' => $exception->getMessage(),
                         'instance' => $os_to_copy["os_imagename"]
                     ]);
+                    $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                                    "uuid" => $os_to_copy["os_imagename"],
+                                    "error" => true,
+                                    "message" => "RSync timed out",
+                                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"],
+                                                'error' => "RSync timed out"
+                                                ]
+                            );
                 }
+                if (!isset($result["error"]) || !$result["error"]) { // No error return by rsync command
+                    $this->logger->info("Qemu Rsync ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE, [
+                        'instance' => $local_file,
+                        "uuid"=>    $local_file
+                    ]);
 
-                ssh2_disconnect($connection);
+                    $result=array("state" => InstanceStateMessage::STATE_OS_COPIED,
+                    "uuid" => $os_to_copy["os_imagename"],
+                    "error" => false,
+                    "message" => "OK",
+                    "options" => [ "state" => InstanceActionMessage::ACTION_COPY2WORKER_DEV,
+                                'worker_dest_ip' => $os_to_copy["Worker_Dest_IP"]
+                                ]
+                    );
+                }
                 break;
             
             case "lxc":
@@ -4071,7 +4203,7 @@ private function lxc_is_running(string $lxc_name): bool
                                     ]
                       ]);   
                     */
-                    $result_lxc=$this->Create_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename']);               
+                    $result_lxc=$this->Create_Remote_LXC($connection,$os_to_copy["Worker_Dest_IP"],$os_to_copy['os_imagename'],$ssh_user,$privateKeyFile);               
 
                     if ($result_lxc["error"]) {
                         $this->logger->error("Error in remote LXC creation ! ", InstanceLogMessage::SCOPE_PUBLIC, [   
@@ -4329,7 +4461,7 @@ private function lxc_is_running(string $lxc_name): bool
      * @param string $os_imagename
      * @throws ProcessFailedException When a process failed to run.
      */
-    public function Create_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename) {
+    public function Create_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename,$ssh_user,$privateKeyFile) {
         $result="";
         $result_creation=array();
         $message="";
@@ -4354,11 +4486,37 @@ private function lxc_is_running(string $lxc_name): bool
                 $process->mustRun();
             
                 $local_file="/var/lib/lxc/".$os_imagename.".tgz";
-                $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
+                $remote_file=$local_file;
 
                 try {
-                    $result=$this->scp($connection, $local_file, $remote_file,$Worker_Dest_IP);                
-                    
+                    $this->logger->info("Send ".$local_file." file via rsync to ".$Worker_Dest_IP.":".$remote_file, InstanceLogMessage::SCOPE_PRIVATE,
+                        [
+                            'instance' => $os_imagename,
+                            'uuid' => $os_imagename,
+                        ]);
+
+                    $cible=$ssh_user."@".$Worker_Dest_IP;
+                    $ssh_options='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes';
+                    $rsync_command=sprintf(
+                        'sudo rsync -az --partial -e "ssh -i %s %s" %s %s:%s',
+                        escapeshellarg($privateKeyFile),
+                        $ssh_options,
+                        escapeshellarg($local_file),
+                        escapeshellarg($cible),
+                        escapeshellarg($remote_file)
+                    );
+                    #$this->logger->debug("[InstanceManager:Create_Remote_LXC]::RSYNC cmd ".$rsync_command, InstanceLogMessage::SCOPE_PRIVATE);
+                    $rsync_process=Process::fromShellCommandline($rsync_command);
+                    $rsync_process->setTimeout(3600);
+                    $rsync_process->run(function ($type, $buffer) {
+                        $this->logger->debug("[InstanceManager:Create_Remote_LXC]::RSYNC: ".$buffer, InstanceLogMessage::SCOPE_PRIVATE);
+                    });
+
+                    $result="";
+                    if (!$rsync_process->isSuccessful()) {
+                        $result=$rsync_process->getOutput() . $rsync_process->getErrorOutput();
+                    }
+
                     if ($result) {       
                         $message=$result;
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Error in remote LXC container creation ! ");
@@ -4381,13 +4539,13 @@ private function lxc_is_running(string $lxc_name): bool
                                                             'error' => $message
                                                             ]
                                     );
-                        //The SCP failed but if we are in this function, a empty container has been created so we have to delete it.
+                        //The RSYNC failed but if we are in this function, a empty container has been created so we have to delete it.
                         $this->Destroy_Remote_LXC($connection,$Worker_Dest_IP,$os_imagename);
 
                     } else {
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
 
-                        $cmd="tar xzf ".$remote_file." -C /var/lib/lxc/";
+                        $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                         $result=$this->executeRemoteCommand($connection, $cmd);
 
@@ -4416,7 +4574,7 @@ private function lxc_is_running(string $lxc_name): bool
                     }
                 }
                 catch (ErrorException $exception){
-                    $this->logger->error("Failed SCP", InstanceLogMessage::SCOPE_PRIVATE, [
+                    $this->logger->error("Failed RSYNC", InstanceLogMessage::SCOPE_PRIVATE, [
                         'error' => $exception->getMessage(),
                         'instance' => $os_imagename
                     ]);
