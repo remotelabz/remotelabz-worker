@@ -4505,7 +4505,7 @@ private function lxc_is_running(string $lxc_name): bool
                         escapeshellarg($cible),
                         escapeshellarg($remote_file)
                     );
-                    $this->logger->debug("[InstanceManager:Create_Remote_LXC]::RSYNC cmd ".$rsync_command, InstanceLogMessage::SCOPE_PRIVATE);
+                    #$this->logger->debug("[InstanceManager:Create_Remote_LXC]::RSYNC cmd ".$rsync_command, InstanceLogMessage::SCOPE_PRIVATE);
                     $rsync_process=Process::fromShellCommandline($rsync_command);
                     $rsync_process->setTimeout(3600);
                     $rsync_process->run(function ($type, $buffer) {
