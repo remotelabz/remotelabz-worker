@@ -4486,7 +4486,7 @@ private function lxc_is_running(string $lxc_name): bool
                 $process->mustRun();
             
                 $local_file="/var/lib/lxc/".$os_imagename.".tgz";
-                $remote_file="/var/lib/lxc/".$os_imagename.".tgz";
+                $remote_file=$local_file;
 
                 try {
                     $this->logger->info("Send ".$local_file." file via rsync to ".$Worker_Dest_IP.":".$remote_file, InstanceLogMessage::SCOPE_PRIVATE,
@@ -4505,7 +4505,7 @@ private function lxc_is_running(string $lxc_name): bool
                         escapeshellarg($cible),
                         escapeshellarg($remote_file)
                     );
-
+                    $this->logger->debug("[InstanceManager:Create_Remote_LXC]::RSYNC cmd ".$rsync_command, InstanceLogMessage::SCOPE_PRIVATE);
                     $rsync_process=Process::fromShellCommandline($rsync_command);
                     $rsync_process->setTimeout(3600);
                     $rsync_process->run(function ($type, $buffer) {
@@ -4545,7 +4545,7 @@ private function lxc_is_running(string $lxc_name): bool
                     } else {
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Copy ".$local_file." finished", InstanceLogMessage::SCOPE_PRIVATE);
 
-                        $cmd="tar xzf ".$remote_file." -C /var/lib/lxc/";
+                        $cmd="sudo tar xzf ".$remote_file." -C /var/lib/lxc/";
                         $this->logger->debug("[InstanceManager:Create_Remote_LXC]::Execute command ".$cmd, InstanceLogMessage::SCOPE_PRIVATE);
                         $result=$this->executeRemoteCommand($connection, $cmd);
 
