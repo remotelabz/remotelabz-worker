@@ -1138,15 +1138,41 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
     }
 
     private function SetCPU(int $cpu_number): string {
-        if ($cpu_number < 1 || $cpu_number > 9) {
-            throw new InvalidArgumentException("n must be between 1 and 9");
+        $cores = $this->getAvailableHostCores();
+
+        if ($cpu_number < 1 || $cpu_number > count($cores)) {
+            throw new InvalidArgumentException(
+                "cpu_number must be between 1 and " . count($cores)
+            );
         }
 
-        if ($cpu_number === 1) {
-            return "0";
+        shuffle($cores);
+        $selected = array_slice($cores, 0, $cpu_number);
+        sort($selected);
+        return implode(',', $selected);
+    }
+
+    private function getAvailableHostCores(): array {
+        $count = (int) @shell_exec('nproc');
+        if ($count > 0) {
+            return range(0, $count - 1);
         }
 
-        return "0-" . ($cpu_number - 1);
+        $online = @file_get_contents('/sys/devices/system/cpu/online');
+        if ($online === false) {
+            return [];
+        }
+
+        $cores = [];
+        foreach (explode(',', trim($online)) as $range) {
+            if (strpos($range, '-') !== false) {
+                [$start, $end] = explode('-', $range);
+                $cores = array_merge($cores, range((int)$start, (int)$end));
+            } else {
+                $cores[] = (int)$range;
+            }
+        }
+        return $cores;
     }
 
     /**
