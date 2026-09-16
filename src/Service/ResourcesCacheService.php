@@ -247,7 +247,7 @@ class ResourcesCacheService
 
     private function lxc_number(): int
     {
-        $lxclsrun = shell_exec("sudo lxc-ls -f | grep RUNNING | wc -l");
+        $lxclsrun = shell_exec("sudo lxc-ls -1 --running | wc -l");
         
         if (!is_null($lxclsrun) && $lxclsrun) {
             return (int)$lxclsrun;
