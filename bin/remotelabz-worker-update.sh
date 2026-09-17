@@ -51,5 +51,33 @@ chmod g+w /opt/remotelabz-worker/var -R
 chown :remotelabz-worker /var/lib/lxc
 chmod g+w /var/lib/lxc
 systemctl daemon-reload
-systemctl restart remotelabz-cache
-systemctl restart remotelabz-worker
+
+# Vérifie que chaque unité systemd de bin/systemd est bien activée et démarrée.
+# Aucun restart si l'unité est déjà active.
+for service_file in "$SOURCE_DIR"/bin/systemd/*; do
+    filename=$(basename "$service_file")
+    unit_type="${filename##*.}"
+
+    case "$unit_type" in
+        service|timer)
+            ;;
+        *)
+            # Les slices sont des unités statiques : rien à activer ni à démarrer
+            continue
+            ;;
+    esac
+
+    enabled_state=$(systemctl is-enabled "$filename" 2>/dev/null)
+    if [ "$enabled_state" != "enabled" ] && [ "$enabled_state" != "linked" ]; then
+        echo "Activation de $filename (état actuel : $enabled_state)"
+        systemctl enable "$filename"
+    fi
+
+    active_state=$(systemctl is-active "$filename" 2>/dev/null)
+    if [ "$active_state" != "active" ]; then
+        echo "Démarrage de $filename (état actuel : $active_state)"
+        systemctl start "$filename"
+    else
+        echo "$filename est déjà actif, aucun restart"
+    fi
+done
