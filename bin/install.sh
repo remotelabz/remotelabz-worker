@@ -955,7 +955,7 @@ debug "Running apt-get to grab required packages"
 apt-get update
 apt-get install -y software-properties-common
 apt-get update
-apt-get install -y ttyd apache2 php8.5 php8.5-ssh2 zip unzip qemu-system-x86 qemu-system-arm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.5-xml php8.5-curl php8.5-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect pamtester
+apt-get install -y ttyd apache2 php8.5 php8.5-ssh2 php8.5-intl zip unzip qemu-system-x86 qemu-system-arm openvswitch-switch git pipx python3 python3-pip python3-setuptools python3-wheel python3-numpy python3-openvswitch php8.5-xml php8.5-curl php8.5-amqp logrotate lxc screen build-essential cmake libjson-c-dev libwebsockets-dev curl exim4 sshpass expect pamtester
 a2dismod php8.1 php8.2 php8.3 php8.4|| true
 
 a2enmod php8.5
