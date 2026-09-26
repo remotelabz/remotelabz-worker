@@ -16,6 +16,9 @@ class SystemdStatusService
         'Description',
         'MainPID',
         'ActiveSinceTimestamp',
+        'Type',
+        'Result',
+        'ExecMainStartTimestamp',
     ];
 
     private string $systemdDir;
@@ -71,6 +74,9 @@ class SystemdStatusService
             'unit_file_state' => 'unknown',
             'main_pid' => null,
             'active_since' => null,
+            'type' => null,
+            'last_result' => null,
+            'last_run' => null,
             'is_running' => false,
         ];
 
@@ -110,6 +116,15 @@ class SystemdStatusService
                     break;
                 case 'ActiveSinceTimestamp':
                     $status['active_since'] = $value === '' ? null : $value;
+                    break;
+                case 'Type':
+                    $status['type'] = $value === '' ? null : $value;
+                    break;
+                case 'Result':
+                    $status['last_result'] = $value === '' ? null : $value;
+                    break;
+                case 'ExecMainStartTimestamp':
+                    $status['last_run'] = $value === '' ? null : $value;
                     break;
             }
         }
