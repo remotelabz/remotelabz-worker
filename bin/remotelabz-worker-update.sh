@@ -21,12 +21,12 @@ if [ ! -d "lib/remotelabz-message-bundle" ]; then
     echo "Clonage de remotelabz-message-bundle"
     git clone https://github.com/remotelabz/remotelabz-message-bundle "$WORK_DIR/lib/remotelabz-message-bundle"
     git -C "$WORK_DIR/lib/remotelabz-message-bundle" fetch --tags
-    git -C "$WORK_DIR/lib/remotelabz-message-bundle" checkout 1.0.6
+    git -C "$WORK_DIR/lib/remotelabz-message-bundle" checkout 1.0.8
     git config --global --add safe.directory "$WORK_DIR/lib/remotelabz-message-bundle"
 else
     echo "lib/remotelabz-message-bundle existe déjà, mise à jour."
     git -C "$WORK_DIR/lib/remotelabz-message-bundle" fetch --tags
-    git -C "$WORK_DIR/lib/remotelabz-message-bundle" checkout 1.0.6
+    git -C "$WORK_DIR/lib/remotelabz-message-bundle" checkout 1.0.8
 fi
 
 mv $SOURCE_DIR/config/packages/messenger.yaml ~/
