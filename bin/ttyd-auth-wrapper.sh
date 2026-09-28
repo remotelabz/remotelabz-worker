@@ -35,4 +35,4 @@ then
 fi
 
 # Shell login utilisateur (dans le conteneur)
-exec lxc-attach -n "$CONTAINER" -- su -l "$USER"
+exec lxc-attach -n "$CONTAINER" -- /bin/su -l "$USER"
