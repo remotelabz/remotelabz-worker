@@ -27,6 +27,9 @@ use App\Service\SshService;
 
 class InstanceManager extends AbstractController
 {
+    private const QEMU_NETWORK_CARD_TYPES = ['e1000', 'e1000e', 'virtio-net-pci', 'rtl8139', 'vmxnet3'];
+    private const QEMU_MINIMUM_NETWORK_INTERFACES_MAX = 64;
+
     protected $kernel;
     protected $logger;
     protected $params;
@@ -5219,6 +5222,16 @@ private function lxc_is_running(string $lxc_name): bool
             $parameters['other_options']=array($deviceInstance['device']['other_options']);
         }
         
+        $networkSettings = self::resolveQemuNetworkSettings($deviceInstance['device'] ?? []);
+        $networkCardType = $networkSettings['network_card_type'];
+        $minimumNetworkInterfaces = $networkSettings['minimum_network_interfaces'];
+
+        $this->logger->debug("[InstanceManager:create_qemu_device]::Network card settings", InstanceLogMessage::SCOPE_PRIVATE, [
+            'instance' => $deviceInstance['uuid'],
+            'network_card_type' => $networkCardType,
+            'minimum_network_interfaces' => $minimumNetworkInterfaces
+        ]);
+
         if (!empty($deviceInstance['networkInterfaceInstances'])) {
             foreach($deviceInstance['networkInterfaceInstances'] as $nic) {
                 $nicTemplate = $nic['networkInterface'];
@@ -5261,11 +5274,25 @@ private function lxc_is_running(string $lxc_name): bool
                     'NIC' => $nicName
                 ]);
 
-                array_push($parameters['network'],'-device','e1000,netdev='.$nicName.',mac='.$nic['macAddress'],
+                array_push($parameters['network'],'-device',$networkCardType.',netdev='.$nicName.',mac='.$nic['macAddress'],
                     '-netdev', 'tap,ifname='.$nicName.',id='.$nicName.',script=no');
             }
         } else {
             array_push($parameters['network'],'-net','none');
+        }
+
+        $networkInterfaces = $deviceInstance['networkInterfaceInstances'] ?? [];
+        $dummyParameters = self::buildDummyNetworkInterfaceParameters($deviceInstance, $networkCardType, $minimumNetworkInterfaces);
+
+        if (!empty($dummyParameters)) {
+            array_push($parameters['network'], ...$dummyParameters);
+
+            $this->logger->debug("[InstanceManager:create_qemu_device]::Dummy network interfaces added to reach the minimum.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'instance' => $deviceInstance['uuid'],
+                'minimum_network_interfaces' => $minimumNetworkInterfaces,
+                'real_network_interfaces' => count($networkInterfaces),
+                'dummy_network_interfaces' => max(0, $minimumNetworkInterfaces - count($networkInterfaces))
+            ]);
         }
         
         array_push($parameters['local'], '-k', 'fr');
@@ -5959,5 +5986,91 @@ private function lxc_is_running(string $lxc_name): bool
                 }
             break;
         }
+    }
+
+    private static function resolveQemuNetworkSettings(array $device): array
+    {
+        $hypervisor = is_array($device['hypervisor'] ?? null) && array_key_exists('name', $device['hypervisor'])
+            ? $device['hypervisor']['name']
+            : '';
+        $isQemu = is_string($hypervisor) && strtolower($hypervisor) === 'qemu';
+
+        return [
+            'network_card_type' => $isQemu ? self::resolveNetworkCardType($device) : 'e1000',
+            'minimum_network_interfaces' => $isQemu ? self::resolveMinimumNetworkInterfaces($device) : 0
+        ];
+    }
+
+    private static function resolveNetworkCardType(array $device): string
+    {
+        if (!array_key_exists('network_card_type', $device) || !is_string($device['network_card_type'])) {
+            return 'e1000';
+        }
+
+        $cardType = $device['network_card_type'];
+
+        if (!preg_match('/^[a-zA-Z0-9_-]+$/', $cardType)) {
+            return 'e1000';
+        }
+
+        $cardType = strtolower($cardType);
+
+        if (!in_array($cardType, self::QEMU_NETWORK_CARD_TYPES, true)) {
+            return 'e1000';
+        }
+
+        return $cardType;
+    }
+
+    private static function resolveMinimumNetworkInterfaces(array $device): int
+    {
+        if (!array_key_exists('minimum_network_interfaces', $device) || !is_numeric($device['minimum_network_interfaces'])) {
+            return 0;
+        }
+
+        return max(0, min(self::QEMU_MINIMUM_NETWORK_INTERFACES_MAX, (int) $device['minimum_network_interfaces']));
+    }
+
+    private static function buildDummyNetworkInterfaceParameters(array $deviceInstance, string $networkCardType, int $minimumNetworkInterfaces): array
+    {
+        $networkInterfaces = $deviceInstance['networkInterfaceInstances'] ?? [];
+        $dummyCount = max(0, $minimumNetworkInterfaces - count($networkInterfaces));
+
+        if ($dummyCount <= 0) {
+            return [];
+        }
+
+        $usedMacAddresses = array();
+        foreach ($networkInterfaces as $nic) {
+            if (is_array($nic) && array_key_exists('macAddress', $nic)) {
+                $usedMacAddresses[strtolower((string) $nic['macAddress'])] = true;
+            }
+        }
+
+        $parameters = array();
+        for ($k = 1; $k <= $dummyCount; $k++) {
+            $dummyId = 'dummy' . $k;
+            $dummyMac = self::generateDummyMac((string) ($deviceInstance['uuid'] ?? ''), $k, $usedMacAddresses);
+
+            array_push($parameters, '-netdev', 'user,id=' . $dummyId);
+            array_push($parameters, '-device', $networkCardType . ',netdev=' . $dummyId . ',mac=' . $dummyMac);
+        }
+
+        return $parameters;
+    }
+
+    private static function generateDummyMac(string $deviceUuid, int $index, array &$usedMacAddresses): string
+    {
+        $salt = 0;
+
+        do {
+            $hash = hash('sha256', $deviceUuid . '|' . $index . '|' . $salt);
+            $mac = '52:54:00:' . substr($hash, 0, 2) . ':' . substr($hash, 2, 2) . ':' . substr($hash, 4, 2);
+            $salt++;
+        } while (isset($usedMacAddresses[$mac]));
+
+        $usedMacAddresses[$mac] = true;
+
+        return $mac;
     }
 }
