@@ -25,5 +25,6 @@ config/packages/messenger.yaml
 
 /lib/remotelabz-message-bundle
 /lib/network-bundle
+/lib/*.copie-*
 config/system/keys/myremotelabzkey
 config/system/keys/myremotelabzkey.pub

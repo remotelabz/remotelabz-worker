@@ -10,13 +10,13 @@ VM-side of RemoteLabz v3 project (Symfony 6.4).
 
 ```bash
 # Clone this project
-git clone https://gitlab.remotelabz.com/crestic/remotelabz-worker.git
+git clone https://github.com/remotelabz/remotelabz-worker.git --branch dev
 # Go to the directory
 cd remotelabz-worker
 # grant the right to execute
-sudo chmod +x install
+sudo chmod +x bin/install.sh
 # Launch the installation script (sudo is required !)
-sudo ./install
+sudo .bin/install.sh
 ```
 
 If it is specified, you can remove the source folder :
