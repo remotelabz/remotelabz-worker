@@ -1020,27 +1020,76 @@ success "Sudo permissions ✔️"
 # Composer
 debug "Installing Composer"
 if ! [ $(command -v composer) ]; then
-    cp composer.phar /usr/local/bin/composer
+    cp "${SCRIPTPATH}/composer.phar" /usr/local/bin/composer
+    chmod 755 /usr/local/bin/composer
     success "Composer installed ✔️"
+elif [ -x /usr/local/bin/composer ] && ! cmp -s "${SCRIPTPATH}/composer.phar" /usr/local/bin/composer; then
+    cp "${SCRIPTPATH}/composer.phar" /usr/local/bin/composer
+    chmod 755 /usr/local/bin/composer
+    success "Composer updated (bundled composer.phar) ✔️"
 else
   debug "Composer is already installed! Skipping."
 fi
 
 debug "Downloading bundles"
 
+export GIT_TERMINAL_PROMPT=0
+AUTH_ARGS=(-c credential.helper= -c http.extraHeader=)
+
+hote() {
+  printf '%s\n' "$1" | sed -E -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#^[^/@]+@##' -e 's#[/:].*$##'
+}
+
+git_pub() { git "${AUTH_ARGS[@]}" "$@" || git "$@"; }
+
+safe_dir() {
+  git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$1" ||
+    git config --global --add safe.directory "$1"
+}
+
+HOSTES="github.com"
+for url in $(git -C "$SCRIPTPATH" remote get-url origin 2>/dev/null || true); do
+  host=$(hote "$url")
+  if printf '%s\n' "$host" | grep -Eq '^[A-Za-z0-9.-]+$'; then
+    case " $HOSTES " in
+      *" $host "*) ;;
+      *) HOSTES="$HOSTES $host" ;;
+    esac
+  fi
+done
+
+for host in $HOSTES; do
+  AUTH_ARGS+=(-c "credential.https://$host.helper=" -c "http.https://$host.extraHeader=")
+done
+
 mkdir -p "$SCRIPTPATH/lib"
 
-if [ ! -d "$SCRIPTPATH/lib/network-bundle" ]; then
-  git clone https://github.com/remotelabz/network-bundle.git "$SCRIPTPATH/lib/network-bundle"
-  git -C "$SCRIPTPATH/lib/network-bundle" fetch --tags
-  git -C "$SCRIPTPATH/lib/network-bundle" checkout 1.0.4
-fi
+fetch_bundle() {
+  local nom="$1"
+  local version="$2"
+  local dir="$SCRIPTPATH/lib/$nom"
 
-if [ ! -d "$SCRIPTPATH/lib/remotelabz-message-bundle" ]; then
-  git clone https://github.com/remotelabz/remotelabz-message-bundle.git "$SCRIPTPATH/lib/remotelabz-message-bundle"
-  git -C "$SCRIPTPATH/lib/remotelabz-message-bundle" fetch --tags
-  git -C "$SCRIPTPATH/lib/remotelabz-message-bundle" checkout 1.0.6
-fi
+  if [ -e "$dir/.git" ]; then
+    safe_dir "$dir"
+    return 0
+  fi
+
+  if [ -d "$dir" ]; then
+    local copie="$dir.copie-$(date +%Y%m%d%H%M%S)"
+    warning "$nom : copie sans dépôt git déplacée vers $copie"
+    mv "$dir" "$copie"
+  fi
+
+  debug "Clonage de $nom (version $version)"
+  git_pub clone "https://github.com/remotelabz/$nom.git" "$dir" ||
+    { error "Clonage impossible : https://github.com/remotelabz/$nom.git"; return 1; }
+  git_pub -C "$dir" fetch --tags
+  git_pub -C "$dir" checkout "$version"
+  safe_dir "$dir"
+}
+
+fetch_bundle network-bundle 1.0.4
+fetch_bundle remotelabz-message-bundle 1.0.6
 
 debug "Downloading Composer packages"
 (cd "${SCRIPTPATH}" && composer install --prefer-dist)
