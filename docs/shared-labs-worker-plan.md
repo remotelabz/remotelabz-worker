@@ -149,19 +149,22 @@ Points clés du design :
 
 ### 4.4 `src/Bridge/Network/IPTables/Rule.php`
 
-- Ajouter la **négation de destination** (`setDestination($cidr, $negate = false)` ou
-  `setDestinationNot($cidr)`) → export `! -d <cidr>`. Nécessaire uniquement pour les
-  règles MASQUERADE (§6), pas pour les règles de la chaîne `shared_forward`.
+- Ajouter la **négation de destination** : propriété `$destinationNegated` +
+  `setDestinationNegated(bool $negated = true)` → export `! --destination <cidr>`.
+  Nécessaire uniquement pour les règles MASQUERADE (§6), pas pour les règles de la
+  chaîne `shared_forward` (désactivée par défaut, aucun impact sur les usages existants).
 
 ### 4.5 `bin/remotelabz-worker-network-up`
 
 - Règle MASQUERADE (~`:151-164`) : ajouter `! -d $LAB_NETWORK` avant `-j MASQUERADE`
   → le trafic **lab ↔ lab** ne sera jamais masquéré (le trafic vers Internet l'est toujours).
 
-### 4.6 `InstanceManager::connectToInternet` (`:2286`)
+### 4.6 `InstanceManager::connectToInternet` / `disconnectFromInternet` (`:2254`, `:2297`)
 
-- Même ajout `! -d <LAB_NETWORK>` sur la règle
-  `-s <labNet> -o <iface> MASQUERADE` (nécessite la négation de §4.4).
+- Ajout `! -d <LAB_NETWORK>` sur la règle
+  `-s <labNet> -o <iface> MASQUERADE` via `setDestinationNegated()` (§4.4).
+- **`disconnectFromInternet` doit porter la règle exactement identique** (avec la même
+  négation) sinon `IPTables::exists`/`delete` ne la retrouve pas pour la supprimer.
 
 ## 5. Format du payload (JSON) et état local
 
@@ -195,8 +198,11 @@ Message reçu (topologie d'**un** groupe) :
 
 ```json
 {
-  "<uuid-groupe-G1>": { "links": [ { "a": {...}, "b": {...} } ] },
-  "<uuid-groupe-G2>": { "links": [ { "a": {...}, "b": {...} } ] }
+  "groups": {
+    "<uuid-groupe-G1>": { "links": [ { "a": {...}, "b": {...} } ] },
+    "<uuid-groupe-G2>": { "links": [ { "a": {...}, "b": {...} } ] }
+  },
+  "routes": [ "10.11.1.0/24 via 192.168.11.133" ]
 }
 ```
 

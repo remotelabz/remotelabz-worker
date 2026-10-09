@@ -30,6 +30,11 @@ class InstanceManager extends AbstractController
     private const QEMU_NETWORK_CARD_TYPES = ['e1000', 'e1000e', 'virtio-net-pci', 'rtl8139', 'vmxnet3'];
     private const QEMU_MINIMUM_NETWORK_INTERFACES_MAX = 64;
 
+    /**
+     * Global iptables chain holding the lab-to-lab sharing rules (shared labs).
+     */
+    public const SHARED_CHAIN = 'shared_forward';
+
     protected $kernel;
     protected $logger;
     protected $params;
@@ -2288,6 +2293,7 @@ private function lxc_is_running(string $lxc_name): bool
             Rule::create()
                 ->setSource($labNetwork)
                 ->setOutInterface($bridgeInt)
+                ->setDestinationNegated()
                 ->setJump('MASQUERADE')
             ,
             'nat'
@@ -2328,6 +2334,7 @@ private function lxc_is_running(string $lxc_name): bool
         $rule = Rule::create()
             ->setSource($labNetwork)
             ->setOutInterface($bridgeInt)
+            ->setDestinationNegated()
             ->setJump('MASQUERADE')
         ;
 
@@ -2374,6 +2381,173 @@ private function lxc_is_running(string $lxc_name): bool
         $bridge = $labInstance['bridgeName'];
 
         OVS::UnlinkTwoOVS($bridge, $bridgeInt);
+    }
+
+    /**
+     * Path of the file persisting the local sharing state (per-group topologies and routes).
+     */
+    private function getSharedSecurityStateFile(): string
+    {
+        return $this->kernel->getProjectDir() . '/var/shared-security.json';
+    }
+
+    /**
+     * Apply the sharing topology of one group received from the front (SecurityMessage).
+     *
+     * The group entry of the local state is atomically replaced, then the iptables
+     * chain and the routes are rebuilt from the union of every group's local links,
+     * so that messages of distinct groups never clobber each other.
+     *
+     * @param string $groupUuid Uuid of the group the topology belongs to (state key).
+     * @param array $links List of links [{"a": {"uuid","network","workerIp"}, "b": {...}}, ...].
+     */
+    public function updateSharedSecurity(string $groupUuid, array $links): void
+    {
+        if ($groupUuid === '') {
+            $this->logger->critical("[InstanceManager:updateSharedSecurity]::Missing group uuid in security message.");
+            return;
+        }
+
+        // Load local state
+        $stateFile = $this->getSharedSecurityStateFile();
+        $state = [
+            'groups' => [],
+            'routes' => []
+        ];
+        if (file_exists($stateFile)) {
+            $decoded = json_decode((string) file_get_contents($stateFile), true);
+            if (is_array($decoded)) {
+                if (isset($decoded['groups']) && is_array($decoded['groups'])) {
+                    $state['groups'] = $decoded['groups'];
+                }
+                if (isset($decoded['routes']) && is_array($decoded['routes'])) {
+                    $state['routes'] = $decoded['routes'];
+                }
+            }
+        }
+
+        // Replace this group's entry (empty links => remove the group and its rules)
+        $links = array_values(array_filter($links, 'is_array'));
+        if (empty($links)) {
+            unset($state['groups'][$groupUuid]);
+        } else {
+            $state['groups'][$groupUuid] = ['links' => $links];
+        }
+
+        // Union of the links involving this worker, across every group
+        $myIp = (string) $this->params->get('app.worker.ip');
+        $rules = [];
+        $desiredRoutes = [];
+        foreach ($state['groups'] as $groupEntry) {
+            if (!isset($groupEntry['links']) || !is_array($groupEntry['links'])) {
+                continue;
+            }
+            foreach ($groupEntry['links'] as $link) {
+                if (!isset($link['a'], $link['b']) || !is_array($link['a']) || !is_array($link['b'])) {
+                    continue;
+                }
+                $a = $link['a'];
+                $b = $link['b'];
+                $netA = (string) ($a['network'] ?? '');
+                $netB = (string) ($b['network'] ?? '');
+                if ($netA === '' || $netB === '' || $netA === $netB) {
+                    continue;
+                }
+                $aLocal = ((string) ($a['workerIp'] ?? '') === $myIp);
+                $bLocal = ((string) ($b['workerIp'] ?? '') === $myIp);
+                if (!$aLocal && !$bLocal) {
+                    continue;
+                }
+                $key = ($netA < $netB) ? $netA . '|' . $netB : $netB . '|' . $netA;
+                $rules[$key] = [$netA, $netB];
+
+                // Cross-worker link: route the remote lab network via the remote worker
+                if ($aLocal !== $bLocal) {
+                    $remote = $aLocal ? $b : $a;
+                    $remoteIp = (string) ($remote['workerIp'] ?? '');
+                    $remoteNet = $aLocal ? $netB : $netA;
+                    if ($remoteIp !== '' && $remoteNet !== '') {
+                        $desiredRoutes[$remoteNet . ' via ' . $remoteIp] = true;
+                    }
+                }
+            }
+        }
+
+        // Rebuild the global sharing chain
+        IPTables::create_chain(static::SHARED_CHAIN);
+        $jumpRule = Rule::create()->setJump(static::SHARED_CHAIN);
+        if (!IPTables::exists(IPTables::CHAIN_FORWARD, $jumpRule)) {
+            IPTables::append(IPTables::CHAIN_FORWARD, $jumpRule);
+        }
+        IPTables::flush_chain(static::SHARED_CHAIN);
+        foreach ($rules as $pair) {
+            list($netA, $netB) = $pair;
+            IPTables::append(
+                static::SHARED_CHAIN,
+                Rule::create()
+                    ->setSource($netA)
+                    ->setDestination($netB)
+                    ->setJump('ACCEPT')
+            );
+            IPTables::append(
+                static::SHARED_CHAIN,
+                Rule::create()
+                    ->setSource($netB)
+                    ->setDestination($netA)
+                    ->setJump('ACCEPT')
+            );
+        }
+
+        // Reconcile the routes against the persisted state
+        $desired = array_keys($desiredRoutes);
+        $previous = is_array($state['routes']) ? $state['routes'] : [];
+        $keptRoutes = array_values(array_intersect($previous, $desired));
+
+        foreach (array_diff($previous, $desired) as $route) {
+            try {
+                if (IPTools::routeExists($route)) {
+                    IPTools::routeDelete($route);
+                }
+            } catch (\Exception $e) {
+                $this->logger->critical("[InstanceManager:updateSharedSecurity]::Unable to delete route.", [
+                    'route' => $route,
+                    'exception' => $e,
+                    'group' => $groupUuid
+                ]);
+                $keptRoutes[] = $route;
+            }
+        }
+
+        foreach (array_diff($desired, $previous) as $route) {
+            try {
+                if (!IPTools::routeExists($route)) {
+                    IPTools::routeAdd($route);
+                }
+                $keptRoutes[] = $route;
+            } catch (\Exception $e) {
+                $this->logger->critical("[InstanceManager:updateSharedSecurity]::Unable to add route.", [
+                    'route' => $route,
+                    'exception' => $e,
+                    'group' => $groupUuid
+                ]);
+            }
+        }
+
+        $state['routes'] = array_values(array_unique($keptRoutes));
+
+        // Persist state
+        $stateDir = dirname($stateFile);
+        if (!is_dir($stateDir)) {
+            mkdir($stateDir, 0775, true);
+        }
+        file_put_contents($stateFile, json_encode($state, JSON_PRETTY_PRINT));
+
+        $this->logger->debug("[InstanceManager:updateSharedSecurity]::Shared security state updated.", [
+            'group' => $groupUuid,
+            'links' => count($links),
+            'rules' => count($rules),
+            'routes' => count($state['routes'])
+        ]);
     }
 
     /**
