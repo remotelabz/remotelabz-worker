@@ -12,7 +12,7 @@
         "laminas/laminas-code": "^4.0",
         "laminas/laminas-eventmanager": "^3.4",
         "remotelabz/network-bundle": "^1.0.4",
-        "remotelabz/remotelabz-message-bundle": "^1.0.6",
+        "remotelabz/remotelabz-message-bundle": "^1.0.9",
         "symfony/amqp-messenger": "^6.4",
         "symfony/console": "^6.4",
         "symfony/dotenv": "^6.4",

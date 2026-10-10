@@ -22,6 +22,7 @@ class Rule
     private $protocol;
     private $source;
     private $destination;
+    private $destinationNegated = false;
     private $jump;
     private $goto;
     private $inInterface;
@@ -108,6 +109,9 @@ class Rule
         }
 
         if (!empty($this->destination)) {
+            if ($this->destinationNegated) {
+                $rule[] = '!';
+            }
             $rule[] = '--destination';
             $rule[] = $this->destination;
         }
@@ -230,6 +234,29 @@ class Rule
     public function setDestination($destination)
     {
         $this->destination = $destination;
+
+        return $this;
+    }
+
+    /**
+     * Get the value of destinationNegated
+     */
+    public function getDestinationNegated()
+    {
+        return $this->destinationNegated;
+    }
+
+    /**
+     * Negate the destination match (`! --destination <cidr>`).
+     * Used e.g. for MASQUERADE rules that must not apply to lab-to-lab traffic.
+     *
+     * @param  bool $negated
+     *
+     * @return  self
+     */
+    public function setDestinationNegated($negated = true)
+    {
+        $this->destinationNegated = (bool) $negated;
 
         return $this;
     }

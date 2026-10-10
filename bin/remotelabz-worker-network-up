@@ -152,6 +152,10 @@ if ( array_key_exists('INTERNET_INTERFACE_ACCESS', $_ENV) && array_key_exists('L
     $cmd[]=$_ENV['INTERNET_INTERFACE_ACCESS'];
     $cmd[]='-s';
     $cmd[]=$_ENV['LAB_NETWORK'];
+    // Do not masquerade lab-to-lab traffic (shared labs reachable across workers)
+    $cmd[]='!';
+    $cmd[]='-d';
+    $cmd[]=$_ENV['LAB_NETWORK'];
     $cmd[]='-j';
     $cmd[]='MASQUERADE';
 }

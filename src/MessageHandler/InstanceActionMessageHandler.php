@@ -198,9 +198,9 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         ]);
 
         $instanceStateMessage = new InstanceStateMessage(
-    		$returnState,
-    		$ReturnArray["uuid"],
     		$instanceType,
+    		$ReturnArray["uuid"],
+    		$returnState,
     		$ReturnArray["options"] ?? []
 	);
 
