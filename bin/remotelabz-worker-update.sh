@@ -83,7 +83,7 @@ done
 git_pub fetch || git_erreur "git fetch a échoué, mise à jour interrompue."
 
 bundle network-bundle 1.0.4
-bundle remotelabz-message-bundle 1.0.8
+bundle remotelabz-message-bundle 1.0.9
 
 mv $SOURCE_DIR/config/packages/messenger.yaml ~/
 git restore $SOURCE_DIR/config/packages/messenger.yaml
