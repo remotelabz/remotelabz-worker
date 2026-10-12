@@ -91,9 +91,12 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     break;
                 
                 case InstanceActionMessage::ACTION_CONNECT:
-                    $ReturnArray=$this->instanceManager->connectToInternet($message->getContent(), $message->getUuid());
-                    $returnState = InstanceStateMessage::STATE_STARTED;
-                    break;
+                    $this->instanceManager->connectToInternet($message->getContent());
+                    return;
+
+                case InstanceActionMessage::ACTION_DISCONNECT:
+                    $this->instanceManager->disconnectFromInternet($message->getContent());
+                    return;
 
                 case InstanceActionMessage::ACTION_EXPORT_DEV:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;

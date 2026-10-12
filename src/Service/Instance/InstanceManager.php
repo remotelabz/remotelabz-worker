@@ -2279,8 +2279,12 @@ private function lxc_is_running(string $lxc_name): bool
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
 
         // Create new routing table for packet from the network of lab's device
-        IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
-        IPTools::ruleAdd('to ' . $labNetwork, 'lookup 4');
+        if (!IPTools::ruleExists('from ' . $labNetwork, 'lookup 4')) {
+            IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
+        }
+        if (!IPTools::ruleExists('to ' . $labNetwork, 'lookup 4')) {
+            IPTools::ruleAdd('to ' . $labNetwork, 'lookup 4');
+        }
         if (!IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
             IPTools::routeAdd($dataNetwork . ' dev ' . $bridgeInt, 4);
         }
@@ -2288,16 +2292,20 @@ private function lxc_is_running(string $lxc_name): bool
             IPTools::routeAdd('default via ' . $bridgeIntGateway, 4);
         }
 
-        IPTables::append(
-            IPTables::CHAIN_POSTROUTING,
-            Rule::create()
-                ->setSource($labNetwork)
-                ->setOutInterface($bridgeInt)
-                ->setDestinationNegated()
-                ->setJump('MASQUERADE')
-            ,
-            'nat'
-        );
+        $rule = Rule::create()
+            ->setSource($labNetwork)
+            ->setOutInterface($bridgeInt)
+            ->setDestinationNegated()
+            ->setJump('MASQUERADE')
+        ;
+
+        if (!IPTables::exists(IPTables::CHAIN_POSTROUTING, $rule, 'nat')) {
+            IPTables::append(
+                IPTables::CHAIN_POSTROUTING,
+                $rule,
+                'nat'
+            );
+        }
     }
 
     public function disconnectFromInternet(string $descriptor)
@@ -2323,6 +2331,9 @@ private function lxc_is_running(string $lxc_name): bool
         // Create new routing table for packet from the network of lab's device
         if (IPTools::ruleExists('from ' . $labNetwork, 'lookup 4')) {
             IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
+        }
+        if (IPTools::ruleExists('to ' . $labNetwork, 'lookup 4')) {
+            IPTools::ruleDelete('to ' . $labNetwork, 'lookup 4');
         }
         if (IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
             IPTools::routeDelete($dataNetwork . ' dev ' . $bridgeInt, 4);
