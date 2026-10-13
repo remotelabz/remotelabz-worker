@@ -263,10 +263,15 @@ class InstanceManager extends AbstractController
 
         if (!count($deviceInstance)) {
             $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'instance' => $deviceInstance['uuid']
+                'instance' => $uuid
             ]);
-            // instance is already started or whatever
-            return;
+            // instance is already started or whatever : answer STATE_STARTED instead of
+            // returning nothing (the front would then stay stuck in "starting")
+            return [
+                "state"   => InstanceStateMessage::STATE_STARTED,
+                "uuid"    => $uuid,
+                "options" => ["state" => "already_running"],
+            ];
         } else {
             $deviceIndex = array_key_first($deviceInstance);
             $deviceInstance = $deviceInstance[$deviceIndex];
@@ -478,10 +483,15 @@ class InstanceManager extends AbstractController
 
         if (!count($deviceInstance)) {
             $this->logger->info("Device instance is already started. Aborting.", InstanceLogMessage::SCOPE_PUBLIC, [
-                'instance' => $deviceInstance['uuid']
+                'instance' => $uuid
             ]);
-            // instance is already started or whatever
-            return;
+            // instance is already started or whatever : answer STATE_STARTED instead of
+            // returning nothing (the front would then stay stuck in "starting")
+            return [
+                "state"   => InstanceStateMessage::STATE_STARTED,
+                "uuid"    => $uuid,
+                "options" => ["state" => "already_running"],
+            ];
         } else {
             $deviceIndex = array_key_first($deviceInstance);
             $deviceInstance = $deviceInstance[$deviceIndex];
@@ -517,7 +527,8 @@ class InstanceManager extends AbstractController
         if (strtolower($deviceInstance['device']['hypervisor']['name']) === 'qemu') {
             $result=$this->create_qemu_device($deviceInstance,$bridgeName,$instancePath,$sandbox);
                 if ($result["state"] === InstanceStateMessage::STATE_STARTED) {
-                    if (!array_key_exists("state",$result["options"])) {
+                    // $result["options"] is null on a successful fresh start (see create_qemu_device)
+                    if (!isset($result["options"]["state"])) {
                         //Already started. Avoid to send message to front
                         $this->logger->info("This device can be configured on network:".$labNetwork. " with the gateway ".$gateway, InstanceLogMessage::SCOPE_PUBLIC, [
                             'instance' => $deviceInstance['uuid']
