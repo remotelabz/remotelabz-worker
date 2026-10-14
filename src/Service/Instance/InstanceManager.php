@@ -2271,12 +2271,6 @@ private function lxc_is_running(string $lxc_name): bool
     {
         /** @var array $labInstance */
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $labNetwork = $this->params->get('app.network.lab.cidr');
-        $dataNetwork = $this->params->get('app.network.data.cidr');
-        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
-        $bridgeIntGateway = $this->params->get('app.data.network.gateway');
-
-        IPTools::linkSet($bridgeInt, IPTools::LINK_SET_UP);
 
         if (!is_array($labInstance)) {
             // invalid json
@@ -2285,16 +2279,34 @@ private function lxc_is_running(string $lxc_name): bool
             throw new BadDescriptorException($labInstance);
         }
 
+        // The internet interface is a physical NIC : no OVS patch link, the lab is
+        // connected to internet through NAT (one MASQUERADE rule per lab).
+        $globalLabNetwork = $this->params->get('app.network.lab.cidr');
+        $dataNetwork = $this->params->get('app.network.data.cidr');
+        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
+        $bridgeIntGateway = $this->params->get('app.data.network.gateway');
+
         $bridge = $labInstance['bridgeName'];
-        OVS::LinkTwoOVS($bridge, $bridgeInt);
+        $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
+        $labNetworkCidr = (string) $labNetwork;
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
 
-        // Create new routing table for packet from the network of lab's device
-        if (!IPTools::ruleExists('from ' . $labNetwork, 'lookup 4')) {
-            IPTools::ruleAdd('from ' . $labNetwork, 'lookup 4');
+        IPTools::linkSet($bridgeInt, IPTools::LINK_SET_UP);
+
+        // Policy routing for this lab's subnet (table 4)
+        if (!IPTools::ruleExists('from ' . $labNetworkCidr, 'lookup 4')) {
+            IPTools::ruleAdd('from ' . $labNetworkCidr, 'lookup 4');
         }
-        if (!IPTools::ruleExists('to ' . $labNetwork, 'lookup 4')) {
-            IPTools::ruleAdd('to ' . $labNetwork, 'lookup 4');
+        if (!IPTools::ruleExists('to ' . $labNetworkCidr, 'lookup 4')) {
+            IPTools::ruleAdd('to ' . $labNetworkCidr, 'lookup 4');
+        }
+        // Return route for the lab's subnet in table 4 : the "from <lab> lookup 4"
+        // rule above also forces the worker's own replies (source = the bridge IP,
+        // inside the lab subnet) into table 4. Without this route they would fall
+        // back on the default route (towards the ISP) instead of coming back to the
+        // bridge, and the lab would get no answer (e.g. ping to its own gateway).
+        if (!IPTools::routeExists($labNetworkCidr . ' dev ' . $bridge, 4)) {
+            IPTools::routeAdd($labNetworkCidr . ' dev ' . $bridge, 4);
         }
         if (!IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
             IPTools::routeAdd($dataNetwork . ' dev ' . $bridgeInt, 4);
@@ -2303,9 +2315,20 @@ private function lxc_is_running(string $lxc_name): bool
             IPTools::routeAdd('default via ' . $bridgeIntGateway, 4);
         }
 
+        // Remove the "no internet" block rule (if any) so the lab can reach internet again
+        $blockRule = Rule::create()
+            ->setInInterface($bridge)
+            ->setJump('DROP')
+        ;
+        if (IPTables::exists(IPTables::CHAIN_FORWARD, $blockRule)) {
+            IPTables::delete(IPTables::CHAIN_FORWARD, $blockRule);
+        }
+
+        // One NAT MASQUERADE rule for this lab only (not NAT'ed towards other labs)
         $rule = Rule::create()
-            ->setSource($labNetwork)
+            ->setSource($labNetworkCidr)
             ->setOutInterface($bridgeInt)
+            ->setDestination($globalLabNetwork)
             ->setDestinationNegated()
             ->setJump('MASQUERADE')
         ;
@@ -2323,10 +2346,6 @@ private function lxc_is_running(string $lxc_name): bool
     {
         /** @var array $labInstance */
         $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $labNetwork = $this->params->get('app.network.lab.cidr');
-        $dataNetwork = $this->params->get('app.network.data.cidr');
-        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
-        $bridgeIntGateway = $this->params->get('app.data.network.gateway');
 
         if (!is_array($labInstance)) {
             // invalid json
@@ -2335,27 +2354,20 @@ private function lxc_is_running(string $lxc_name): bool
             throw new BadDescriptorException($labInstance);
         }
 
+        $globalLabNetwork = $this->params->get('app.network.lab.cidr');
+        $dataNetwork = $this->params->get('app.network.data.cidr');
+        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
+        $bridgeIntGateway = $this->params->get('app.data.network.gateway');
+
         $bridge = $labInstance['bridgeName'];
+        $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
+        $labNetworkCidr = (string) $labNetwork;
 
-        OVS::UnlinkTwoOVS($bridge, $bridgeInt);
-
-        // Create new routing table for packet from the network of lab's device
-        if (IPTools::ruleExists('from ' . $labNetwork, 'lookup 4')) {
-            IPTools::ruleDelete('from ' . $labNetwork, 'lookup 4');
-        }
-        if (IPTools::ruleExists('to ' . $labNetwork, 'lookup 4')) {
-            IPTools::ruleDelete('to ' . $labNetwork, 'lookup 4');
-        }
-        if (IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
-            IPTools::routeDelete($dataNetwork . ' dev ' . $bridgeInt, 4);
-        }
-        if (IPTools::routeExists('default via ' . $bridgeIntGateway, 4)) {
-            IPTools::routeDelete('default via ' . $bridgeIntGateway, 4);
-        }
-
+        // Remove the NAT rule of this lab
         $rule = Rule::create()
-            ->setSource($labNetwork)
+            ->setSource($labNetworkCidr)
             ->setOutInterface($bridgeInt)
+            ->setDestination($globalLabNetwork)
             ->setDestinationNegated()
             ->setJump('MASQUERADE')
         ;
@@ -2363,46 +2375,33 @@ private function lxc_is_running(string $lxc_name): bool
         if (IPTables::exists(IPTables::CHAIN_POSTROUTING, $rule, 'nat')) {
             IPTables::delete(IPTables::CHAIN_POSTROUTING, $rule, 'nat');
         }
-    }
 
-    public function interconnect(string $descriptor)
-    {
-        /** @var array $labInstance */
-        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
-
-        if (!is_array($labInstance)) {
-            // invalid json
-            $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
-
-            throw new BadDescriptorException($labInstance);
-        }
-        
-
-        //$bridge = $labInstance['instances']['bridgeName'];
-        
-        $bridge = $labInstance['bridgeName'];
-        OVS::LinkTwoOVS($bridge, $bridgeInt);
-
-        $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
-    }
-
-    public function disinterconnect(string $descriptor)
-    {
-        /** @var array $labInstance */
-        $labInstance = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $bridgeInt = $this->params->get('app.network.lab.internet_interface');
-
-        if (!is_array($labInstance)) {
-            // invalid json
-            $this->logger->error("Invalid JSON was provided!", InstanceLogMessage::SCOPE_PRIVATE, ["instance" => $labInstance]);
-
-            throw new BadDescriptorException($labInstance);
+        // Block every packet leaving this lab (top of FORWARD, before the lab's
+        // "_forward" ACCEPT chain), so a lab without internet cannot reach anything
+        $blockRule = Rule::create()
+            ->setInInterface($bridge)
+            ->setJump('DROP')
+        ;
+        if (!IPTables::exists(IPTables::CHAIN_FORWARD, $blockRule)) {
+            IPTables::insert(IPTables::CHAIN_FORWARD, $blockRule, null, 1);
         }
 
-        $bridge = $labInstance['bridgeName'];
-
-        OVS::UnlinkTwoOVS($bridge, $bridgeInt);
+        // Remove the policy routing of this lab's subnet
+        if (IPTools::ruleExists('from ' . $labNetworkCidr, 'lookup 4')) {
+            IPTools::ruleDelete('from ' . $labNetworkCidr, 'lookup 4');
+        }
+        if (IPTools::ruleExists('to ' . $labNetworkCidr, 'lookup 4')) {
+            IPTools::ruleDelete('to ' . $labNetworkCidr, 'lookup 4');
+        }
+        if (IPTools::routeExists($labNetworkCidr . ' dev ' . $bridge, 4)) {
+            IPTools::routeDelete($labNetworkCidr . ' dev ' . $bridge, 4);
+        }
+        if (IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
+            IPTools::routeDelete($dataNetwork . ' dev ' . $bridgeInt, 4);
+        }
+        if (IPTools::routeExists('default via ' . $bridgeIntGateway, 4)) {
+            IPTools::routeDelete('default via ' . $bridgeIntGateway, 4);
+        }
     }
 
     /**

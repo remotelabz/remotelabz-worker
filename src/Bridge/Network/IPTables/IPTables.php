@@ -64,6 +64,34 @@ class IPTables extends Bridge
     }
 
     /**
+     * Insert one rule at the given position (1 = top) of the selected chain.
+     *
+     * Used e.g. to put a DROP rule before the existing ACCEPT rules of a lab
+     * forward chain, which "append" could not do.
+     *
+     * @param string $chain The chain to insert the rule into.
+     * @param Rule $rule The rule to insert.
+     * @param string|null $table The table to apply the rule.
+     * @param int $position 1-based position (default 1 = top of the chain).
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function insert(string $chain, Rule $rule, string $table = null, int $position = 1) : Process {
+        $command = [];
+
+        if (!empty($table)) {
+            array_push($command, '-t', $table);
+        }
+
+        array_push($command, '-I', $chain, (string) $position);
+
+        $rule = $rule->export();
+        array_push($command, ...$rule);
+
+        return static::exec($command);
+    }
+
+    /**
      * Delete one or more rules to the end of the selected chain.
      *
      * @param string $chain The chain to append the rule.

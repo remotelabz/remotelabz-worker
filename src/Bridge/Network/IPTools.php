@@ -271,7 +271,14 @@ class IPTools extends Bridge
 
     public static function routeExists(string $route, int $tableId = 254) : bool
     {
-        $output = static::routeShow($tableId);
+        try {
+            $output = static::routeShow($tableId);
+        } catch (ProcessFailedException $exception) {
+            // e.g. "Error: ipv4: FIB table does not exist." (exit code 2) when the
+            // table was never created : the route does not exist either.
+            return false;
+        }
+
         $route = preg_quote($route, '/');
         $exists = preg_match('/(' . $route . ')/', $output->getOutput());
 

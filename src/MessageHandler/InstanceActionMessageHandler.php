@@ -14,6 +14,16 @@ use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
 
 class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwareInterface
 {
+    /**
+     * Actions for which the front expects no InstanceStateMessage back : the network
+     * work is done and nothing is sent, the front tracks isInternetConnected itself
+     * (see docs/README-InternetConnexion.md §5.3).
+     */
+    private const ACTIONS_WITHOUT_STATE = [
+        InstanceActionMessage::ACTION_CONNECT,
+        InstanceActionMessage::ACTION_DISCONNECT,
+    ];
+
     protected $instanceManager;
     private $logger;
     private $bus;
@@ -194,6 +204,13 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         $returnOptions = $ReturnArray["options"] ?? [];
 
         if ($instanceType === "") {
+            // CONNECT / DISCONNECT do the network work then reply nothing on purpose.
+            // Any failure is already logged as critical by the catch blocks above :
+            // do not report them as an "unknown action".
+            if (in_array($message->getAction(), self::ACTIONS_WITHOUT_STATE, true)) {
+                return;
+            }
+
             $this->logger->critical(
                 "Unknown action \"" . $message->getAction() . "\", no InstanceStateMessage can be sent.", [
                     "instance" => $message->getUuid()
