@@ -2291,7 +2291,7 @@ private function lxc_is_running(string $lxc_name): bool
         $labNetworkCidr = (string) $labNetwork;
         $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
 
-        IPTools::linkSet($bridgeInt, IPTools::LINK_SET_UP);
+        IPTools::linkSet($bridge, IPTools::LINK_SET_UP);
 
         // Policy routing for this lab's subnet (table 4)
         if (!IPTools::ruleExists('from ' . $labNetworkCidr, 'lookup 4')) {
