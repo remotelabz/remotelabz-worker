@@ -185,33 +185,6 @@ class OVS extends Bridge
         return false;
     }
 
-    public static function LinkTwoOVS(string $bridge, string $bridgeInt)
-    {
-        // Create patch between lab's OVS and Worker's OVS
-        OVS::portAdd($bridge, "Patch-ovs-".$bridge, true);
-        OVS::setInterface("Patch-ovs-".$bridge, [
-            'type' => 'patch',
-            'options:peer' => "Patch-ovs-".$bridgeInt
-        ]);
-
-        OVS::portAdd($bridgeInt, "Patch-ovs-".$bridgeInt, true);
-        OVS::setInterface("Patch-ovs-".$bridgeInt, [
-            'type' => 'patch',
-            'options:peer' => "Patch-ovs-".$bridge
-        ]);
-    }
-
-    public static function UnlinkTwoOVS(string $bridge, string $bridgeInt)
-    {
-        if (OVS::ovsPortExists($bridgeInt, "Patch-ovs-".$bridgeInt)) {
-            OVS::portDelete($bridgeInt, "Patch-ovs-".$bridgeInt, true);
-        }
-        
-        if (OVS::ovsPortExists($bridge, "Patch-ovs-".$bridge)) {
-            OVS::portDelete($bridge, "Patch-ovs-".$bridge, true);
-        }
-    }
-
     /**
      * Shutdown all ports of an OVS bridge.
      *

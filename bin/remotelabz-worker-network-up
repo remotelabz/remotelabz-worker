@@ -136,36 +136,28 @@ if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
         );
     }
 
-# Configure iptables to NAT all lab (temporary because Internet connexion, on the fly, is not yet implemented)
-## Flush all nat rules
-$cmd = ['iptables','-t','nat','-F'];
-$process = new Process($cmd);
-$process->setTimeout(null);
-
-$process->run(function ($type, $buffer) {
-    echo $buffer;
-});
-
-$cmd = ['iptables','-t','nat','-A','POSTROUTING','-o'];
-
+# Internet connexion is now handled per lab : InstanceManager::connectToInternet()
+# adds one MASQUERADE rule per lab (source = the lab's own subnet) and
+# disconnectFromInternet() removes it and blocks the lab's outgoing traffic.
+# No global MASQUERADE rule on LAB_NETWORK here : it would give internet access
+# to every lab whether it is connected or not.
+#
+# Only clean up the leftover global rule from older versions (a broad
+# `iptables -t nat -F` would also wipe the per-lab rules of running labs).
+$globalNatRule = null;
 if ( array_key_exists('INTERNET_INTERFACE_ACCESS', $_ENV) && array_key_exists('LAB_NETWORK', $_ENV) ) {
-    $cmd[]=$_ENV['INTERNET_INTERFACE_ACCESS'];
-    $cmd[]='-s';
-    $cmd[]=$_ENV['LAB_NETWORK'];
-    // Do not masquerade lab-to-lab traffic (shared labs reachable across workers)
-    $cmd[]='!';
-    $cmd[]='-d';
-    $cmd[]=$_ENV['LAB_NETWORK'];
-    $cmd[]='-j';
-    $cmd[]='MASQUERADE';
+    $globalNatRule = Rule::create()
+        ->setSource($_ENV['LAB_NETWORK'])
+        ->setOutInterface($_ENV['INTERNET_INTERFACE_ACCESS'])
+        ->setDestination($_ENV['LAB_NETWORK'])
+        ->setDestinationNegated()
+        ->setJump('MASQUERADE');
 }
 
-$process = new Process($cmd);
-$process->setTimeout(null);
-
-$process->run(function ($type, $buffer) {
-    echo $buffer;
-});
+if ( $globalNatRule !== null && IPTables::exists(IPTables::CHAIN_POSTROUTING, $globalNatRule, 'nat') ) {
+    echo "Removing legacy global MASQUERADE rule (internet is now per lab)\n";
+    IPTables::delete(IPTables::CHAIN_POSTROUTING, $globalNatRule, 'nat');
+}
 
 
 # Configure iptables to DROP all packet in forward to avoid communication between lab

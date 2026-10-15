@@ -14,6 +14,16 @@ use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
 
 class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwareInterface
 {
+    /**
+     * Actions for which the front expects no InstanceStateMessage back : the network
+     * work is done and nothing is sent, the front tracks isInternetConnected itself
+     * (see docs/README-InternetConnexion.md §5.3).
+     */
+    private const ACTIONS_WITHOUT_STATE = [
+        InstanceActionMessage::ACTION_CONNECT,
+        InstanceActionMessage::ACTION_DISCONNECT,
+    ];
+
     protected $instanceManager;
     private $logger;
     private $bus;
@@ -74,7 +84,7 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                         $ReturnArray=$this->instanceManager->startRealDeviceInstance($message->getContent(), $message->getUuid());
                     }
                     
-                    $returnState = $ReturnArray["state"];
+                    $returnState = $ReturnArray["state"] ?? null;
                     //ReturnArray has a state in $ReturnArray['state']
                     break;
 
@@ -91,9 +101,12 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
                     break;
                 
                 case InstanceActionMessage::ACTION_CONNECT:
-                    $ReturnArray=$this->instanceManager->connectToInternet($message->getContent(), $message->getUuid());
-                    $returnState = InstanceStateMessage::STATE_STARTED;
-                    break;
+                    $this->instanceManager->connectToInternet($message->getContent());
+                    return;
+
+                case InstanceActionMessage::ACTION_DISCONNECT:
+                    $this->instanceManager->disconnectFromInternet($message->getContent());
+                    return;
 
                 case InstanceActionMessage::ACTION_EXPORT_DEV:
                     $instanceType = InstanceStateMessage::TYPE_DEVICE;
@@ -167,6 +180,42 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
             "options"=> [
                 "state" =>$message->getAction(),
                 ]);
+        } catch (\Throwable $e) {
+            // \Error / \TypeError are not caught above : an ACTION_* handler must never end
+            // without sending an InstanceStateMessage (otherwise the front stays in "starting")
+            $this->logger->critical(
+                "Action \"" . $message->getAction() . "\" throwed a throwable.", [
+                    "exception" => $e,
+                    "message" => $e->getMessage(),
+                    "instance" => $message->getUuid()
+                ]);
+            $returnState = InstanceStateMessage::STATE_ERROR;
+            $ReturnArray=array("uuid"=>$message->getUuid(),"state"=>$returnState ,
+            "options"=> [
+                "state" =>$message->getAction(),
+                ]);
+        }
+
+        // Defensive normalization : never build an InstanceStateMessage with a null state/uuid.
+        // options defaults to [] (and not null) so an unfixed front does not hit
+        // array_key_exists("state", null) on a fresh start (see docs/start-resync-state-started.md §4.3/§6.1)
+        $returnState   = $returnState ?: ($ReturnArray["state"] ?? InstanceStateMessage::STATE_ERROR);
+        $returnUuid    = $ReturnArray["uuid"]    ?? $message->getUuid();
+        $returnOptions = $ReturnArray["options"] ?? [];
+
+        if ($instanceType === "") {
+            // CONNECT / DISCONNECT do the network work then reply nothing on purpose.
+            // Any failure is already logged as critical by the catch blocks above :
+            // do not report them as an "unknown action".
+            if (in_array($message->getAction(), self::ACTIONS_WITHOUT_STATE, true)) {
+                return;
+            }
+
+            $this->logger->critical(
+                "Unknown action \"" . $message->getAction() . "\", no InstanceStateMessage can be sent.", [
+                    "instance" => $message->getUuid()
+                ]);
+            return;
         }
 
         // send back state
@@ -192,16 +241,16 @@ class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwa
         //$this->logger->debug("[InstanceActionMessageHandler:__invoke]::Value of the ReturnArray before InstanceStateMessage ".$returnState." ".json_encode($ReturnArray));
         $this->logger->debug("[InstanceActionMessageHandler:__invoke]::Dispatching InstanceStateMessage", [
             "state" => $returnState,
-            "uuid" => $ReturnArray["uuid"],
+            "uuid" => $returnUuid,
             "type" => $instanceType,
-            "options" => $ReturnArray["options"]
+            "options" => $returnOptions
         ]);
 
         $instanceStateMessage = new InstanceStateMessage(
     		$instanceType,
-    		$ReturnArray["uuid"],
+    		$returnUuid,
     		$returnState,
-    		$ReturnArray["options"] ?? []
+    		$returnOptions
 	);
 
 	$this->bus->dispatch($instanceStateMessage);

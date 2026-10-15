@@ -1,7 +1,11 @@
 framework:
     messenger:
-        # Uncomment this (and the failed transport below) to send failed messages to this transport for later handling.
-        # failure_transport: failed
+        # Send failed messages to the "failed" transport instead of dropping them silently.
+        # The worker has no database, so the doctrine transport is not available : a
+        # dedicated AMQP exchange is used (fanout, because the failed envelope keeps the
+        # original AmqpStamp whose routing key is the worker IP).
+        # See docs/start-resync-state-started.md §5.4
+        failure_transport: failed
 
         transports:
             # https://symfony.com/doc/current/messenger.html#transport-configuration
@@ -45,7 +49,15 @@ framework:
                     # override all of this with a service that
                     # implements Symfony\Component\Messenger\Retry\RetryStrategyInterface
                     # service: null
-            # failed: 'doctrine://default?queue_name=failed'
+            # Failed messages : kept in a dedicated AMQP exchange (see failure_transport above)
+            failed:
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                options:
+                    exchange:
+                        name: failed
+                        type: fanout
+                    queues:
+                        messages_failed: ~
             # sync: 'sync://'
 
         routing:
