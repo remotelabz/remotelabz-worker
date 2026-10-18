@@ -44,7 +44,7 @@ class IPTables extends Bridge
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function append(string $chain, Rule $rule, string $table = null) : Process {
+    public static function append(string $chain, Rule $rule, ?string $table = null) : Process {
         /*if (!static::isValidChain($chain)) {
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
         }*/
@@ -76,7 +76,7 @@ class IPTables extends Bridge
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function insert(string $chain, Rule $rule, string $table = null, int $position = 1) : Process {
+    public static function insert(string $chain, Rule $rule, ?string $table = null, int $position = 1) : Process {
         $command = [];
 
         if (!empty($table)) {
@@ -101,7 +101,7 @@ class IPTables extends Bridge
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return Process The executed process.
      */
-    public static function delete(string $chain, Rule $rule, string $table = null) : Process {
+    public static function delete(string $chain, Rule $rule, ?string $table = null) : Process {
         /* if (!static::isValidChain($chain)) {
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
         }
@@ -132,7 +132,7 @@ class IPTables extends Bridge
      * @throws ProcessFailedException If the process didn't terminate successfully.
      * @return bool
      */
-    public static function exists(string $chain, Rule $rule, string $table = null) : bool {
+    public static function exists(string $chain, Rule $rule, ?string $table = null) : bool {
         /* if (!static::isValidChain($chain)) {
             throw new UnexpectedValueException($chain . ' is not a valid chain name.');
         } */

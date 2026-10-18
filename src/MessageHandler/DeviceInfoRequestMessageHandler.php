@@ -6,7 +6,7 @@ use App\Service\Instance\DeviceIpResolver;
 use Psr\Log\LoggerInterface;
 use Remotelabz\Message\Message\DeviceInfoMessage;
 use Remotelabz\Message\Message\DeviceInfoRequestMessage;
-use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
+use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 use Symfony\Component\Messenger\MessageBusInterface;
 
 /**
@@ -19,7 +19,8 @@ use Symfony\Component\Messenger\MessageBusInterface;
  * Important : ce handler repond TOUJOURS, y compris en erreur, sinon le verrou
  * anti-spam du front expire sans que l'UI ne recoive jamais de reponse.
  */
-class DeviceInfoRequestMessageHandler implements MessageHandlerInterface
+#[AsMessageHandler]
+class DeviceInfoRequestMessageHandler
 {
     public function __construct(
         private DeviceIpResolver $resolver,
