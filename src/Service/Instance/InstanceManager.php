@@ -2289,7 +2289,7 @@ private function lxc_is_running(string $lxc_name): bool
         $bridge = $labInstance['bridgeName'];
         $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
         $labNetworkCidr = (string) $labNetwork;
-        $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
+        $this->logger->debug("[InstanceManager:connectToInternet]::connectToInternet - Identify bridgeName in instance:".$bridge);
 
         IPTools::linkSet($bridge, IPTools::LINK_SET_UP);
 
