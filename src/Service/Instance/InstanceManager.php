@@ -1875,7 +1875,7 @@ private function lxc_is_running(string $lxc_name): bool
             try {
                 $stopProcess->setTimeout(30);
                 $stopProcess->mustRun();
-                $this->logger->info("[InstanceManager:qemu_stop]::QEMU scope stopped successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->info("QEMU scope stopped successfully", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $uuid,
                     'scope'    => $scopeName
                 ]);
@@ -5113,7 +5113,7 @@ private function lxc_is_running(string $lxc_name): bool
             try {
                 $process->mustRun();
                 
-                $this->logger->info("[InstanceManager:create_Blank_Disk]::Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
                     'image' => $imagePath . ".qcow2",
                     'size' => $size . 'G',
                     'instance' => $uuid
@@ -5543,7 +5543,7 @@ private function lxc_is_running(string $lxc_name): bool
 
             $qemu_start_return=$this->qemu_start($parameters,$deviceInstance['uuid']);
             if ($qemu_start_return===0) {
-                $this->logger->info("[InstanceManager:create_qemu_device]::Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 
@@ -5822,7 +5822,7 @@ private function lxc_is_running(string $lxc_name): bool
             $attemptStart = microtime(true);
 
             if ($resumeOffset > 0) {
-                $this->logger->info("[InstanceManager:download_iso]::Resuming download from byte {$resumeOffset} (attempt {$attempt}/{$maxRetries}).", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->info("Resuming download from byte {$resumeOffset} (attempt {$attempt}/{$maxRetries}).", InstanceLogMessage::SCOPE_PRIVATE, [
                     'iso'      => $isoFilename,
                     'instance' => $uuid,
                 ]);
