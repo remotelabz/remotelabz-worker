@@ -12,7 +12,7 @@ class BadDescriptorException extends Exception
 {
     protected $descriptor;
 
-    public function __construct($descriptor = "", string $message = "", int $code = 0, Throwable $previous = NULL) {
+    public function __construct($descriptor = "", string $message = "", int $code = 0, ?Throwable $previous = NULL) {
         parent::__construct($message, $code, $previous);
 
         $this->descriptor = $descriptor;

@@ -8,11 +8,12 @@ use Psr\Log\LoggerAwareInterface;
 use App\Service\Instance\InstanceManager;
 use Remotelabz\Message\Message\InstanceStateMessage;
 use Remotelabz\Message\Message\InstanceActionMessage;
+use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
-use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
 
-class InstanceActionMessageHandler implements MessageHandlerInterface, LoggerAwareInterface
+#[AsMessageHandler]
+class InstanceActionMessageHandler implements LoggerAwareInterface
 {
     /**
      * Actions for which the front expects no InstanceStateMessage back : the network

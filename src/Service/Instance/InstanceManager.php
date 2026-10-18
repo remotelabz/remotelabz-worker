@@ -1875,7 +1875,7 @@ private function lxc_is_running(string $lxc_name): bool
             try {
                 $stopProcess->setTimeout(30);
                 $stopProcess->mustRun();
-                $this->logger->info("[InstanceManager:qemu_stop]::QEMU scope stopped successfully", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->info("QEMU scope stopped successfully", InstanceLogMessage::SCOPE_PRIVATE, [
                     'instance' => $uuid,
                     'scope'    => $scopeName
                 ]);
@@ -2289,7 +2289,7 @@ private function lxc_is_running(string $lxc_name): bool
         $bridge = $labInstance['bridgeName'];
         $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
         $labNetworkCidr = (string) $labNetwork;
-        $this->logger->debug("connectToInternet - Identify bridgeName in instance:".$bridge);
+        $this->logger->debug("[InstanceManager:connectToInternet]::connectToInternet - Identify bridgeName in instance:".$bridge);
 
         IPTools::linkSet($bridge, IPTools::LINK_SET_UP);
 
@@ -5113,7 +5113,7 @@ private function lxc_is_running(string $lxc_name): bool
             try {
                 $process->mustRun();
                 
-                $this->logger->info("[InstanceManager:create_Blank_Disk]::Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info("Blank disk image created successfully.", InstanceLogMessage::SCOPE_PUBLIC, [
                     'image' => $imagePath . ".qcow2",
                     'size' => $size . 'G',
                     'instance' => $uuid
@@ -5241,6 +5241,7 @@ private function lxc_is_running(string $lxc_name): bool
             'network' => [],
             'local' => [],
             'usb' => [],
+            'agent' => [],
             'access' => [],
             'uefi' => [],
             'cdrom' => [],
@@ -5476,6 +5477,24 @@ private function lxc_is_running(string $lxc_name): bool
             array_push($parameters['network'],'-net','none');
         }
 
+        // Canal qemu-guest-agent : un socket Unix par instance. Le socket existe
+        // dès le lancement de la VM, mais l'agent doit être present ET demarre
+        // dans l'invite : l'IP n'est donc disponible qu'apres quelques dizaines
+        // de secondes (voir DeviceIpResolver et le repli ARP / bail DHCP).
+        // L'ordre du tableau $parameters est l'ordre des arguments QEMU : le
+        // bucket 'agent' est place avant 'access' (controle VNC/console).
+        $qgaDirectory = '/run/remotelabz';
+        if (!is_dir($qgaDirectory)) {
+            @mkdir($qgaDirectory, 0750, true);
+        }
+        $qgaSocket = $qgaDirectory . '/qga-' . $deviceInstance['uuid'] . '.sock';
+        array_push(
+            $parameters['agent'],
+            '-chardev', 'socket,id=qga0,path=' . $qgaSocket . ',server=on,wait=off',
+            '-device',  'virtio-serial-pci',
+            '-device',  'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0'
+        );
+
         $networkInterfaces = $deviceInstance['networkInterfaceInstances'] ?? [];
         $dummyParameters = self::buildDummyNetworkInterfaceParameters($deviceInstance, $networkCardType, $minimumNetworkInterfaces);
 
@@ -5524,7 +5543,7 @@ private function lxc_is_running(string $lxc_name): bool
 
             $qemu_start_return=$this->qemu_start($parameters,$deviceInstance['uuid']);
             if ($qemu_start_return===0) {
-                $this->logger->info("[InstanceManager:create_qemu_device]::Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
+                $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
                     ]);
                 
@@ -5803,7 +5822,7 @@ private function lxc_is_running(string $lxc_name): bool
             $attemptStart = microtime(true);
 
             if ($resumeOffset > 0) {
-                $this->logger->info("[InstanceManager:download_iso]::Resuming download from byte {$resumeOffset} (attempt {$attempt}/{$maxRetries}).", InstanceLogMessage::SCOPE_PRIVATE, [
+                $this->logger->info("Resuming download from byte {$resumeOffset} (attempt {$attempt}/{$maxRetries}).", InstanceLogMessage::SCOPE_PRIVATE, [
                     'iso'      => $isoFilename,
                     'instance' => $uuid,
                 ]);

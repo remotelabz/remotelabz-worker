@@ -5,9 +5,10 @@ namespace App\MessageHandler;
 use App\Service\Instance\InstanceManager;
 use Psr\Log\LoggerInterface;
 use Remotelabz\Message\Message\SecurityMessage;
-use Symfony\Component\Messenger\Handler\MessageHandlerInterface;
+use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
-class SecurityMessageHandler implements MessageHandlerInterface
+#[AsMessageHandler]
+class SecurityMessageHandler
 {
     private InstanceManager $instanceManager;
     private LoggerInterface $logger;
