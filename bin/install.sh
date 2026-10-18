@@ -1089,7 +1089,7 @@ fetch_bundle() {
 }
 
 fetch_bundle network-bundle 1.0.4
-fetch_bundle remotelabz-message-bundle 1.0.6
+fetch_bundle remotelabz-message-bundle 1.0.10
 
 debug "Downloading Composer packages"
 (cd "${SCRIPTPATH}" && composer install --prefer-dist)
@@ -1184,6 +1184,13 @@ systemctl start remotelabz-worker.slice
 systemctl start remotelabz-worker.timer
 
 success "Services configured ✔️"
+
+# Repertoire des sockets qemu-guest-agent (/run est un tmpfs : recree au boot)
+debug "Setup qemu-guest-agent socket directory"
+install -d -m 0750 -o root -g root /usr/lib/tmpfiles.d
+cp -f "${SCRIPTPATH}"/config/tmpfiles/remotelabz-worker.conf /usr/lib/tmpfiles.d/remotelabz-worker.conf
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/remotelabz-worker.conf || true
+success "qemu-guest-agent socket directory configured ✔️"
 
 debug "Backup .env.local and copy to final location"
 if [ -f "${REMOTELABZ_WORKER_PATH}"/.env.local ]; then

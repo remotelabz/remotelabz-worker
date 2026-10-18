@@ -83,7 +83,7 @@ done
 git_pub fetch || git_erreur "git fetch a échoué, mise à jour interrompue."
 
 bundle network-bundle 1.0.4
-bundle remotelabz-message-bundle 1.0.9
+bundle remotelabz-message-bundle 1.0.10
 
 mv $SOURCE_DIR/config/packages/messenger.yaml ~/
 git restore $SOURCE_DIR/config/packages/messenger.yaml
@@ -92,6 +92,17 @@ git restore $SOURCE_DIR/config/packages/dev/web_profiler.yaml
 git_pub pull || git_erreur "git pull a échoué, mise à jour interrompue."
 mv ~/messenger.yaml $SOURCE_DIR/config/packages/messenger.yaml
 mv ~/web_profiler.yaml $SOURCE_DIR/config/packages/dev/web_profiler.yaml
+
+# Le messenger.yaml local est conservé pendant la mise à jour : on s'assure que
+# le routage de la réponse de collecte d'IP (DeviceInfoMessage -> front) y
+# figure bien, sinon le worker résout l'IP mais ne la renvoie jamais au front.
+MESSAGER_CFG=$SOURCE_DIR/config/packages/messenger.yaml
+if ! grep -qE 'DeviceInfoMessage.{0,2}: +front' "$MESSAGER_CFG"; then
+    sed -i '/^[[:space:]]*routing:$/a\            '"'"'Remotelabz\\Message\\Message\\DeviceInfoMessage'"'"': front' "$MESSAGER_CFG"
+fi
+if ! grep -qE 'DeviceInfoMessage.{0,2}: +front' "$MESSAGER_CFG"; then
+    echo "ATTENTION: routage DeviceInfoMessage absent de $MESSAGER_CFG, a ajouter manuellement sous \"routing:\""
+fi
 
 for service_file in "$SOURCE_DIR"/bin/systemd/*; do
     filename=$(basename "$service_file")

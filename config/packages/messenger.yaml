@@ -66,3 +66,5 @@ framework:
             'Remotelabz\Message\Message\InstanceLogMessage': front
             'Remotelabz\Message\Message\InstanceStateMessage': front
             'Remotelabz\Message\Message\WorkerHandshakeMessage': front
+            # Reponse a une demande d'IP d'instance (front -> worker -> front)
+            'Remotelabz\Message\Message\DeviceInfoMessage': front

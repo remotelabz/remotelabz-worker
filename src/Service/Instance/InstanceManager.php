@@ -5241,6 +5241,7 @@ private function lxc_is_running(string $lxc_name): bool
             'network' => [],
             'local' => [],
             'usb' => [],
+            'agent' => [],
             'access' => [],
             'uefi' => [],
             'cdrom' => [],
@@ -5475,6 +5476,24 @@ private function lxc_is_running(string $lxc_name): bool
         } else {
             array_push($parameters['network'],'-net','none');
         }
+
+        // Canal qemu-guest-agent : un socket Unix par instance. Le socket existe
+        // dès le lancement de la VM, mais l'agent doit être present ET demarre
+        // dans l'invite : l'IP n'est donc disponible qu'apres quelques dizaines
+        // de secondes (voir DeviceIpResolver et le repli ARP / bail DHCP).
+        // L'ordre du tableau $parameters est l'ordre des arguments QEMU : le
+        // bucket 'agent' est place avant 'access' (controle VNC/console).
+        $qgaDirectory = '/run/remotelabz';
+        if (!is_dir($qgaDirectory)) {
+            @mkdir($qgaDirectory, 0750, true);
+        }
+        $qgaSocket = $qgaDirectory . '/qga-' . $deviceInstance['uuid'] . '.sock';
+        array_push(
+            $parameters['agent'],
+            '-chardev', 'socket,id=qga0,path=' . $qgaSocket . ',server=on,wait=off',
+            '-device',  'virtio-serial-pci',
+            '-device',  'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0'
+        );
 
         $networkInterfaces = $deviceInstance['networkInterfaceInstances'] ?? [];
         $dummyParameters = self::buildDummyNetworkInterfaceParameters($deviceInstance, $networkCardType, $minimumNetworkInterfaces);
