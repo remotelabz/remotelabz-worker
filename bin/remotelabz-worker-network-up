@@ -95,6 +95,27 @@ if ( array_key_exists('VPN_CONCENTRATOR_IP', $_ENV)) {
         });
     }
 
+    # Labs now route through table 4 (policy routing added by
+    # InstanceManager::connectToInternet). The VPN network must also be present
+    # in table 4 : otherwise a lab talking to a VPN user would fall back on the
+    # default route (towards the ISP) instead of being sent to the front server
+    # which hosts the VPN concentrator. The route points to the front admin IP
+    # (FRONT_SERVER_IP) reachable through ADM_INTERFACE.
+    if ( array_key_exists('VPN_NETWORK', $_ENV)
+        && array_key_exists('FRONT_SERVER_IP', $_ENV)
+        && array_key_exists('ADM_INTERFACE', $_ENV)
+        && ($_ENV['VPN_CONCENTRATOR_IP'] != "127.0.0.1")
+        ) {
+        $base_ip = new IP($_ENV['VPN_NETWORK']);
+        $vpn_network = new Network($base_ip, $_ENV['VPN_NETWORK_NETMASK']);
+        $vpnRoute = $vpn_network->__toString() . ' via ' . $_ENV['FRONT_SERVER_IP'] . ' dev ' . $_ENV['ADM_INTERFACE'];
+        echo "Configuration of route to VPN users in table 4\n";
+        echo "Configuration of route to " . $vpn_network->__toString() . " via " . $_ENV['FRONT_SERVER_IP'] . " dev " . $_ENV['ADM_INTERFACE'] . " table 4\n";
+        if (!IPTools::routeExists($vpnRoute, 4)) {
+            IPTools::routeAdd($vpnRoute, 4);
+        }
+    }
+
     if ( array_key_exists('VPN_NETWORK', $_ENV)) {
         echo "Configuration of iptables to allow forward to VPN users\n";
         echo "Forward from and to network ".$_ENV['VPN_NETWORK']." ".$_ENV['VPN_NETWORK_NETMASK']." is allowed\n";
