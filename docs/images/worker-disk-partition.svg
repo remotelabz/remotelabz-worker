@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 700" width="980" height="700" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="gUbuntu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#eaf1fb"/>
+      <stop offset="100%" stop-color="#d3e2f6"/>
+    </linearGradient>
+    <linearGradient id="gRlz" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fdeee0"/>
+      <stop offset="100%" stop-color="#f8ddc4"/>
+    </linearGradient>
+    <linearGradient id="gLg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#fbe7d2"/>
+      <stop offset="100%" stop-color="#f7dcc0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="980" height="700" fill="#ffffff"/>
+
+  <text x="490" y="42" text-anchor="middle" font-size="23" font-weight="700" fill="#1f2d3d">Schéma de partitionnement — Worker Remotelabz</text>
+  <text x="490" y="68" text-anchor="middle" font-size="13.5" fill="#5a6b7b">LVM : 2 groupes de volumes (VG) → volumes logiques (LV)</text>
+
+  <!-- Disque physique -->
+  <text x="40" y="106" font-size="13" font-weight="700" fill="#33475b">① Disque physique</text>
+
+  <rect x="40" y="116" width="240" height="64" rx="8" fill="url(#gUbuntu)" stroke="#2b5b9c" stroke-width="1.5"/>
+  <rect x="280" y="116" width="660" height="64" rx="8" fill="url(#gRlz)" stroke="#b5651d" stroke-width="1.5"/>
+
+  <text x="160" y="146" text-anchor="middle" font-size="16" font-weight="700" fill="#1b3a63">ubuntu-vg</text>
+  <text x="160" y="167" text-anchor="middle" font-size="12" fill="#33517e">≥ 35 GB</text>
+
+  <text x="610" y="146" text-anchor="middle" font-size="16" font-weight="700" fill="#7a3f10">rlz-vg</text>
+  <text x="610" y="167" text-anchor="middle" font-size="12" fill="#8a5a2b">tout l'espace restant</text>
+
+  <!-- Connecteurs -->
+  <line x1="160" y1="180" x2="160" y2="216" stroke="#2b5b9c" stroke-width="2"/>
+  <line x1="610" y1="180" x2="610" y2="216" stroke="#b5651d" stroke-width="2"/>
+
+  <!-- LV système -->
+  <rect x="40" y="216" width="240" height="160" rx="10" fill="url(#gUbuntu)" stroke="#2b5b9c" stroke-width="1.5"/>
+  <rect x="40" y="216" width="7" height="160" rx="3" fill="#2b5b9c"/>
+  <text x="66" y="252" font-size="17" font-weight="700" fill="#1b3a63">ubuntu-lv</text>
+  <text x="66" y="284" font-size="13" fill="#33517e">Taille : ≥ 35 GB</text>
+  <text x="66" y="310" font-size="13" fill="#33517e">Montage : /  (racine)</text>
+  <text x="66" y="336" font-size="13" fill="#33517e">Système Ubuntu</text>
+
+  <!-- Panneau rlz-vg -->
+  <rect x="280" y="216" width="660" height="408" rx="12" fill="#fffaf4" stroke="#ecd6bd" stroke-width="1.5" stroke-dasharray="6 5"/>
+
+  <!-- rlz-lg -->
+  <rect x="296" y="232" width="628" height="118" rx="10" fill="url(#gLg)" stroke="#e08a3c" stroke-width="1.5"/>
+  <rect x="296" y="232" width="7" height="118" rx="3" fill="#e08a3c"/>
+  <text x="322" y="268" font-size="17" font-weight="700" fill="#7a3f10">rlz-lg</text>
+  <text x="322" y="298" font-size="13" fill="#6b5236">Taille : 60 % de l'espace libre restant</text>
+  <text x="322" y="324" font-size="13" fill="#6b5236">Montage : /opt  —  VMs QEMU</text>
+
+  <!-- lib-lxc -->
+  <rect x="296" y="362" width="628" height="118" rx="10" fill="#e2f2f1" stroke="#3c8f8f" stroke-width="1.5"/>
+  <rect x="296" y="362" width="7" height="118" rx="3" fill="#3c8f8f"/>
+  <text x="322" y="398" font-size="17" font-weight="700" fill="#1f5f5f">lib-lxc</text>
+  <text x="322" y="428" font-size="13" fill="#2f5f5f">Taille : 100 GB (fixe)</text>
+  <text x="322" y="454" font-size="13" fill="#2f5f5f">Montage : /var/lib/lxc  —  conteneurs LXC</text>
+
+  <!-- Conteneurs utilisateurs -->
+  <rect x="296" y="492" width="628" height="118" rx="10" fill="#e8ecf8" stroke="#6a7fb5" stroke-width="1.5"/>
+  <rect x="296" y="492" width="7" height="118" rx="3" fill="#6a7fb5"/>
+  <text x="322" y="528" font-size="17" font-weight="700" fill="#38477a">LV conteneurs utilisateurs</text>
+  <text x="322" y="558" font-size="13" fill="#4b5680">Taille : 40 % de l'espace libre restant (auto)</text>
+  <text x="322" y="584" font-size="13" fill="#4b5680">Montage : instances conteneurs utilisateurs</text>
+
+  <!-- Notes -->
+  <rect x="40" y="644" width="900" height="44" rx="8" fill="#f6f8fa" stroke="#dfe4ea"/>
+  <text x="60" y="664" font-size="12" fill="#3a4a5a"><tspan font-weight="700">Ordre d'allocation :</tspan> 1) lib-lxc = 100 GB (fixe)  2) rlz-lg = 60 % de l'espace restant  3) conteneurs = 40 % restant.</text>
+  <text x="60" y="681" font-size="12" fill="#7a8794">Tailles et pourcentages indicatifs — à adapter à la capacité réelle du disque. 60 % + 100 GB + 40 % ne peuvent totaliser 100 % : lib-lxc est donc réservé en premier.</text>
+</svg>

@@ -3381,6 +3381,7 @@ private function lxc_is_running(string $lxc_name): bool
     {
         try {
             $lvmVolumeGroup = 'rlz-vg';
+            $lvmLV_Thin_Pool = 'rlz-lxc-pool';
             $lvmSize = $this->params->get('app.lxc.default_mindiskspace') . 'M';
 
             if (isset($deviceInstance['device']['operatingSystem']['flavorDisk']['disk'])) {
@@ -3418,10 +3419,10 @@ private function lxc_is_running(string $lxc_name): bool
                 ]);
             } else {
                 $LV_CREATE_CMD = sprintf(
-                    'sudo lvcreate -y -Wy -Zy -L %s -n %s %s',
+                    'sudo lvcreate -y -Wy --type thin -V %s --thinpool %s/$lvmLV_Thin_Pool -n %s',
                     escapeshellarg($lvmSize),
-                    escapeshellarg($lvmName),
-                    escapeshellarg($lvmVolumeGroup)
+                    escapeshellarg($lvmVolumeGroup),
+                    escapeshellarg($lvmName)
                 );
                 $process = Process::fromShellCommandline($LV_CREATE_CMD);
                 $process->setTimeout(120);
