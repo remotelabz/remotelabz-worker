@@ -8,7 +8,7 @@
       <stop offset="0%" stop-color="#fdeee0"/>
       <stop offset="100%" stop-color="#f8ddc4"/>
     </linearGradient>
-    <linearGradient id="gLg" x1="0" y1="0" x2="1" y2="0">
+    <linearGradient id="gLv" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#fbe7d2"/>
       <stop offset="100%" stop-color="#f7dcc0"/>
     </linearGradient>
@@ -17,7 +17,7 @@
   <rect x="0" y="0" width="980" height="700" fill="#ffffff"/>
 
   <text x="490" y="42" text-anchor="middle" font-size="23" font-weight="700" fill="#1f2d3d">Schéma de partitionnement — Worker Remotelabz</text>
-  <text x="490" y="68" text-anchor="middle" font-size="13.5" fill="#5a6b7b">LVM : 2 groupes de volumes (VG) → volumes logiques (LV)</text>
+  <text x="490" y="68" text-anchor="middle" font-size="13.5" fill="#5a6b7b">LVM : 2 groupes de volumes (VG) + un pool thin dédié aux instances LXC</text>
 
   <!-- Disque physique -->
   <text x="40" y="106" font-size="13" font-weight="700" fill="#33475b">① Disque physique</text>
@@ -46,29 +46,42 @@
   <!-- Panneau rlz-vg -->
   <rect x="280" y="216" width="660" height="408" rx="12" fill="#fffaf4" stroke="#ecd6bd" stroke-width="1.5" stroke-dasharray="6 5"/>
 
-  <!-- rlz-lg -->
-  <rect x="296" y="232" width="628" height="118" rx="10" fill="url(#gLg)" stroke="#e08a3c" stroke-width="1.5"/>
-  <rect x="296" y="232" width="7" height="118" rx="3" fill="#e08a3c"/>
-  <text x="322" y="268" font-size="17" font-weight="700" fill="#7a3f10">rlz-lg</text>
-  <text x="322" y="298" font-size="13" fill="#6b5236">Taille : 60 % de l'espace libre restant</text>
-  <text x="322" y="324" font-size="13" fill="#6b5236">Montage : /opt  —  VMs QEMU</text>
+  <!-- rlz-lv -->
+  <rect x="296" y="232" width="628" height="102" rx="10" fill="url(#gLv)" stroke="#e08a3c" stroke-width="1.5"/>
+  <rect x="296" y="232" width="7" height="102" rx="3" fill="#e08a3c"/>
+  <text x="322" y="266" font-size="17" font-weight="700" fill="#7a3f10">rlz-lv</text>
+  <text x="322" y="294" font-size="13" fill="#6b5236">Taille : 60 % de l'espace libre restant</text>
+  <text x="322" y="318" font-size="13" fill="#6b5236">Montage : /opt  —  VMs QEMU</text>
 
   <!-- lib-lxc -->
-  <rect x="296" y="362" width="628" height="118" rx="10" fill="#e2f2f1" stroke="#3c8f8f" stroke-width="1.5"/>
-  <rect x="296" y="362" width="7" height="118" rx="3" fill="#3c8f8f"/>
-  <text x="322" y="398" font-size="17" font-weight="700" fill="#1f5f5f">lib-lxc</text>
-  <text x="322" y="428" font-size="13" fill="#2f5f5f">Taille : 100 GB (fixe)</text>
-  <text x="322" y="454" font-size="13" fill="#2f5f5f">Montage : /var/lib/lxc  —  conteneurs LXC</text>
+  <rect x="296" y="348" width="628" height="102" rx="10" fill="#e2f2f1" stroke="#3c8f8f" stroke-width="1.5"/>
+  <rect x="296" y="348" width="7" height="102" rx="3" fill="#3c8f8f"/>
+  <text x="322" y="382" font-size="17" font-weight="700" fill="#1f5f5f">lib-lxc</text>
+  <text x="322" y="410" font-size="13" fill="#2f5f5f">Taille : 100 GB (fixe)</text>
+  <text x="322" y="434" font-size="13" fill="#2f5f5f">Montage : /var/lib/lxc  —  modèles / conteneurs de référence</text>
 
-  <!-- Conteneurs utilisateurs -->
-  <rect x="296" y="492" width="628" height="118" rx="10" fill="#e8ecf8" stroke="#6a7fb5" stroke-width="1.5"/>
-  <rect x="296" y="492" width="7" height="118" rx="3" fill="#6a7fb5"/>
-  <text x="322" y="528" font-size="17" font-weight="700" fill="#38477a">LV conteneurs utilisateurs</text>
-  <text x="322" y="558" font-size="13" fill="#4b5680">Taille : 40 % de l'espace libre restant (auto)</text>
-  <text x="322" y="584" font-size="13" fill="#4b5680">Montage : instances conteneurs utilisateurs</text>
+  <!-- Pool thin des instances LXC -->
+  <rect x="296" y="464" width="628" height="146" rx="10" fill="#f3ecfa" stroke="#8a6bb8" stroke-width="1.5"/>
+  <rect x="296" y="464" width="7" height="146" rx="3" fill="#8a6bb8"/>
+  <text x="322" y="494" font-size="17" font-weight="700" fill="#5a3f85">rlz-lxc-pool  (thin pool)</text>
+  <text x="322" y="518" font-size="13" fill="#634f86">Taille : tout l'espace libre restant  —  volumes LXC créés à la volée</text>
+
+  <rect x="322" y="534" width="182" height="58" rx="8" fill="#e6d9f5" stroke="#9d7fc9" stroke-width="1.2"/>
+  <text x="413" y="558" text-anchor="middle" font-size="12.5" font-weight="700" fill="#4a3370">lxc_&lt;uuid1&gt;</text>
+  <text x="413" y="578" text-anchor="middle" font-size="11" fill="#634f86">thin — créé à la volée</text>
+
+  <rect x="519" y="534" width="182" height="58" rx="8" fill="#e6d9f5" stroke="#9d7fc9" stroke-width="1.2"/>
+  <text x="610" y="558" text-anchor="middle" font-size="12.5" font-weight="700" fill="#4a3370">lxc_&lt;uuid2&gt;</text>
+  <text x="610" y="578" text-anchor="middle" font-size="11" fill="#634f86">thin — créé à la volée</text>
+
+  <rect x="716" y="534" width="182" height="58" rx="8" fill="#f3ecfa" stroke="#b9a3d6" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="807" y="558" text-anchor="middle" font-size="12.5" font-weight="700" fill="#6b5a8c">…</text>
+  <text x="807" y="578" text-anchor="middle" font-size="11" fill="#6b5a8c">d'autres instances</text>
+
+  <text x="322" y="606" font-size="11.5" fill="#6b5a8c">Montage : /var/lib/lxc/&lt;uuid&gt;/rootfs  —  un LV thin par instance utilisateur</text>
 
   <!-- Notes -->
   <rect x="40" y="644" width="900" height="44" rx="8" fill="#f6f8fa" stroke="#dfe4ea"/>
-  <text x="60" y="664" font-size="12" fill="#3a4a5a"><tspan font-weight="700">Ordre d'allocation :</tspan> 1) lib-lxc = 100 GB (fixe)  2) rlz-lg = 60 % de l'espace restant  3) conteneurs = 40 % restant.</text>
-  <text x="60" y="681" font-size="12" fill="#7a8794">Tailles et pourcentages indicatifs — à adapter à la capacité réelle du disque. 60 % + 100 GB + 40 % ne peuvent totaliser 100 % : lib-lxc est donc réservé en premier.</text>
+  <text x="60" y="664" font-size="12" fill="#3a4a5a"><tspan font-weight="700">Provisionnement thin :</tspan> les LV lxc_&lt;uuid&gt; sont créés/supprimés à la volée dans rlz-lxc-pool (sur-allocation).</text>
+  <text x="60" y="681" font-size="12" fill="#7a8794">Un VG à 0 PE libre peut encore créer des volumes thin : surveiller data_percent / metadata_percent du pool.</text>
 </svg>
