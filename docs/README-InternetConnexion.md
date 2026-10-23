@@ -200,9 +200,11 @@ permissive (absent → `true`, défaut du modèle) tandis que celle de
   périphériques ne sont pas touchés : `connectToInternet`/`disconnectFromInternet`
   ne modifient que la table de routage 4, la règle NAT `POSTROUTING` (une par
   lab, source = sous-réseau du lab) et — à la déconnexion — une règle `DROP`
-  en tête de `FORWARD` bloquant tout paquet sortant du lab. **Pas de lien OVS
-  patch** : `INTERNET_INTERFACE_ACCESS` est une interface physique, la sortie se
-  fait par NAT.
+  en tête de `FORWARD` bloquant tout paquet sortant du lab, complétée par les
+  règles `ACCEPT` laissant passer le trafic VPN (cf. §5.8). Le routage de
+  politique (table 4) n'est **pas** retiré à la déconnexion (cf. §5.6). **Pas de
+  lien OVS patch** : `INTERNET_INTERFACE_ACCESS` est une interface physique, la
+  sortie se fait par NAT.
 
 ### 5.2 `ACTION_DISCONNECT` n'est pas gérée — bloquant
 
@@ -304,14 +306,28 @@ La connexion est **par lab**, plus globale au worker :
 Conséquences avec deux labs A et B sur un worker : chacun a sa propre NAT et ses
 propres règles de routage. La déconnexion de A ne retire que les règles de A ;
 les routes communes de la table 4 (réseau data, passerelle) restent en place et
-sont réutilisées par B (elles sont re-créées à la reconnexion si besoin).
+sont réutilisées par B.
 
-Point d'attention : `connectToInternet()` route le trafic sortant via la table 4
-et `disconnectFromInternet()` supprime la route `default via <gateway>` de la
-table 4. Si deux labs sont connectés et que l'un se déconnecte, la route
-commune est retirée : le second perd sa passerelle tant qu'il n'est pas
-reconnecté (la prochaine `connect` la recrée). Si ce cas se produit, il faudra
-distinguer les routes propres à un lab des routes partagées.
+Distinction routes propres / routes partagées : `disconnectFromInternet()`
+**conserve** le routage de politique du lab (`ip rule from/to <lab> lookup 4` et
+la route de retour `<lab> dev <bridge>` dans la table 4) au lieu de le
+supprimer :
+
+- il est indispensable au maintien de l'accès VPN : la table 4 contient la route
+  vers le réseau VPN installée au démarrage par `bin/remotelabz-worker-network-up`
+  (commit « Add VPN_Network in table 4 »), et c'est par elle que le lab
+  déconnecté joint les utilisateurs VPN (et réciproquement) ;
+- il évite de casser les autres labs : les routes `default via <gateway>` et
+  `<dataNetwork> dev <bridgeInt>` de la table 4 sont **partagées** ; les
+  supprimer lors de la déconnexion d'un lab retirait la passerelle aux labs
+  encore connectés.
+
+L'isolation Internet d'un lab déconnecté est donc assurée uniquement par la règle
+`DROP` en tête de `FORWARD` (interface d'entrée = bridge du lab) et par la
+suppression de sa règle NAT `MASQUERADE` : le lab ne peut plus sortir de son
+sous-réseau, sauf vers le réseau VPN. Ce sont les seules entrées par-lab : elles
+(et les règles `ACCEPT` VPN, cf. §5.8) sont nettoyées à la suppression du lab
+dans `deleteLabInstance()`.
 
 ### 5.7 Divers
 
@@ -322,6 +338,41 @@ distinguer les routes propres à un lab des routes partagées.
   `ProcessFailedException`) reste gérée par le `try/catch` existant du handler :
   la construction du message de retour (§5.3) et la sortie sans réponse pour
   CONNECT/DISCONNECT sont traitées dans `InstanceActionMessageHandler`.
+
+### 5.8 Un lab déconnecté reste joignable depuis le VPN
+
+Le réseau VPN est lu dans `.env` (`VPN_NETWORK` / `VPN_NETWORK_NETMASK`), exposé
+au conteneur via `app.vpn.network` / `app.vpn.netmask` (`config/services.yaml`)
+et converti en CIDR par `InstanceManager::getVpnNetworkCidr()` (ex.
+`10.8.0.0` + `255.255.0.0` → `10.8.0.0/16`).
+
+À la déconnexion, `disconnectFromInternet()` insère deux règles `ACCEPT` en tête
+de `FORWARD` (position 1, donc **avant** le `DROP` d'isolation) :
+
+| Sens | Règle |
+|------|-------|
+| VPN → lab | `--source <vpnCidr> --out-interface <bridge> --jump ACCEPT` |
+| lab → VPN | `--in-interface <bridge> --destination <vpnCidr> --jump ACCEPT` |
+
+La seconde est indispensable : sans elle les réponses du lab vers les
+utilisateurs VPN, émises depuis le bridge, seraient supprimées par le `DROP`.
+
+L'ordre est **garanti à chaque appel** : les règles `ACCEPT` sont d'abord
+détachées, puis le `DROP` et les deux `ACCEPT` sont réinstallés dans l'ordre
+`lab→VPN`, `VPN→lab`, `DROP` (chaque insertion en position 1). Un simple garde
+`exists` ne suffisait pas : à la **seconde** déconnexion (après une reconnexion
+qui ne retire que le `DROP`), le `DROP` était réinséré en position 1 *au-dessus*
+des `ACCEPT` restés en place et bloquait tout le lab.
+
+Le routage associé est celui de la table 4 (conservée, cf. §5.6) : la route
+`<vpnCidr>` y est installée au démarrage par `bin/remotelabz-worker-network-up`.
+Le comportement par défaut du fichier `.env` (VPN porté par le worker,
+`VPN_CONCENTRATOR_INTERFACE="localhost"`) est donc couvert, l'accès VPN étant
+déjà autorisé globalement dans `FORWARD` par le même script de démarrage.
+
+Les règles sont idempotentes (`IPTables::exists` avant insertion) et
+`getVpnNetworkCidr()` renvoie `null` (donc aucune règle) si la configuration est
+absente, invalide ou vaut `0.0.0.0/0`.
 
 ---
 

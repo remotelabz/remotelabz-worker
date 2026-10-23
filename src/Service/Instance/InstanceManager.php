@@ -173,6 +173,56 @@ class InstanceManager extends AbstractController
         IPTables::delete_chain($labInstance['bridgeName']."_input");
         IPTables::delete_chain($labInstance['bridgeName']."_output");
 
+        // Remove the per-lab FORWARD rules installed when the lab is isolated but
+        // still reachable from the VPN (see disconnectFromInternet) : the isolation
+        // DROP rule and the two VPN ACCEPT rules. They reference the bridge name,
+        // so they must not outlive the bridge (the name could be reused).
+        $blockRule = Rule::create()
+            ->setInInterface($bridgeName)
+            ->setJump('DROP');
+        if (IPTables::exists(IPTables::CHAIN_FORWARD, $blockRule)) {
+            IPTables::delete(IPTables::CHAIN_FORWARD, $blockRule);
+        }
+
+        $vpnNetworkCidr = $this->getVpnNetworkCidr();
+        if ($vpnNetworkCidr !== null) {
+            $vpnToLabRule = Rule::create()
+                ->setSource($vpnNetworkCidr)
+                ->setOutInterface($bridgeName)
+                ->setJump('ACCEPT');
+            if (IPTables::exists(IPTables::CHAIN_FORWARD, $vpnToLabRule)) {
+                IPTables::delete(IPTables::CHAIN_FORWARD, $vpnToLabRule);
+            }
+
+            $labToVpnRule = Rule::create()
+                ->setInInterface($bridgeName)
+                ->setDestination($vpnNetworkCidr)
+                ->setJump('ACCEPT');
+            if (IPTables::exists(IPTables::CHAIN_FORWARD, $labToVpnRule)) {
+                IPTables::delete(IPTables::CHAIN_FORWARD, $labToVpnRule);
+            }
+        }
+
+        // Remove the per-lab policy routing (ip rules + table 4 return route). Only
+        // the lab-specific entries are removed ; the shared table 4 routes (data
+        // network, default gateway) are left in place for the other labs.
+        if (isset($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr'])) {
+            $labNetworkCidr = (string) new Network(
+                $labInstance['network']['ip']['addr'],
+                $labInstance['network']['netmask']['addr']
+            );
+
+            if (IPTools::ruleExists('from ' . $labNetworkCidr, 'lookup 4')) {
+                IPTools::ruleDelete('from ' . $labNetworkCidr, 'lookup 4');
+            }
+            if (IPTools::ruleExists('to ' . $labNetworkCidr, 'lookup 4')) {
+                IPTools::ruleDelete('to ' . $labNetworkCidr, 'lookup 4');
+            }
+            if (IPTools::routeExists($labNetworkCidr . ' dev ' . $bridgeName, 4)) {
+                IPTools::routeDelete($labNetworkCidr . ' dev ' . $bridgeName, 4);
+            }
+        }
+
         try {
             $labUser = $labInstance['owner']['uuid'];
             $ownedBy = $labInstance['ownedBy'];
@@ -2355,9 +2405,7 @@ private function lxc_is_running(string $lxc_name): bool
         }
 
         $globalLabNetwork = $this->params->get('app.network.lab.cidr');
-        $dataNetwork = $this->params->get('app.network.data.cidr');
         $bridgeInt = $this->params->get('app.network.lab.internet_interface');
-        $bridgeIntGateway = $this->params->get('app.data.network.gateway');
 
         $bridge = $labInstance['bridgeName'];
         $labNetwork = new Network($labInstance['network']['ip']['addr'], $labInstance['network']['netmask']['addr']);
@@ -2376,32 +2424,103 @@ private function lxc_is_running(string $lxc_name): bool
             IPTables::delete(IPTables::CHAIN_POSTROUTING, $rule, 'nat');
         }
 
-        // Block every packet leaving this lab (top of FORWARD, before the lab's
-        // "_forward" ACCEPT chain), so a lab without internet cannot reach anything
+        // Isolation rule : drop every packet entering from the lab's bridge.
         $blockRule = Rule::create()
             ->setInInterface($bridge)
             ->setJump('DROP')
         ;
-        if (!IPTables::exists(IPTables::CHAIN_FORWARD, $blockRule)) {
+
+        $vpnNetworkCidr = $this->getVpnNetworkCidr();
+
+        // The DROP rule MUST sit *below* the VPN ACCEPT rules, otherwise it
+        // swallows everything the lab sends (including its replies to VPN users).
+        // A plain "insert the DROP if it does not exist, then insert the ACCEPT
+        // rules on top" is not enough : on the second disconnection (after a
+        // reconnect, which only removes the DROP), the DROP is re-inserted at
+        // position 1 ABOVE the ACCEPT rules that were left in place, and blocks
+        // the whole lab. So the ACCEPT rules are always detached first, then the
+        // three rules are re-installed in a deterministic order.
+        if ($vpnNetworkCidr !== null) {
+            $vpnToLabRule = Rule::create()
+                ->setSource($vpnNetworkCidr)
+                ->setOutInterface($bridge)
+                ->setJump('ACCEPT')
+            ;
+            $labToVpnRule = Rule::create()
+                ->setInInterface($bridge)
+                ->setDestination($vpnNetworkCidr)
+                ->setJump('ACCEPT')
+            ;
+
+            if (IPTables::exists(IPTables::CHAIN_FORWARD, $vpnToLabRule)) {
+                IPTables::delete(IPTables::CHAIN_FORWARD, $vpnToLabRule);
+            }
+            if (IPTables::exists(IPTables::CHAIN_FORWARD, $labToVpnRule)) {
+                IPTables::delete(IPTables::CHAIN_FORWARD, $labToVpnRule);
+            }
+
+            // Install the DROP, then push the ACCEPT rules above it (each insert
+            // at position 1), giving : <labToVpn> <vpnToLab> <DROP> ...
+            if (!IPTables::exists(IPTables::CHAIN_FORWARD, $blockRule)) {
+                IPTables::insert(IPTables::CHAIN_FORWARD, $blockRule, null, 1);
+            }
+            IPTables::insert(IPTables::CHAIN_FORWARD, $vpnToLabRule, null, 1);
+            IPTables::insert(IPTables::CHAIN_FORWARD, $labToVpnRule, null, 1);
+        } elseif (!IPTables::exists(IPTables::CHAIN_FORWARD, $blockRule)) {
             IPTables::insert(IPTables::CHAIN_FORWARD, $blockRule, null, 1);
         }
 
-        // Remove the policy routing of this lab's subnet
-        if (IPTools::ruleExists('from ' . $labNetworkCidr, 'lookup 4')) {
-            IPTools::ruleDelete('from ' . $labNetworkCidr, 'lookup 4');
+        // The policy routing (ip rules + table 4 routes) of this lab's subnet is
+        // deliberately kept after the disconnection :
+        //   - the lab must still be routed so it stays reachable from the VPN
+        //     network. Table 4 carries the VPN route installed at boot by
+        //     bin/remotelabz-worker-network-up ; without the "from <lab> lookup 4"
+        //     and "to <lab> lookup 4" rules the lab would fall back on the main
+        //     table and the VPN path/return route would break ;
+        //   - the table 4 routes for the data network and the default gateway are
+        //     SHARED with every other lab. Removing them here (as it used to) took
+        //     the gateway away from the labs that are still connected ;
+        //   - the return route "<lab> dev <bridge>" is what lets the worker answer
+        //     the lab (its replies are sourced from the bridge IP, inside the lab
+        //     subnet, so they are caught by the "from <lab> lookup 4" rule).
+        //
+        // Isolation from Internet is enforced by the FORWARD DROP rule added above
+        // and by the removal of this lab's NAT MASQUERADE rule : the lab cannot
+        // leave its subnet anymore, except towards the VPN network.
+        //
+        // The per-lab entries (ip rules and table 4 route) are cleaned up when the
+        // lab itself is deleted, see deleteLabInstance().
+    }
+
+    /**
+     * VPN network in CIDR notation (e.g. "10.8.0.0/16").
+     *
+     * @return string|null null when the configuration is missing/invalid or when
+     *                     it covers every address (0.0.0.0/0), in which case no
+     *                     VPN allow rule must be installed.
+     */
+    private function getVpnNetworkCidr(): ?string
+    {
+        try {
+            $vpnNetwork = new Network(
+                $this->params->get('app.vpn.network'),
+                $this->params->get('app.vpn.netmask')
+            );
+        } catch (\Exception $e) {
+            $this->logger->error("[InstanceManager:getVpnNetworkCidr]::Invalid VPN network configuration.", InstanceLogMessage::SCOPE_PRIVATE, [
+                'error' => $e->getMessage()
+            ]);
+
+            return null;
         }
-        if (IPTools::ruleExists('to ' . $labNetworkCidr, 'lookup 4')) {
-            IPTools::ruleDelete('to ' . $labNetworkCidr, 'lookup 4');
+
+        $vpnNetworkCidr = (string) $vpnNetwork;
+
+        if ($vpnNetworkCidr === '' || $vpnNetworkCidr === '0.0.0.0/0') {
+            return null;
         }
-        if (IPTools::routeExists($labNetworkCidr . ' dev ' . $bridge, 4)) {
-            IPTools::routeDelete($labNetworkCidr . ' dev ' . $bridge, 4);
-        }
-        if (IPTools::routeExists($dataNetwork . ' dev ' . $bridgeInt, 4)) {
-            IPTools::routeDelete($dataNetwork . ' dev ' . $bridgeInt, 4);
-        }
-        if (IPTools::routeExists('default via ' . $bridgeIntGateway, 4)) {
-            IPTools::routeDelete('default via ' . $bridgeIntGateway, 4);
-        }
+
+        return $vpnNetworkCidr;
     }
 
     /**
