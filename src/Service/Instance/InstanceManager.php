@@ -3396,16 +3396,10 @@ private function lxc_is_running(string $lxc_name): bool
                 'size' => $lvmSize,
             ]);
 
-            $VG_CHECK = Process::fromShellCommandline('sudo vgs --noheadings -o vg_free_count ' . escapeshellarg($lvmVolumeGroup) . ' | tr -d " "');
-            $VG_CHECK->run();
-            $freePE = intval(trim($VG_CHECK->getOutput()));
-            if ($freePE === 0) {
-                $this->logger->warning("No free PE in volume group $lvmVolumeGroup, skipping LVM disk setup", InstanceLogMessage::SCOPE_PRIVATE, [
-                    'instance' => $uuid,
-                    'free_pe' => $freePE,
-                ]);
-                return;
-            }
+            // Note: no free-PE check on the volume group here. Volumes are
+            // created as thin volumes in the rlz-lxc-pool thin pool, so a VG
+            // with 0 free PE can still host new thin volumes (over-provisioning).
+            // The pool's actual fill level must be monitored instead.
 
             $LV_EXISTS = Process::fromShellCommandline(
                 'sudo lvs ' . escapeshellarg($lvmVolumeGroup . '/' . $lvmName) . ' >/dev/null 2>&1'
@@ -3419,11 +3413,16 @@ private function lxc_is_running(string $lxc_name): bool
                 ]);
             } else {
                 $LV_CREATE_CMD = sprintf(
-                    'sudo lvcreate -y -Wy --type thin -V %s --thinpool %s/$lvmLV_Thin_Pool -n %s',
+                    'sudo lvcreate -y -Wy --type thin -V %s --thinpool %s -n %s',
                     escapeshellarg($lvmSize),
-                    escapeshellarg($lvmVolumeGroup),
+                    escapeshellarg($lvmVolumeGroup . '/' . $lvmLV_Thin_Pool),
                     escapeshellarg($lvmName)
                 );
+                $this->logger->debug("[InstanceManager:lxc_setup_disk]::Creating logical volume.", InstanceLogMessage::SCOPE_PRIVATE, [
+                    "command" => $LV_CREATE_CMD,
+                    "instance" => $uuid,
+                ]);
+
                 $process = Process::fromShellCommandline($LV_CREATE_CMD);
                 $process->setTimeout(120);
                 $process->run();
