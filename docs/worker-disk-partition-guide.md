@@ -13,14 +13,14 @@ Deux **groupes de volumes** (VG) sont créés sur le disque :
 | VG | Rôle | Contenu |
 |---|---|---|
 | `ubuntu-vg` | Système (défaut Ubuntu) | LV `ubuntu-lv` ≥ 35 GB → `/` |
-| `rlz-vg` | Charges Remotelabz | `rlz-lg`, `lib-lxc`, LV conteneurs |
+| `rlz-vg` | Charges Remotelabz | `rlz-lv`, `lib-lxc`, LV conteneurs |
 
 ## 2. Détail des volumes logiques
 
 | LV | VG | Taille | Point de montage | Usage |
 |---|---|---|---|---|
 | `ubuntu-lv` | `ubuntu-vg` | ≥ 35 GB | `/` | Système Ubuntu |
-| `rlz-lg` | `rlz-vg` | 60 % de l'espace libre restant | `/opt` | VMs QEMU |
+| `rlz-lv` | `rlz-vg` | 60 % de l'espace libre restant | `/opt` | VMs QEMU |
 | `lib-lxc` | `rlz-vg` | 100 GB (fixe) | `/var/lib/lxc` | Conteneurs LXC |
 | LV conteneurs | `rlz-vg` | 40 % de l'espace libre restant | *(instances utilisateurs)* | Conteneurs utilisateurs |
 
@@ -33,7 +33,7 @@ Deux **groupes de volumes** (VG) sont créés sur le disque :
 │      ubuntu-vg        │                        rlz-vg                             │
 │      (≥ 35 GB)        │                  (tout l'espace restant)                  │
 │   ┌───────────────┐   │   ┌───────────────────────────────────────────────────┐   │
-│   │  ubuntu-lv    │   │   │  rlz-lg    60 % libre restant   →  /opt   (QEMU)   │   │
+│   │  ubuntu-lv    │   │   │  rlz-lv    60 % libre restant   →  /opt   (QEMU)   │   │
 │   │   ≥ 35 GB     │   │   ├───────────────────────────────────────────────────┤   │
 │   │   →  /        │   │   │  lib-lxc   100 GB (fixe)        →  /var/lib/lxc     │   │
 │   │ (OS Ubuntu)   │   │   ├───────────────────────────────────────────────────┤   │
@@ -50,7 +50,7 @@ Ordre d'allocation dans `rlz-vg` :
                 ├─ 1) lib-lxc ......................... 100 GB  (fixe)
                 │
    F - 100 GB   │
-                ├─ 2) rlz-lg .................. 60 % de (F - 100 GB)  →  /opt
+                ├─ 2) rlz-lv .................. 60 % de (F - 100 GB)  →  /opt
                 │
                 └─ 3) conteneurs .............. 40 % de (F - 100 GB)  →  instances user
 ```
@@ -72,8 +72,8 @@ vgcreate rlz-vg /dev/<partition_ou_disque>
 # 1) lib-lxc : 100 GB fixes pour les conteneurs LXC
 lvcreate -L 100G -n lib-lxc rlz-vg
 
-# 2) rlz-lg : 60 % de l'espace ENCORE libre (calculé après lib-lxc)
-lvcreate -l 60%FREE -n rlz-lg rlz-vg
+# 2) rlz-lv : 60 % de l'espace ENCORE libre (calculé après lib-lxc)
+lvcreate -l 60%FREE -n rlz-lv rlz-vg
 
 # 3) conteneurs utilisateurs : tout l'espace libre restant (≈ 40 %)
 lvcreate -l 100%FREE -n rlz-containers rlz-vg
@@ -85,12 +85,12 @@ lvcreate -l 100%FREE -n rlz-containers rlz-vg
 ### 4.3 Formater et monter
 
 ```bash
-mkfs.ext4 /dev/rlz-vg/rlz-lg
+mkfs.ext4 /dev/rlz-vg/rlz-lv
 mkfs.ext4 /dev/rlz-vg/lib-lxc
 mkfs.ext4 /dev/rlz-vg/rlz-containers
 
 mkdir -p /opt /var/lib/lxc
-mount /dev/rlz-vg/rlz-lg /opt
+mount /dev/rlz-vg/rlz-lv /opt
 mount /dev/rlz-vg/lib-lxc /var/lib/lxc
 ```
 
@@ -121,7 +121,7 @@ comme volumes *thin* dans un pool commun :
 lvcreate -L 100%FREE --thinpool rlz-pool rlz-vg
 
 lvcreate --type thin -V 100G  -n lib-lxc        rlz-vg/rlz-pool
-lvcreate --type thin -V 60%PV -n rlz-lg         rlz-vg/rlz-pool
+lvcreate --type thin -V 60%PV -n rlz-lv         rlz-vg/rlz-pool
 lvcreate --type thin -V 100%FREE -n rlz-containers rlz-vg/rlz-pool
 ```
 
