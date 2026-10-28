@@ -467,36 +467,42 @@ function configure_cgroup_v2() {
 # ====================================================================
 function configure_messenger_yaml() {
   local worker_id="$1"
-  local worker_ip="$2"
   local messenger_file="${SCRIPTPATH}/config/packages/messenger.yaml"
+  local env_file="${SCRIPTPATH}/.env.local"
   
   if [ -z "$worker_id" ]; then
     debug "No worker ID specified, messenger.yaml configuration skipped"
     return 0
   fi
   
-  debug "Configuring messenger.yaml for worker ${worker_id}"
+  # Read WORKER_IP from .env.local if not provided
+  local worker_ip="$2"
+  if [ -z "$worker_ip" ] && [ -f "$env_file" ]; then
+    worker_ip=$(grep "^WORKER_IP=" "$env_file" | sed 's/^WORKER_IP="//;s/"$//')
+  fi
+  if [ -z "$worker_ip" ]; then
+    warning "WORKER_IP not found in .env.local, cannot configure messenger.yaml"
+    return 0
+  fi
+  
+  debug "Configuring messenger.yaml for worker ${worker_id} (IP: ${worker_ip})"
   
   if [ ! -f "$messenger_file" ]; then
     warning "messenger.yaml file not found: ${messenger_file}"
     return 0
   fi
   
-  # Check if configuration already exists
-  if grep -q "messages_worker${worker_id}:" "$messenger_file"; then
-    debug "Configuration for worker${worker_id} already present"
-    return 0
-  fi
+  # Clean all existing worker queues first, then add only this worker's queue
+  # Remove all messages_worker* lines and their binding_keys lines
+  sed -i '/messages_worker[0-9]*:/d' "$messenger_file"
+  sed -i '/binding_keys:/d' "$messenger_file"
   
-  # Add configuration for this worker
-  cat >> "$messenger_file" << EOF
-
-                queues:
-                    messages_worker${worker_id}:
-                        binding_keys: [${worker_ip}]
-EOF
+  # Insert only this worker's queue before the first retry_strategy
+  sed -i "0,/^                retry_strategy:$/s//                        messages_worker${worker_id}:\
+                            binding_keys: [${worker_ip}]\
+                retry_strategy:/" "$messenger_file"
   
-  success "messenger.yaml configuration updated for worker ${worker_id}"
+  success "messenger.yaml configuration written for worker ${worker_id}"
 }
 
 # ====================================================================
