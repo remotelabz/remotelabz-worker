@@ -13,7 +13,7 @@ Deux **groupes de volumes** (VG) sont créés sur le disque :
 | VG | Rôle | Contenu |
 |---|---|---|
 | `ubuntu-vg` | Système (défaut Ubuntu) | LV `ubuntu-lv` ≥ 35 GB → `/` |
-| `rlz-vg` | Charges Remotelabz | `rlz-lv`, `lib-lxc`, pool thin `rlz-lxc-pool` |
+| `rlz-vg` | Charges Remotelabz | `lib-lxc`, `rlz-lv`, pool thin `rlz-lxc-pool` |
 
 Le pool thin `rlz-lxc-pool` regroupe l'espace destiné aux **instances LXC
 utilisateurs**. Les volumes logiques de ces instances (`lxc_<uuid>`) y sont créés
@@ -25,8 +25,8 @@ pré-allocation physique : seul l'espace réellement écrit consomme du disque.
 | LV | VG | Type | Taille | Point de montage | Usage |
 |---|---|---|---|---|---|
 | `ubuntu-lv` | `ubuntu-vg` | linéaire | ≥ 35 GB | `/` | Système Ubuntu |
-| `rlz-lv` | `rlz-vg` | linéaire | 60 % de l'espace libre restant | `/opt` | VMs QEMU |
 | `lib-lxc` | `rlz-vg` | linéaire | 100 GB (fixe) | `/var/lib/lxc` | Modèles / conteneurs LXC de référence |
+| `rlz-lv` | `rlz-vg` | linéaire | 60 % de l'espace libre restant | `/opt` | VMs QEMU |
 | `rlz-lxc-pool` | `rlz-vg` | **thin pool** | tout l'espace libre restant | — | Réserve des volumes *thin* des instances LXC |
 | `lxc_<uuid>` | `rlz-vg` | thin (dans `rlz-lxc-pool`) | taille du flavor, sinon `DEFAULT_MIN_DISKSPACE_LXC` | `/var/lib/lxc/<uuid>/rootfs` | Rootfs d'une instance LXC utilisateur |
 
@@ -43,9 +43,9 @@ pré-allocation physique : seul l'espace réellement écrit consomme du disque.
 │       ubuntu-vg       │                          rlz-vg                           │
 │       (≥ 35 GB)       │                  (tout l'espace restant)                  │
 │   ┌───────────────┐   │   ┌───────────────────────────────────────────────────┐   │
-│   │   ubuntu-lv   │   │   │  rlz-lv    60 % libre restant   →  /opt   (QEMU)  │   │
+│   │   ubuntu-lv   │   │   │  lib-lxc   100 GB (fixe)        →  /var/lib/lxc   │   │
 │   │    ≥ 35 GB    │   │   ├───────────────────────────────────────────────────┤   │
-│   │     →  /      │   │   │  lib-lxc   100 GB (fixe)        →  /var/lib/lxc   │   │
+│   │     →  /      │   │   │  rlz-lv    60 % libre restant   →  /opt   (QEMU)  │   │
 │   │  (OS Ubuntu)  │   │   ├───────────────────────────────────────────────────┤   │
 │   │               │   │   │  rlz-lxc-pool  (thin pool → espace restant)       │   │
 │   │               │   │   │    ├─ lxc_<uuid1>  (créé à la volée) → rootfs     │   │
@@ -126,6 +126,14 @@ vgs                                                    # espace libre/utilisé p
 lvs -a -o +lv_size,data_percent,metadata_percent       # détail des LV et remplissage du pool
 df -h /opt /var/lib/lxc                                # montages effectifs
 ```
+
+> **Remontée automatique par le worker.** Le remplissage du pool est collecté
+> par `ResourcesCacheService::disk_usage()` et exposé dans les endpoints
+> `/stats/hardware` et `/stats/hardwarelight`, sous la clé
+> `disk["rlz-lxc-pool"]`, aux côtés des VG (`disk["rlz-vg"]`, `disk["ubuntu-vg"]`,
+> …). La valeur correspond au champ `data_percent` du pool (espace alloué), et
+> non à l'espace libre du VG. Le tableau de bord admin l'affiche comme
+> « Disk rlz-lxc-pool ».
 
 ## 5. Provisionnement thin et création à la volée
 

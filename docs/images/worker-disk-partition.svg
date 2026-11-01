@@ -46,19 +46,19 @@
   <!-- Panneau rlz-vg -->
   <rect x="280" y="216" width="660" height="408" rx="12" fill="#fffaf4" stroke="#ecd6bd" stroke-width="1.5" stroke-dasharray="6 5"/>
 
-  <!-- rlz-lv -->
-  <rect x="296" y="232" width="628" height="102" rx="10" fill="url(#gLv)" stroke="#e08a3c" stroke-width="1.5"/>
-  <rect x="296" y="232" width="7" height="102" rx="3" fill="#e08a3c"/>
-  <text x="322" y="266" font-size="17" font-weight="700" fill="#7a3f10">rlz-lv</text>
-  <text x="322" y="294" font-size="13" fill="#6b5236">Taille : 60 % de l'espace libre restant</text>
-  <text x="322" y="318" font-size="13" fill="#6b5236">Montage : /opt  —  VMs QEMU</text>
-
   <!-- lib-lxc -->
-  <rect x="296" y="348" width="628" height="102" rx="10" fill="#e2f2f1" stroke="#3c8f8f" stroke-width="1.5"/>
-  <rect x="296" y="348" width="7" height="102" rx="3" fill="#3c8f8f"/>
-  <text x="322" y="382" font-size="17" font-weight="700" fill="#1f5f5f">lib-lxc</text>
-  <text x="322" y="410" font-size="13" fill="#2f5f5f">Taille : 100 GB (fixe)</text>
-  <text x="322" y="434" font-size="13" fill="#2f5f5f">Montage : /var/lib/lxc  —  modèles / conteneurs de référence</text>
+  <rect x="296" y="232" width="628" height="102" rx="10" fill="#e2f2f1" stroke="#3c8f8f" stroke-width="1.5"/>
+  <rect x="296" y="232" width="7" height="102" rx="3" fill="#3c8f8f"/>
+  <text x="322" y="266" font-size="17" font-weight="700" fill="#1f5f5f">lib-lxc</text>
+  <text x="322" y="294" font-size="13" fill="#2f5f5f">Taille : 100 GB (fixe)</text>
+  <text x="322" y="318" font-size="13" fill="#2f5f5f">Montage : /var/lib/lxc  —  modèles / conteneurs de référence</text>
+
+  <!-- rlz-lv -->
+  <rect x="296" y="348" width="628" height="102" rx="10" fill="url(#gLv)" stroke="#e08a3c" stroke-width="1.5"/>
+  <rect x="296" y="348" width="7" height="102" rx="3" fill="#e08a3c"/>
+  <text x="322" y="382" font-size="17" font-weight="700" fill="#7a3f10">rlz-lv</text>
+  <text x="322" y="410" font-size="13" fill="#6b5236">Taille : 60 % de l'espace libre restant</text>
+  <text x="322" y="434" font-size="13" fill="#6b5236">Montage : /opt  —  VMs QEMU</text>
 
   <!-- Pool thin des instances LXC -->
   <rect x="296" y="464" width="628" height="146" rx="10" fill="#f3ecfa" stroke="#8a6bb8" stroke-width="1.5"/>

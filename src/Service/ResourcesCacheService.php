@@ -7,6 +7,12 @@ use Psr\Log\LoggerInterface;
 
 class ResourcesCacheService
 {
+    /** Groupe de volumes qui porte le pool thin des instances LXC. */
+    private const LXC_VG = 'rlz-vg';
+
+    /** Pool thin dans lequel sont créés les LV (rootfs) des instances LXC. */
+    private const LXC_THIN_POOL = 'rlz-lxc-pool';
+
     private $logger;
     private $cacheDir;
 
@@ -139,7 +145,12 @@ class ResourcesCacheService
         $vgNames = array_filter(array_map('trim', explode("\n", $vgsProcess->getOutput())));
         $result = array_fill_keys($vgNames, null); // null = pas de LV monté => NA côté Twig
 
-        // 2. Liste des LV avec leur VG d'appartenance et leur chemin device
+        // 2. Espace réellement alloué dans le thin pool LXC. Contrairement à un
+        //    VG classique, l'espace libre du VG ne dit rien du remplissage du
+        //    pool (sur-allocation) : c'est ce taux qui compte pour les LXC.
+        $result[self::LXC_THIN_POOL] = $this->lxc_thin_pool_usage();
+
+        // 3. Liste des LV avec leur VG d'appartenance et leur chemin device
         $lvsProcess = new Process(['sudo', '-n', 'lvs', '--noheadings', '--separator', ';', '-o', 'vg_name,lv_path']);
 
         try {
@@ -154,7 +165,7 @@ class ResourcesCacheService
         foreach ($lvLines as $line) {
             [$vgName, $lvPath] = array_map('trim', explode(';', $line));
 
-            // 3. Point de montage réel de ce LV (pas forcément monté)
+            // 4. Point de montage réel de ce LV (pas forcément monté)
             $findmntProcess = new Process(['findmnt', '-n', '-o', 'TARGET', $lvPath]);
             $findmntProcess->run();
 
@@ -167,7 +178,7 @@ class ResourcesCacheService
                 continue;
             }
 
-            // 4. Taux de remplissage réel du filesystem, comme df -h
+            // 5. Taux de remplissage réel du filesystem, comme df -h
             $dfProcess = new Process(['df', '--output=pcent', $mountPoint]);
 
             try {
@@ -184,6 +195,39 @@ class ResourcesCacheService
         }
 
         return $result;
+    }
+
+    /**
+     * Taux de remplissage (data_percent, alias « Allocated pool data ») du pool
+     * thin dans lequel sont stockés les rootfs des instances LXC.
+     *
+     * C'est cet indicateur — et non l'espace libre du VG — qui permet de savoir
+     * si de nouveaux volumes thin peuvent encore être provisionnés.
+     *
+     * @return int|null Pourcentage arrondi, ou null si le pool est introuvable/inactif
+     */
+    private function lxc_thin_pool_usage(): ?int
+    {
+        $process = new Process([
+            'sudo', '-n', 'lvs', '--noheadings',
+            '-o', 'data_percent',
+            self::LXC_VG . '/' . self::LXC_THIN_POOL,
+        ]);
+
+        try {
+            $process->mustRun();
+        } catch (ProcessFailedException $e) {
+            $this->logger->error('Erreur disk usage (lvs thin pool) : ' . $e->getMessage());
+            return null;
+        }
+
+        // data_percent est vide tant que le pool n'est pas actif
+        $value = trim($process->getOutput());
+        if ($value === '') {
+            return null;
+        }
+
+        return (int) round((float) $value);
     }
 
     private function memory_usage(): array
