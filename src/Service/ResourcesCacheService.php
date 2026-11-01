@@ -144,14 +144,24 @@ class ResourcesCacheService
 
         $vgNames = array_filter(array_map('trim', explode("\n", $vgsProcess->getOutput())));
         $result = array_fill_keys($vgNames, null); // null = pas de LV monté => NA côté Twig
+        $vgMountedLvs = array_fill_keys($vgNames, 0); // nb de points de montage par VG
+        $vgMaxUsage = array_fill_keys($vgNames, 0);   // taux max par VG
 
         // 2. Espace réellement alloué dans le thin pool LXC. Contrairement à un
         //    VG classique, l'espace libre du VG ne dit rien du remplissage du
         //    pool (sur-allocation) : c'est ce taux qui compte pour les LXC.
-        $result[self::LXC_THIN_POOL] = $this->lxc_thin_pool_usage();
+        $poolPercent = $this->lxc_thin_pool_usage();
+        $result[self::LXC_THIN_POOL] = $poolPercent;
 
-        // 3. Liste des LV avec leur VG d'appartenance et leur chemin device
-        $lvsProcess = new Process(['sudo', '-n', 'lvs', '--noheadings', '--separator', ';', '-o', 'vg_name,lv_path']);
+        // Le pool est un composant de rlz-vg : il entre dans son agrégat.
+        if ($poolPercent !== null && isset($vgMountedLvs[self::LXC_VG])) {
+            $vgMountedLvs[self::LXC_VG]++;
+            $vgMaxUsage[self::LXC_VG] = max($vgMaxUsage[self::LXC_VG], $poolPercent);
+        }
+
+        // 3. Liste des LV avec leur VG, leur nom, leur chemin device et le pool
+        //    éventuel (renseigné pour les volumes thin d'instances)
+        $lvsProcess = new Process(['sudo', '-n', 'lvs', '--noheadings', '--separator', ';', '-o', 'vg_name,lv_name,lv_path,pool_lv']);
 
         try {
             $lvsProcess->mustRun();
@@ -163,9 +173,16 @@ class ResourcesCacheService
         $lvLines = array_filter(array_map('trim', explode("\n", $lvsProcess->getOutput())));
 
         foreach ($lvLines as $line) {
-            [$vgName, $lvPath] = array_map('trim', explode(';', $line));
+            [$vgName, $lvName, $lvPath, $poolLv] = array_pad(array_map('trim', explode(';', $line)), 4, '');
 
-            // 4. Point de montage réel de ce LV (pas forcément monté)
+            // 4. Un LV sans chemin device (ex: le thin pool) ne peut pas être
+            //    monté : on l'ignore. Sans ce test, « findmnt '' » renvoyait
+            //    « / » et faussait tous les taux.
+            if ($lvPath === '') {
+                continue;
+            }
+
+            // 5. Point de montage réel de ce LV (pas forcément monté)
             $findmntProcess = new Process(['findmnt', '-n', '-o', 'TARGET', $lvPath]);
             $findmntProcess->run();
 
@@ -174,11 +191,11 @@ class ResourcesCacheService
             }
 
             $mountPoint = trim($findmntProcess->getOutput());
-            if ($mountPoint === '') {
+            if ($mountPoint === '' || $mountPoint[0] !== '/') {
                 continue;
             }
 
-            // 5. Taux de remplissage réel du filesystem, comme df -h
+            // 6. Taux de remplissage réel du filesystem, comme df -h
             $dfProcess = new Process(['df', '--output=pcent', $mountPoint]);
 
             try {
@@ -191,7 +208,29 @@ class ResourcesCacheService
             $dfLines = explode("\n", trim($dfProcess->getOutput()));
             $percent = (int) rtrim(trim($dfLines[1] ?? '0%'), '%');
 
-            $result[$vgName] = $percent;
+            // 7. Taux détaillé par LV (ex: lib-lxc → /var/lib/lxc, rlz-lv → /opt).
+            //    On ignore les volumes thin d'instances (lxc_<uuid>) : créés à la
+            //    volée dans le pool, ils ne doivent pas polluer les statistiques.
+            if ($poolLv === '') {
+                $result[$lvName] = $percent;
+            }
+
+            // 8. Agrégat par VG (retraité juste après la boucle)
+            $vgMountedLvs[$vgName] = ($vgMountedLvs[$vgName] ?? 0) + 1;
+            $vgMaxUsage[$vgName] = max($vgMaxUsage[$vgName] ?? 0, $percent);
+        }
+
+        // 9. On n'expose la clé d'un VG que si elle apporte une information : un
+        //    VG avec un unique point de montage est redondant avec la clé de son
+        //    LV (ex: ubuntu-vg ≡ ubuntu-lv). La clé rlz-vg est toujours conservée
+        //    car le placement des labs s'appuie dessus (WorkerManager) ; sa
+        //    valeur est le taux le plus élevé de ses LV et de son pool thin.
+        foreach ($vgNames as $vgName) {
+            if ($vgName === self::LXC_VG || $vgMountedLvs[$vgName] >= 2) {
+                $result[$vgName] = $vgMountedLvs[$vgName] > 0 ? $vgMaxUsage[$vgName] : null;
+            } else {
+                unset($result[$vgName]);
+            }
         }
 
         return $result;
@@ -208,11 +247,13 @@ class ResourcesCacheService
      */
     private function lxc_thin_pool_usage(): ?int
     {
+        // LC_ALL=C : data_percent peut être formaté avec une virgule selon la
+        // locale (ex: « 12,67 »), ce qui fausserait le cast en float.
         $process = new Process([
             'sudo', '-n', 'lvs', '--noheadings',
             '-o', 'data_percent',
             self::LXC_VG . '/' . self::LXC_THIN_POOL,
-        ]);
+        ], null, ['LC_ALL' => 'C']);
 
         try {
             $process->mustRun();
