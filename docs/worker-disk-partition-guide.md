@@ -127,22 +127,21 @@ lvs -a -o +lv_size,data_percent,metadata_percent       # détail des LV et rempl
 df -h /opt /var/lib/lxc                                # montages effectifs
 ```
 
-> **Remontée automatique par le worker.** Le remplissage des filesystems est
-> collecté par `ResourcesCacheService::disk_usage()` et exposé dans les endpoints
+> **Remontée automatique par le worker.** `ResourcesCacheService::disk_usage()`
+> collecte uniquement les 5 entrées suivantes et les expose dans les endpoints
 > `/stats/hardware` et `/stats/hardwarelight` :
 >
-> - par **LV** : `disk["lib-lxc"]` (`/var/lib/lxc`), `disk["rlz-lv"]` (`/opt`),
->   `disk["ubuntu-lv"]` (`/`) ;
-> - pour le **pool thin** : `disk["rlz-lxc-pool"]`, valeur du champ `data_percent`
->   (espace alloué du pool), et non l'espace libre du VG ;
-> - pour le **VG `rlz-vg`** : `disk["rlz-vg"]`, agrégat égal au taux le plus
->   élevé de ses LV et de son pool thin, conservé car le placement des labs
->   s'appuie dessus (`WorkerManager`). Les autres VG — dont `ubuntu-vg`, identique
->   à `ubuntu-lv` — ne sont pas exposés.
+> | Clé `disk[...]` | Mesure |
+> |---|---|
+> | `rlz-vg` | taux d'allocation du VG : (taille − libre) / taille, d'après `vgs` — clé utilisée par le placement (`WorkerManager`) |
+> | `lib-lxc` | remplissage du FS `/var/lib/lxc` (références LXC) |
+> | `rlz-lv` | remplissage du FS `/opt` (VMs QEMU) |
+> | `rlz-lxc-pool` | `data_percent` du pool thin (espace alloué), et non l'espace libre du VG |
+> | `ubuntu-lv` | remplissage du FS `/` (système) |
 >
-> Le tableau de bord admin affiche une ligne par entrée (« Disk rlz-vg »,
-> « Disk lib-lxc », etc.). Les volumes thin d'instances (`lxc_<uuid>`) ne sont
-> pas listés.
+> Les autres partitions/LV — dont `ubuntu-vg` (redondant avec `ubuntu-lv`) et les
+> volumes thin d'instances (`lxc_<uuid>`) — ne sont pas exposés. Le tableau de
+> bord admin affiche une ligne par entrée (« Disk rlz-vg », « Disk lib-lxc », etc.).
 
 ## 5. Provisionnement thin et création à la volée
 

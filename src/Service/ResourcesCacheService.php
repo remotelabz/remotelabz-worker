@@ -13,6 +13,27 @@ class ResourcesCacheService
     /** Pool thin dans lequel sont créés les LV (rootfs) des instances LXC. */
     private const LXC_THIN_POOL = 'rlz-lxc-pool';
 
+    /** LV de référence LXC (monté sur /var/lib/lxc). */
+    private const LXC_LIB_LV = 'lib-lxc';
+
+    /** LV des VMs QEMU (monté sur /opt). */
+    private const RLZ_LV = 'rlz-lv';
+
+    /** LV système Ubuntu (monté sur /). */
+    private const UBUNTU_LV = 'ubuntu-lv';
+
+    /**
+     * Entrées disque surveillées, dans l'ordre d'affichage.
+     * Toute autre partition/LV est volontairement ignoré.
+     */
+    private const MONITORED_ENTRIES = [
+        self::LXC_VG,
+        self::LXC_LIB_LV,
+        self::RLZ_LV,
+        self::LXC_THIN_POOL,
+        self::UBUNTU_LV,
+    ];
+
     private $logger;
     private $cacheDir;
 
@@ -132,57 +153,59 @@ class ResourcesCacheService
 
     private function disk_usage(): array
     {
-        // 1. Liste de tous les VG (pour ne pas en oublier même sans LV monté, ex: rlz-vg)
-        $vgsProcess = new Process(['sudo', '-n', 'vgs', '--noheadings', '-o', 'vg_name']);
+        // 1. Occupation des VG : (taille - libre) / taille, d'après vgs.
+        $vgsProcess = new Process([
+            'sudo', '-n', 'vgs', '--noheadings', '--separator', ';',
+            '--units', 'm', '--nosuffix', '-o', 'vg_name,vg_size,vg_free',
+        ], null, ['LC_ALL' => 'C']);
 
+        $vgUsage = [];
         try {
             $vgsProcess->mustRun();
+            foreach (array_filter(array_map('trim', explode("\n", $vgsProcess->getOutput()))) as $line) {
+                [$vgName, $vgSize, $vgFree] = array_pad(array_map('trim', explode(';', $line)), 3, '');
+                if ((float) $vgSize > 0) {
+                    $vgUsage[$vgName] = (int) round((((float) $vgSize - (float) $vgFree) / (float) $vgSize) * 100);
+                }
+            }
         } catch (ProcessFailedException $e) {
             $this->logger->error('Erreur disk usage (vgs) : ' . $e->getMessage());
-            return [];
         }
 
-        $vgNames = array_filter(array_map('trim', explode("\n", $vgsProcess->getOutput())));
-        $result = array_fill_keys($vgNames, null); // null = pas de LV monté => NA côté Twig
-        $vgMountedLvs = array_fill_keys($vgNames, 0); // nb de points de montage par VG
-        $vgMaxUsage = array_fill_keys($vgNames, 0);   // taux max par VG
+        $result = [];
 
-        // 2. Espace réellement alloué dans le thin pool LXC. Contrairement à un
+        // 2. rlz-vg : taux d'allocation du VG (alloué / taille), tel que le
+        //    rapporte « vgs ». Peut être élevé avec un pool thin sur-alloué.
+        $result[self::LXC_VG] = $vgUsage[self::LXC_VG] ?? null;
+
+        // 3. Espace réellement alloué dans le thin pool LXC. Contrairement à un
         //    VG classique, l'espace libre du VG ne dit rien du remplissage du
         //    pool (sur-allocation) : c'est ce taux qui compte pour les LXC.
-        $poolPercent = $this->lxc_thin_pool_usage();
-        $result[self::LXC_THIN_POOL] = $poolPercent;
+        $result[self::LXC_THIN_POOL] = $this->lxc_thin_pool_usage();
 
-        // Le pool est un composant de rlz-vg : il entre dans son agrégat.
-        if ($poolPercent !== null && isset($vgMountedLvs[self::LXC_VG])) {
-            $vgMountedLvs[self::LXC_VG]++;
-            $vgMaxUsage[self::LXC_VG] = max($vgMaxUsage[self::LXC_VG], $poolPercent);
-        }
+        // 4. Liste des LV avec leur nom, leur chemin device et le pool éventuel
+        //    (renseigné pour les volumes thin d'instances)
+        $lvsProcess = new Process(['sudo', '-n', 'lvs', '--noheadings', '--separator', ';', '-o', 'lv_name,lv_path,pool_lv']);
 
-        // 3. Liste des LV avec leur VG, leur nom, leur chemin device et le pool
-        //    éventuel (renseigné pour les volumes thin d'instances)
-        $lvsProcess = new Process(['sudo', '-n', 'lvs', '--noheadings', '--separator', ';', '-o', 'vg_name,lv_name,lv_path,pool_lv']);
-
+        $lvLines = [];
         try {
             $lvsProcess->mustRun();
+            $lvLines = array_filter(array_map('trim', explode("\n", $lvsProcess->getOutput())));
         } catch (ProcessFailedException $e) {
             $this->logger->error('Erreur disk usage (lvs) : ' . $e->getMessage());
-            return $result;
         }
 
-        $lvLines = array_filter(array_map('trim', explode("\n", $lvsProcess->getOutput())));
-
         foreach ($lvLines as $line) {
-            [$vgName, $lvName, $lvPath, $poolLv] = array_pad(array_map('trim', explode(';', $line)), 4, '');
+            [$lvName, $lvPath, $poolLv] = array_pad(array_map('trim', explode(';', $line)), 3, '');
 
-            // 4. Un LV sans chemin device (ex: le thin pool) ne peut pas être
+            // 5. Un LV sans chemin device (ex: le thin pool) ne peut pas être
             //    monté : on l'ignore. Sans ce test, « findmnt '' » renvoyait
             //    « / » et faussait tous les taux.
             if ($lvPath === '') {
                 continue;
             }
 
-            // 5. Point de montage réel de ce LV (pas forcément monté)
+            // 6. Point de montage réel de ce LV (pas forcément monté)
             $findmntProcess = new Process(['findmnt', '-n', '-o', 'TARGET', $lvPath]);
             $findmntProcess->run();
 
@@ -195,7 +218,7 @@ class ResourcesCacheService
                 continue;
             }
 
-            // 6. Taux de remplissage réel du filesystem, comme df -h
+            // 7. Taux de remplissage réel du filesystem, comme df -h
             $dfProcess = new Process(['df', '--output=pcent', $mountPoint]);
 
             try {
@@ -208,32 +231,22 @@ class ResourcesCacheService
             $dfLines = explode("\n", trim($dfProcess->getOutput()));
             $percent = (int) rtrim(trim($dfLines[1] ?? '0%'), '%');
 
-            // 7. Taux détaillé par LV (ex: lib-lxc → /var/lib/lxc, rlz-lv → /opt).
+            // 8. Taux par LV (ex: lib-lxc → /var/lib/lxc, rlz-lv → /opt).
             //    On ignore les volumes thin d'instances (lxc_<uuid>) : créés à la
             //    volée dans le pool, ils ne doivent pas polluer les statistiques.
             if ($poolLv === '') {
                 $result[$lvName] = $percent;
             }
-
-            // 8. Agrégat par VG (retraité juste après la boucle)
-            $vgMountedLvs[$vgName] = ($vgMountedLvs[$vgName] ?? 0) + 1;
-            $vgMaxUsage[$vgName] = max($vgMaxUsage[$vgName] ?? 0, $percent);
         }
 
-        // 9. On n'expose la clé d'un VG que si elle apporte une information : un
-        //    VG avec un unique point de montage est redondant avec la clé de son
-        //    LV (ex: ubuntu-vg ≡ ubuntu-lv). La clé rlz-vg est toujours conservée
-        //    car le placement des labs s'appuie dessus (WorkerManager) ; sa
-        //    valeur est le taux le plus élevé de ses LV et de son pool thin.
-        foreach ($vgNames as $vgName) {
-            if ($vgName === self::LXC_VG || $vgMountedLvs[$vgName] >= 2) {
-                $result[$vgName] = $vgMountedLvs[$vgName] > 0 ? $vgMaxUsage[$vgName] : null;
-            } else {
-                unset($result[$vgName]);
-            }
+        // 9. On ne conserve que les entrées surveillées (MONITORED_ENTRIES),
+        //    dans l'ordre d'affichage ; toute autre partition/LV est ignoré.
+        $monitored = [];
+        foreach (self::MONITORED_ENTRIES as $name) {
+            $monitored[$name] = $result[$name] ?? null;
         }
 
-        return $result;
+        return $monitored;
     }
 
     /**
