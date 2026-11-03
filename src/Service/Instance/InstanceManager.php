@@ -6049,6 +6049,10 @@ private function lxc_is_running(string $lxc_name): bool
             CURLOPT_RETURNTRANSFER   => false,
             CURLOPT_FOLLOWLOCATION   => true,
             CURLOPT_FAILONERROR      => true,
+            // The front is reached through its internal IP, which is not present
+            // in its web server certificate: skip SSL verification to allow the download.
+            CURLOPT_SSL_VERIFYPEER   => false,
+            CURLOPT_SSL_VERIFYHOST   => false,
             CURLOPT_CONNECTTIMEOUT   => 30,
             CURLOPT_TIMEOUT_MS       => 600000,  // 10 minute total timeout
             CURLOPT_LOW_SPEED_LIMIT  => 10240,        // 1 KB/s minimum speed
