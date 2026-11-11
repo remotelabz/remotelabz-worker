@@ -4598,149 +4598,129 @@ private function lxc_is_running(string $lxc_name): bool
     }
 
     /**
-     * Copy a file from the front server to this worker via SSH
-     * The worker initiates the SSH connection to the front and retrieves the file
-     * 
+     * Copy a file from the front server to this worker over HTTP(S)
+     * The worker downloads the file from the front web server
+     * (`https://{front}/uploads/{iso|images}/{filename}`)
+     *
      * @param string $descriptor JSON containing file information
      * @return array Result array with state, uuid, and options
      */
     public function copyFromFront(string $descriptor): array
     {
-        $result = "";
         $message_array = json_decode($descriptor, true, 4096, JSON_OBJECT_AS_ARRAY);
-        $state = InstanceStateMessage::STATE_FILE_COPIED;
-             
+
+        $filename = $message_array["filename"] ?? "";
+        $workerIp = $message_array["worker_ip"] ?? $this->front_ip;
+        $userId   = $message_array["user_id"] ?? null;
+        $fileType = strtolower($message_array["file_type"] ?? "image"); // "image", "iso", etc.
+
         $this->logger->debug(
             "[InstanceManager:copyFromFront]::Copy process from front: " . $descriptor,
             InstanceLogMessage::SCOPE_PRIVATE
         );
-        
+
         $this->logger->info(
-            "Receive request to copy file " . $message_array["filename"] . 
-            " from front " . $this->front_ip . " to worker ".$message_array['worker_ip'],
+            "Receive request to copy file " . $filename .
+            " from front " . $this->front_ip . " to worker " . $workerIp,
             InstanceLogMessage::SCOPE_PUBLIC,
             [
-                'instance' => $message_array["filename"],
-                "uuid" => $message_array['filename'],
+                'instance' => $filename,
+                "uuid" => $filename,
                 "options" => [
                     "state" => InstanceActionMessage::ACTION_COPYFROMFRONT,
                     "front_ip" => $this->front_ip,
-                    "worker_ip" => $message_array['worker_ip']
+                    "worker_ip" => $workerIp
                 ]
             ]
         );
 
-        $this->logger->debug(
-            "[InstanceManager:copyFromFront]::Try to connect to front : ",
-            InstanceLogMessage::SCOPE_PRIVATE,
-            [
-                'user' => $this->sshUser,
-                "password" => $this->sshPasswd,
-                "pubkey" => $this->sshPublicKey,
-                "privkey" => $this->sshPrivateKey
-            ]
-        );
+        // The file is pulled over HTTP(S) from the front web server, exactly
+        // like the images and ISOs downloaded at device start. The previous
+        // implementation opened an SSH connection from the worker to the front
+        // (ssh2_scp_recv); when that channel was unavailable, SshService::connect()
+        // threw a plain \Exception that was not caught below, so the error
+        // bubbled up to InstanceActionMessageHandler and the returned state
+        // message lost both its uuid (empty) and its user_id.
+        $filesystem = new Filesystem();
 
         try {
-            // Connexion SSH au front
-            $connection = $this->sshService->connect(
-                $this->front_ip,
-                "22",
-                $this->sshUser,
-                $this->sshPasswd,
-                $this->sshPublicKey,
-                $this->sshPrivateKey
-            );
-            
-            // Détermination des chemins selon le type de fichier
-            $file_type = $message_array["file_type"] ?? "image"; // "image", "iso", etc.
-            
-            switch (strtolower($file_type)) {
-                case "image":
-                    $remote_file = "/opt/remotelabz/public/uploads/images/" . $message_array["filename"];
-                    $local_file = "/opt/remotelabz-worker/images/" . $message_array["filename"];
-                    break;
-                    
-                case "iso":
-                    $remote_file = "/opt/remotelabz/public/uploads/iso/" . $message_array["filename"];
-                    $local_file = "/opt/remotelabz-worker/iso/" . $message_array["filename"];
-                    break;
-                    
-                default:
-                    $remote_file = $file_to_copy["remote_path"];
-                    $local_file = $file_to_copy["local_path"];
+            if ($fileType === "iso") {
+                $local_file = $this->kernel->getProjectDir() . "/iso/" . $filename;
+                $filesystem->mkdir(dirname($local_file));
+                // download_iso() builds https://{front}/uploads/iso/{filename},
+                // resumes partial downloads and throws on failure.
+                $this->download_iso($filename, $filename, $local_file);
+            } else {
+                $local_file = $this->kernel->getProjectDir() . "/images/" . $filename;
+                $filesystem->mkdir(dirname($local_file));
+                // download_http_image() builds https://{front}/uploads/images/{filename}
+                // and returns false when the download failed.
+                if (!$this->download_http_image($filename, $filename, "images")) {
+                    throw new ErrorException('Failed to retrieve file from front server');
+                }
             }
-            
+
             $this->logger->debug(
-                "[InstanceManager:copyFromFront]::Copying from " . $remote_file . 
+                "[InstanceManager:copyFromFront]::Copying from front " . $this->front_ip .
                 " to " . $local_file,
                 InstanceLogMessage::SCOPE_PRIVATE
             );
-            
-            // Utilisation de ssh2_scp_recv pour récupérer le fichier
-            $success = ssh2_scp_recv($connection, $remote_file, $local_file);
-            
-            if (!$success) {
-                throw new ErrorException('Failed to retrieve file from front server');
-            }
-            
+
             $this->logger->info(
                 "File successfully copied from front to worker",
                 InstanceLogMessage::SCOPE_PUBLIC,
                 [
-                    'instance' => $message_array["filename"],
-                    "uuid" => $message_array['filename']
+                    'instance' => $filename,
+                    "uuid" => $filename
                 ]
             );
-            
+
             $result = [
                 "state" => InstanceStateMessage::STATE_FILE_COPIED,
-                "uuid" => $message_array["filename"],
+                "uuid" => $filename,
                 "error" => false,
                 "message" => "File copied successfully",
                 "options" => [
                     "state" => InstanceActionMessage::ACTION_COPYFROMFRONT,
-                    'worker_ip' => $message_array['worker_ip'],
-                    'user_id' => $message_array['user_id'],
+                    'worker_ip' => $workerIp,
+                    'user_id' => $userId,
                     'local_path' => $local_file
                 ]
             ];
-            
-        } catch (ErrorException $e) {
+
+        } catch (\Throwable $e) {
+            // Catch every throwable (not only ErrorException) so the state
+            // message always carries the file name and the initiating user,
+            // instead of falling back to the empty uuid of the action message.
             $this->logger->error(
                 "Failed to copy file from front",
                 InstanceLogMessage::SCOPE_PUBLIC,
                 [
                     'error' => $e->getMessage(),
-                    'instance' => $message_array["filename"]
+                    'instance' => $filename
                 ]
             );
-            
+
             $result = [
                 "state" => InstanceStateMessage::STATE_ERROR,
-                "uuid" => $message_array["filename"],
+                "uuid" => $filename,
                 "error" => true,
                 "message" => $e->getMessage(),
                 "options" => [
                     "state" => InstanceActionMessage::ACTION_COPYFROMFRONT,
-                    'worker_ip' => $message_array['worker_ip'],
-                    'user_id' => $message_array['user_id'],
+                    'worker_ip' => $workerIp,
+                    'user_id' => $userId,
                     'error' => $e->getMessage()
                 ]
             ];
-            
-        } finally {
-            if (isset($connection)) {
-                ssh2_disconnect($connection);
-            }
         }
-        
+
         $this->logger->debug(
             "[InstanceManager:copyFromFront]::Return value at end of this function:",
             InstanceLogMessage::SCOPE_PRIVATE,
             $result
         );
-        
+
         return $result;
     }
 

@@ -133,11 +133,16 @@ df -h /opt /var/lib/lxc                                # montages effectifs
 >
 > | Clé `disk[...]` | Mesure |
 > |---|---|
-> | `rlz-vg` | taux d'allocation du VG : (taille − libre) / taille, d'après `vgs` — clé utilisée par le placement (`WorkerManager`) |
+> | `rlz-vg` | taux d'allocation du VG : (taille − libre) / taille, d'après `vgs` (indicatif : non utilisé pour le placement) |
 > | `lib-lxc` | remplissage du FS `/var/lib/lxc` (références LXC) |
 > | `rlz-lv` | remplissage du FS `/opt` (VMs QEMU) |
 > | `rlz-lxc-pool` | `data_percent` du pool thin (espace alloué), et non l'espace libre du VG |
 > | `ubuntu-lv` | remplissage du FS `/` (système) |
+>
+> **Placement (`WorkerManager`).** Le choix du worker repose sur le **plus rempli**
+> de `rlz-lxc-pool` (conteneurs LXC) et `rlz-lv` (VMs QEMU), les deux partitions
+> qui hébergent les charges utilisateurs — et non plus sur `rlz-vg`, dont
+> l'espace libre n'est pas représentatif avec le thin provisioning (cf. §5).
 >
 > Les autres partitions/LV — dont `ubuntu-vg` (redondant avec `ubuntu-lv`) et les
 > volumes thin d'instances (`lxc_<uuid>`) — ne sont pas exposés. Le tableau de
