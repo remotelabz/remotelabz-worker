@@ -1305,11 +1305,12 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * TODO finish this function qemu_start
      * @param array $parameters Array of all parameters to the command qemu.
      * @param string $uuid UUID of the device instance to start.
+     * @param bool $cpuHost Utiliser '-cpu host' (KVM) au lieu de '-cpu max'.
      * @return 0 : stop to start, no error
      * @return 2 : error
      * @return 1 : already started
      */
-    public function qemu_start(array $parameters,string $uuid ){
+    public function qemu_start(array $parameters,string $uuid,bool $cpuHost = false){
         $arch = posix_uname()['machine'];
         $error=0;
         $scopeName = 'qemu-' . $uuid . '.scope';
@@ -1343,7 +1344,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
             'qemu-system-' . $arch,
             '-enable-kvm',
             '-machine', 'accel=kvm:tcg',
-            '-cpu', 'max',
+            '-cpu', $cpuHost ? 'host' : 'max',
             '-display', 'none',
             '-daemonize',
             '-name', "$uuid",
@@ -5576,23 +5577,27 @@ private function lxc_is_running(string $lxc_name): bool
             array_push($parameters['network'],'-net','none');
         }
 
-        // Canal qemu-guest-agent : un socket Unix par instance. Le socket existe
-        // dès le lancement de la VM, mais l'agent doit être present ET demarre
-        // dans l'invite : l'IP n'est donc disponible qu'apres quelques dizaines
-        // de secondes (voir DeviceIpResolver et le repli ARP / bail DHCP).
+        // Canal qemu-guest-agent : uniquement si le device a l'option qemu_agent.
+        // Un socket Unix par instance. Le socket existe des le lancement de la VM,
+        // mais l'agent doit etre present ET demarre dans l'invite : l'IP n'est donc
+        // disponible qu'apres quelques dizaines de secondes (voir DeviceIpResolver
+        // et le repli ARP / bail DHCP).
         // L'ordre du tableau $parameters est l'ordre des arguments QEMU : le
-        // bucket 'agent' est place avant 'access' (controle VNC/console).
-        $qgaDirectory = '/run/remotelabz';
-        if (!is_dir($qgaDirectory)) {
-            @mkdir($qgaDirectory, 0750, true);
+        // bucket 'agent' reste declare avant 'access' (controle VNC/console), meme
+        // lorsqu'il est vide.
+        if (!empty($deviceInstance['device']['qemu_agent'])) {
+            $qgaDirectory = '/run/remotelabz';
+            if (!is_dir($qgaDirectory)) {
+                @mkdir($qgaDirectory, 0750, true);
+            }
+            $qgaSocket = $qgaDirectory . '/qga-' . $deviceInstance['uuid'] . '.sock';
+            array_push(
+                $parameters['agent'],
+                '-chardev', 'socket,id=qga0,path=' . $qgaSocket . ',server=on,wait=off',
+                '-device',  'virtio-serial-pci',
+                '-device',  'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0'
+            );
         }
-        $qgaSocket = $qgaDirectory . '/qga-' . $deviceInstance['uuid'] . '.sock';
-        array_push(
-            $parameters['agent'],
-            '-chardev', 'socket,id=qga0,path=' . $qgaSocket . ',server=on,wait=off',
-            '-device',  'virtio-serial-pci',
-            '-device',  'virtserialport,chardev=qga0,name=org.qemu.guest_agent.0'
-        );
 
         $networkInterfaces = $deviceInstance['networkInterfaceInstances'] ?? [];
         $dummyParameters = self::buildDummyNetworkInterfaceParameters($deviceInstance, $networkCardType, $minimumNetworkInterfaces);
@@ -5640,7 +5645,8 @@ private function lxc_is_running(string $lxc_name): bool
                     'parameters' => $parameters
                     ]);
 
-            $qemu_start_return=$this->qemu_start($parameters,$deviceInstance['uuid']);
+            $cpuHost = !empty($deviceInstance['device']['cpu_host']);
+            $qemu_start_return=$this->qemu_start($parameters,$deviceInstance['uuid'],$cpuHost);
             if ($qemu_start_return===0) {
                 $this->logger->info("Virtual machine started successfully", InstanceLogMessage::SCOPE_PUBLIC, [
                     'instance' => $deviceInstance['uuid']
