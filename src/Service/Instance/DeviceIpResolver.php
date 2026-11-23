@@ -93,7 +93,11 @@ class DeviceIpResolver
      */
     private function collectQemu(string $uuid, string $bridgeName, array $deviceInstance): array
     {
-        $interfaces = $this->qga->getInterfaces($uuid);
+        // Ne pas tenter le guest agent s'il n'est pas expose a la VM : le socket
+        // QGA n'existe pas (voir create_qemu_device).
+        $interfaces = !empty($deviceInstance['device']['qemu_agent'])
+            ? $this->qga->getInterfaces($uuid)
+            : null;
         if (is_array($interfaces) && count($interfaces) > 0) {
             return $interfaces;
         }
