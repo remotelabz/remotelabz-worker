@@ -41,6 +41,30 @@ class OVS extends Bridge
     }
 
     /**
+     * Enable or disable BPDU forwarding on an OVS bridge.
+     *
+     * OVS drops BPDUs by default, which breaks layer 2 protocols (STP, LLDP,
+     * ...) running inside the lab devices (e.g. a virtual switch connected to
+     * the lab bridge). Forwarding them keeps the lab topology consistent.
+     *
+     * @param string $bridge The bridge name.
+     * @param bool $forward If set to `true`, enables BPDU forwarding.
+     * @throws Exception If the bridge name is empty.
+     * @throws ProcessFailedException If the process didn't terminate successfully.
+     * @return Process The executed process.
+     */
+    public static function bridgeSetForwardBpdu(string $bridge, bool $forward = true) : Process
+    {
+        if (empty($bridge)) {
+            throw new Exception("Bridge name cannot be empty.");
+        }
+
+        $command = [ 'set', 'bridge', $bridge, 'other_config:forward-bpdu=' . ($forward ? 'true' : 'false') ];
+
+        return static::exec($command);
+    }
+
+    /**
      * Delete an OVS bridge from the system.
      *
      * @param string $bridge The bridge name.
