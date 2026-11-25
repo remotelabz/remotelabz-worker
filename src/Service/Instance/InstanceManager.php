@@ -1305,7 +1305,7 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
      * TODO finish this function qemu_start
      * @param array $parameters Array of all parameters to the command qemu.
      * @param string $uuid UUID of the device instance to start.
-     * @param bool $cpuHost Utiliser '-cpu host' (KVM) au lieu de '-cpu max'.
+     * @param bool $cpuHost Utiliser '-cpu qemu64' (KVM) au lieu de '-cpu max'.
      * @return 0 : stop to start, no error
      * @return 2 : error
      * @return 1 : already started
@@ -1342,9 +1342,8 @@ public function ttyd_start($uuid,$interface,$port,$sandbox,$remote_protocol,$dev
 
         $command = [
             'qemu-system-' . $arch,
-            '-enable-kvm',
             '-machine', 'accel=kvm:tcg',
-            '-cpu', $cpuHost ? 'host' : 'max',
+            '-cpu', $cpuHost ? 'qemu64' : 'max',
             '-display', 'none',
             '-daemonize',
             '-name', "$uuid",
@@ -5620,11 +5619,13 @@ private function lxc_is_running(string $lxc_name): bool
         );
         
 
-        //Add usb support
-        array_push($parameters['usb'],
-            '-usb', '-device','usb-tablet,bus=usb-bus.0',
-            '-device','usb-ehci,id=ehci'
-        );
+        // Support USB QEMU : uniquement si le device a l'option usb_enabled.
+        if (!empty($deviceInstance['device']['usb_enabled'])) {
+            array_push($parameters['usb'],
+                '-usb', '-device','usb-tablet,bus=usb-bus.0',
+                '-device','usb-ehci,id=ehci'
+            );
+        }
         
         $result=$this->remote_access_start($deviceInstance,$sandbox);
         $this->logger->debug("[InstanceManager:create_qemu_device]::State after remote access wanted", InstanceLogMessage::SCOPE_PRIVATE, [
