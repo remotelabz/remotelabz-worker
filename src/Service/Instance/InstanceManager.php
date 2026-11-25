@@ -112,6 +112,11 @@ class InstanceManager extends AbstractController
                     'instance' => $labInstance['uuid']
                 ]);
             }
+
+            // OVS drops BPDUs by default: forward them so layer 2 protocols
+            // (e.g. STP on a virtual switch) work inside the lab. Applied to
+            // existing bridges too, so labs created before this setting get it.
+            OVS::bridgeSetForwardBpdu($bridgeName);
         }
        
         $result=array("state"=> InstanceStateMessage::STATE_CREATED, "uuid"=> $uuid, "options" => null);
@@ -5068,6 +5073,12 @@ private function lxc_is_running(string $lxc_name): bool
                 'instance' => $labInstance['uuid']
             ]);
         }
+
+        // OVS drops BPDUs by default: forward them so layer 2 protocols
+        // (e.g. STP on a virtual switch) work inside the lab. Applied to
+        // existing bridges too, so labs created before this setting get it.
+        OVS::bridgeSetForwardBpdu($bridgeName);
+
         // Secure OVS
         $InternetInterface=$this->getParameter('app.network.lab.internet_interface');
         $VPNInterface=$this->getParameter('app.vpn.interface');

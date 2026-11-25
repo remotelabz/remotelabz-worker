@@ -89,6 +89,9 @@ BRIDGE_NAME="br-$(echo ${BRIDGE_UUID} | cut -c-8)"
 #####################
 ovs() {
     ovs-vsctl --may-exist add-br "${BRIDGE_NAME}"
+    # OVS drops BPDUs by default ; forward them so layer 2 protocols (STP...)
+    # work inside the lab.
+    ovs-vsctl set bridge "${BRIDGE_NAME}" other_config:forward-bpdu=true
     # FIXME: Launching user should have password-less sudo at least on `ip` command
     
     ADDRESS_SET=$(ip addr show dev "${BRIDGE_NAME}");
